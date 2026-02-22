@@ -1,0 +1,16 @@
+numpy
+pandas
+scipy
+scikit-learn
+statsmodels
+matplotlib
+seaborn
+PySide6
+qnorm
+plotly
+adjustText
+pyqtdarktheme
+qtawesome
+fancyimpute
+pyppca
+pyopls

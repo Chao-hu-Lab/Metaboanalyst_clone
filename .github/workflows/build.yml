@@ -1,0 +1,76 @@
+name: Build Release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build with PyInstaller
+        run: pyinstaller packaging/pymetabo.spec --noconfirm --clean
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PyMetaboAnalyst-Windows
+          path: dist/PyMetaboAnalyst/
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build with PyInstaller
+        run: pyinstaller packaging/pymetabo_mac.spec --noconfirm --clean
+
+      # No code signing — users handle Gatekeeper manually
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PyMetaboAnalyst-macOS
+          path: dist/PyMetaboAnalyst.app/
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build with PyInstaller
+        run: python scripts/build.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PyMetaboAnalyst-Linux
+          path: dist/PyMetaboAnalyst/
