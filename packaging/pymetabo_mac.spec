@@ -2,36 +2,59 @@
 """
 PyInstaller spec — macOS 版本
 用法: pyinstaller packaging/pymetabo_mac.spec --noconfirm --clean
-注意: macOS 不上架 App Store，使用者需自行處理隱私權驗證
 """
 
+import os
+
+spec_dir = os.path.dirname(os.path.abspath(SPEC))
+root_dir = os.path.dirname(spec_dir)
+
+
+def _data(src_rel, dst):
+    src = os.path.join(root_dir, src_rel)
+    if os.path.exists(src):
+        return (src, dst)
+    print(f"WARNING: datas source not found, skipping: {src}")
+    return None
+
+
+_datas_candidates = [
+    _data('translations', 'translations'),
+    _data('resources/fonts', 'resources/fonts'),
+    _data('resources/icons', 'resources/icons'),
+]
+datas = [d for d in _datas_candidates if d is not None]
+
+icon_path = os.path.join(root_dir, 'resources', 'icons', 'app.icns')
+icon_arg = icon_path if os.path.isfile(icon_path) else None
+
 a = Analysis(
-    ['../main.py'],
-    pathex=[],
+    [os.path.join(root_dir, 'main.py')],
+    pathex=[root_dir],
     binaries=[],
-    datas=[
-        ('../translations/*.qm', 'translations'),
-        ('../resources/fonts', 'resources/fonts'),
-        ('../resources/icons', 'resources/icons'),
-    ],
+    datas=datas,
     hiddenimports=[
         'sklearn.utils._cython_blas',
         'sklearn.neighbors._typedefs',
         'sklearn.neighbors._partition_nodes',
+        'sklearn.utils._typedefs',
+        'PySide6.QtSvg',
     ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=[
+        'numba', 'llvmlite',
+        'torch', 'tensorflow',
+        'IPython', 'notebook', 'jupyterlab',
+        'tkinter',
+    ],
     noarchive=False,
 )
 
 pyz = PYZ(a.pure)
 
-exe = EXE(
-    pyz,
-    a.scripts,
-    [],
+exe_kwargs = dict(
     exclude_binaries=True,
     name='PyMetaboAnalyst',
     debug=False,
@@ -39,8 +62,11 @@ exe = EXE(
     strip=False,
     upx=True,
     console=False,
-    icon='../resources/icons/app.icns',
 )
+if icon_arg:
+    exe_kwargs['icon'] = icon_arg
+
+exe = EXE(pyz, a.scripts, [], **exe_kwargs)
 
 coll = COLLECT(
     exe,
@@ -52,10 +78,8 @@ coll = COLLECT(
     name='PyMetaboAnalyst',
 )
 
-app = BUNDLE(
-    coll,
+bundle_kwargs = dict(
     name='PyMetaboAnalyst.app',
-    icon='../resources/icons/app.icns',
     bundle_identifier='com.pymetaboanalyst.app',
     info_plist={
         'NSHighResolutionCapable': True,
@@ -64,3 +88,7 @@ app = BUNDLE(
         'CFBundleShortVersionString': '1.0.0',
     },
 )
+if icon_arg:
+    bundle_kwargs['icon'] = icon_arg
+
+app = BUNDLE(coll, **bundle_kwargs)

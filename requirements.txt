@@ -1,3 +1,4 @@
+# === Core (required) ===
 numpy
 pandas
 scipy
@@ -9,8 +10,13 @@ PySide6
 qnorm
 plotly
 adjustText
-pyqtdarktheme
-qtawesome
-fancyimpute
-pyppca
-pyopls
+Pillow
+
+# === Optional (enhanced features) ===
+# qtawesome        # Icon pack — tab icons fallback to no-icon if missing
+# fancyimpute      # SVD imputation method
+# pyppca           # PPCA imputation method
+# pyopls           # OPLS-DA analysis
+
+# === Removed (not used) ===
+# pyqtdarktheme    # Replaced by gui/theme.py custom stylesheet

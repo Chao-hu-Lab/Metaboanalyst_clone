@@ -11,26 +11,6 @@ import numpy as np
 import pandas as pd
 from sklearn.impute import KNNImputer
 
-# 嘗試匯入進階填補套件
-try:
-    from fancyimpute import IterativeSVD
-    HAS_FANCYIMPUTE = True
-except ImportError:
-    HAS_FANCYIMPUTE = False
-
-try:
-    import pyppca
-    HAS_PYPPCA = True
-except ImportError:
-    HAS_PYPPCA = False
-
-try:
-    from sklearn.impute import IterativeImputer
-    from sklearn.linear_model import BayesianRidge
-    HAS_ITERATIVE = True
-except ImportError:
-    HAS_ITERATIVE = False
-
 
 def replace_zero_with_nan(df: pd.DataFrame) -> pd.DataFrame:
     """將所有 0 值轉為 NaN（MetaboAnalyst SanityCheckData 行為）"""
@@ -79,7 +59,9 @@ def _impute_knn(df: pd.DataFrame, k: int = 10) -> pd.DataFrame:
 
 def _impute_svd(df: pd.DataFrame, rank: int = 2) -> pd.DataFrame:
     """SVD 填補（需 fancyimpute）"""
-    if not HAS_FANCYIMPUTE:
+    try:
+        from fancyimpute import IterativeSVD
+    except ImportError:
         raise ImportError("需要安裝 fancyimpute: pip install fancyimpute")
     imputer = IterativeSVD(rank=rank)
     imputed = imputer.fit_transform(df.values)
@@ -88,7 +70,9 @@ def _impute_svd(df: pd.DataFrame, rank: int = 2) -> pd.DataFrame:
 
 def _impute_ppca(df: pd.DataFrame, n_components: int = 2) -> pd.DataFrame:
     """PPCA 填補（需 pyppca）"""
-    if not HAS_PYPPCA:
+    try:
+        import pyppca
+    except ImportError:
         raise ImportError("需要安裝 pyppca: pip install pyppca")
     result = pyppca.ppca(df.values, d=n_components, dia=False)
     imputed = result[4]  # C matrix (completed data)
@@ -97,7 +81,10 @@ def _impute_ppca(df: pd.DataFrame, n_components: int = 2) -> pd.DataFrame:
 
 def _impute_bpca(df: pd.DataFrame, n_components: int = 2) -> pd.DataFrame:
     """BPCA 填補（使用 BayesianRidge + IterativeImputer）"""
-    if not HAS_ITERATIVE:
+    try:
+        from sklearn.impute import IterativeImputer
+        from sklearn.linear_model import BayesianRidge
+    except ImportError:
         raise ImportError("需要 scikit-learn >= 0.21 的 IterativeImputer")
     imputer = IterativeImputer(
         estimator=BayesianRidge(),
@@ -108,22 +95,17 @@ def _impute_bpca(df: pd.DataFrame, n_components: int = 2) -> pd.DataFrame:
     return pd.DataFrame(imputed, columns=df.columns, index=df.index)
 
 
-# 方法名稱到顯示標籤的對應
+# 方法名稱到顯示標籤的對應（進階方法始終列出，缺少套件時在呼叫時報錯）
 IMPUTE_METHODS = {
     "min": "最小值/5 (LoD)",
     "mean": "平均值",
     "median": "中位數",
     "exclude": "移除含缺失特徵",
     "knn": "KNN (k=10)",
+    "ppca": "PPCA (nPcs=2)",
+    "bpca": "BPCA (nPcs=2)",
+    "svd": "SVD (rank=2)",
 }
-
-# 進階方法（依安裝狀況動態加入）
-if HAS_PYPPCA:
-    IMPUTE_METHODS["ppca"] = "PPCA (nPcs=2)"
-if HAS_ITERATIVE:
-    IMPUTE_METHODS["bpca"] = "BPCA (nPcs=2)"
-if HAS_FANCYIMPUTE:
-    IMPUTE_METHODS["svd"] = "SVD (rank=2)"
 
 
 def impute_missing(df: pd.DataFrame, method: str = "min", **kwargs) -> pd.DataFrame:

@@ -14,6 +14,9 @@ SetupIconFile=..\resources\icons\app.ico
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
+UninstallDisplayIcon={app}\PyMetaboAnalyst.exe
 
 [Files]
 Source: "..\dist\PyMetaboAnalyst\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs
@@ -27,3 +30,6 @@ Name: "desktopicon"; Description: "Create a &desktop icon"; GroupDescription: "A
 
 [Run]
 Filename: "{app}\PyMetaboAnalyst.exe"; Description: "Launch PyMetaboAnalyst"; Flags: nowait postinstall skipifsilent
+
+[UninstallDelete]
+Type: filesandordirs; Name: "{app}"

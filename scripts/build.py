@@ -2,55 +2,43 @@
 Cross-platform PyInstaller build helper.
 Usage:
     python scripts/build.py
+    python scripts/build.py --spec packaging/pymetabo.spec
 """
-
 from __future__ import annotations
 
+import argparse
 import platform
 import subprocess
 import sys
 from pathlib import Path
 
 
-def _add_data_arg(src: str, dst: str) -> str:
-    sep = ";" if platform.system() == "Windows" else ":"
-    return f"{src}{sep}{dst}"
-
-
 def main():
     root = Path(__file__).resolve().parent.parent
-    app_name = "PyMetaboAnalyst"
-    entry = root / "main.py"
+    system = platform.system()
 
-    win_icon = root / "resources" / "icons" / "app.ico"
-    mac_icon = root / "resources" / "icons" / "app.icns"
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--spec", type=str, default=None)
+    args = parser.parse_args()
+
+    if args.spec:
+        spec = Path(args.spec)
+    elif system == "Darwin":
+        spec = root / "packaging" / "pymetabo_mac.spec"
+    else:
+        spec = root / "packaging" / "pymetabo.spec"
+
+    if not spec.exists():
+        print(f"Error: spec file not found: {spec}")
+        sys.exit(1)
 
     cmd = [
-        sys.executable,
-        "-m",
-        "PyInstaller",
-        "--noconfirm",
-        "--onedir",
-        "--windowed",
-        f"--name={app_name}",
-        f"--add-data={_add_data_arg(str(root / 'translations'), 'translations')}",
-        f"--add-data={_add_data_arg(str(root / 'resources'), 'resources')}",
-        "--hidden-import=sklearn.utils._cython_blas",
-        "--hidden-import=sklearn.neighbors._typedefs",
-        "--hidden-import=sklearn.neighbors._partition_nodes",
-        "--collect-submodules=scipy",
-        "--collect-submodules=sklearn",
+        sys.executable, "-m", "PyInstaller",
+        str(spec),
+        "--noconfirm", "--clean",
     ]
 
-    system = platform.system()
-    if system == "Windows" and win_icon.exists():
-        cmd.append(f"--icon={win_icon}")
-    elif system == "Darwin" and mac_icon.exists():
-        cmd.append(f"--icon={mac_icon}")
-
-    cmd.append(str(entry))
-
-    print(f"Building {app_name} for {system}...")
+    print(f"Building for {system} using {spec.name}...")
     print(" ".join(cmd))
     subprocess.run(cmd, check=True)
     print("Build complete.")

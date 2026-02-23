@@ -17,6 +17,11 @@ env/
 analysis_runs/
 *.log
 
+# PyInstaller build artifacts
+build/
+dist/
+*.spec.bak
+
 # OS/editor artifacts
 .DS_Store
 Thumbs.db
