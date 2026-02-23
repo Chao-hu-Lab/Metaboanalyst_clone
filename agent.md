@@ -6,7 +6,7 @@ Use this as the single execution contract for future agents.
 
 ## Scope
 - Project: `Metaboanalyst_clone`
-- Baseline docs: `claude.md`, `CLAUDE_GUI.md`
+- Baseline docs: `CLAUDE.md` (includes algorithm specs, GUI/UX, i18n, and deployment)
 - Goal: close architecture/spec gaps and raise implementation quality
 
 ## Execution Rules
@@ -47,8 +47,8 @@ Use this as the single execution contract for future agents.
 ### P3 (Low Priority / Maintenance)
 | Task ID | Repair Item | Estimate (hours) | Target Files |
 |---|---|---:|---|
-| P3-1 | Repo hygiene: add `.gitignore`, remove tracked `__pycache__` and `NUL` artifact | 0.5-1 | `.gitignore`, `NUL`, `**/__pycache__/*` |
-| P3-2 | Documentation consistency cleanup (resource naming, packaging, i18n steps) | 1-2 | `resources/README.md`, `resources/icons/README.md`, `translations/README.md`, `claude.md`, `CLAUDE_GUI.md` |
+| P3-1 | ~~Repo hygiene: add `.gitignore`, remove tracked `__pycache__` and `NUL` artifact~~ | ✓ Done | `.gitignore` already present; `NUL`, `CLAUDE_GUI.md`, `stats_tab_recovered.py` removed |
+| P3-2 | Documentation consistency cleanup (resource naming, packaging, i18n steps) | 1-2 | `resources/README.md`, `resources/icons/README.md`, `translations/README.md`, `CLAUDE.md` |
 
 ## Recommended Execution Sequence
 1. Complete all P0 tasks in ID order.
@@ -65,7 +65,7 @@ Use this as the single execution contract for future agents.
 
 ## Definition of Done
 - All P0 and P1 tasks closed.
-- No known blocker against `claude.md` / `CLAUDE_GUI.md` core constraints.
+- No known blocker against `CLAUDE.md` core constraints.
 - CI test workflow remains green.
 - Remaining gaps (if any) documented as explicit follow-up items.
 
