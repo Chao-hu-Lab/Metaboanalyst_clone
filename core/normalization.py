@@ -77,8 +77,9 @@ class RowNormalizer:
     @staticmethod
     def spec_norm(df: pd.DataFrame, factors: pd.Series) -> pd.DataFrame:
         """以使用者提供的校正因子（如組織重量、體積）除之"""
-        factors = factors.replace(0, np.nan)
-        return df.div(factors, axis=0)
+        aligned = factors.reindex(df.index)
+        aligned = aligned.replace(0, np.nan)
+        return df.div(aligned, axis=0)
 
 
 def apply_row_norm(

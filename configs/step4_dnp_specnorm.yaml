@@ -1,0 +1,65 @@
+# ===========================================================================
+#  MetaboAnalyst Pipeline - Configuration Preset
+#  Name: STEP4 DNP + DNA Concentration Correction (SpecNorm)
+# ===========================================================================
+#
+#  Description:
+#    DNP 前處理後的 STEP4 資料 + DNA 濃度校正。
+#    使用 SampleInfo 工作表中的 DNA_mg/20uL 欄位做 SpecNorm，
+#    消除 DNA 萃取量差異造成的系統性偏差。
+#
+#  Results (2026-02-28):
+#    Features: 297 → 13 (與 no_norm 相同，QC-RSD 在 SpecNorm 之前執行)
+#    PCA PC1: 61.2% (vs no_norm 34.8% — 大幅提升)
+#    ANOVA 顯著: 12/13 (92%)
+#    Volcano Exposure vs Normal: 8 sig (vs no_norm 3)
+# ===========================================================================
+
+input:
+  file: "C:\\Users\\user\\Desktop\\質譜數據工具箱\\ms-preprocessing-toolkit\\OUTPUT\\DNP\\STEP4_program2_DNA_alignment_20260227_220832.xlsx"
+  format: "sample_type_row"
+
+groups:
+  include: ["Exposure", "Normal", "Control"]
+  volcano_pairs:
+    - ["Exposure", "Normal"]
+    - ["Exposure", "Control"]
+    - ["Normal", "Control"]
+
+pipeline:
+  missing_thresh: 0.50
+  impute_method: "min"
+  qc_rsd_enabled: true
+  qc_rsd_threshold: 0.20
+  filter_method: "iqr"
+  filter_cutoff: null
+  row_norm: "SpecNorm"          # ← 使用 DNA 濃度校正
+  transform: "LogNorm"
+  scaling: "AutoNorm"
+
+# SpecNorm 專用: 從 SampleInfo 工作表讀取校正因子
+spec_norm:
+  factor_column: "DNA_mg/20uL"   # SampleInfo 中的欄位名稱
+  factor_source: "DNA_mg/20uL"   # log 中顯示的名稱
+
+analysis:
+  pca:
+    n_components: 5
+  anova:
+    p_thresh: 0.05
+    nonpar: false
+    use_fdr: true
+    posthoc: true
+  volcano:
+    fc_thresh: 2.0
+    p_thresh: 0.05
+    use_fdr: true
+  heatmap:
+    max_features: 50
+    top_by: "var"
+    method: "ward"
+    metric: "euclidean"
+    scale: "row"
+
+output:
+  suffix: "_SpecNorm"
