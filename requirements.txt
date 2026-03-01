@@ -11,12 +11,10 @@ qnorm
 plotly
 adjustText
 Pillow
+pyyaml
 
 # === Optional (enhanced features) ===
 # qtawesome        # Icon pack — tab icons fallback to no-icon if missing
 # fancyimpute      # SVD imputation method
 # pyppca           # PPCA imputation method
 # pyopls           # OPLS-DA analysis
-
-# === Removed (not used) ===
-# pyqtdarktheme    # Replaced by gui/theme.py custom stylesheet

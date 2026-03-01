@@ -21,7 +21,9 @@ import numpy as np
 import pandas as pd
 
 # Ensure project root on path
-sys.path.insert(0, os.path.dirname(__file__))
+# Project root (legacy scripts live in scripts/legacy/)
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, _PROJECT_ROOT)
 
 from core.pipeline import MetaboAnalystPipeline
 from analysis.pca import run_pca
@@ -42,7 +44,7 @@ INPUT_FILE = (
 )
 
 # ── Fixed output directory: results/<input_filename>/ ─────
-RESULTS_ROOT = os.path.join(os.path.dirname(__file__), "results")
+RESULTS_ROOT = os.path.join(_PROJECT_ROOT, "results")
 _input_stem = os.path.splitext(os.path.basename(INPUT_FILE))[0]
 OUTPUT_DIR = os.path.join(RESULTS_ROOT, _input_stem)
 os.makedirs(OUTPUT_DIR, exist_ok=True)

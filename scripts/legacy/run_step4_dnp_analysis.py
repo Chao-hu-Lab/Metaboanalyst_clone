@@ -6,8 +6,10 @@ Groups: Exposure / Normal / Control (3-group)
 QC-RSD: Enabled (threshold=0.20)
 Missing: 50% threshold
 Impute: min (LoD)
-Row norm: SpecNorm (DNA concentration correction from SampleInfo sheet)
 Transform: glog2 (LogNorm) + AutoScale (Z-score)
+Row norm: None (raw data — no prior normalization)
+
+Same parameters as PQN analysis for comparison.
 """
 
 import os
@@ -21,10 +23,11 @@ import numpy as np
 import pandas as pd
 
 # Ensure project root on path
-sys.path.insert(0, os.path.dirname(__file__))
+# Project root (legacy scripts live in scripts/legacy/)
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, _PROJECT_ROOT)
 
 from core.pipeline import MetaboAnalystPipeline
-from core.sample_info import read_sample_info_sheet, detect_factor_columns, build_aligned_factors
 from analysis.pca import run_pca
 from analysis.anova import run_anova
 from analysis.univariate import volcano_analysis
@@ -42,10 +45,10 @@ INPUT_FILE = (
     r"\OUTPUT\DNP\STEP4_program2_DNA_alignment_20260227_220832.xlsx"
 )
 
-# ── Fixed output directory ────────────────────────────────
-RESULTS_ROOT = os.path.join(os.path.dirname(__file__), "results")
+# ── Fixed output directory: results/<input_filename>/ ─────
+RESULTS_ROOT = os.path.join(_PROJECT_ROOT, "results")
 _input_stem = os.path.splitext(os.path.basename(INPUT_FILE))[0]
-OUTPUT_DIR = os.path.join(RESULTS_ROOT, _input_stem + "_SpecNorm")
+OUTPUT_DIR = os.path.join(RESULTS_ROOT, _input_stem)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # ── Step 0: Load & reshape data ──────────────────────────
@@ -54,12 +57,13 @@ print("Loading data...")
 raw = pd.read_excel(INPUT_FILE)
 
 # Row 0 contains sample types; rows 1+ are features
-feature_names = raw["Mz/RT"].iloc[1:].values
-sample_types = raw.iloc[0, 1:].values
+# Columns: Mz/RT (feature names), then sample columns
+feature_names = raw["Mz/RT"].iloc[1:].values  # skip "Sample_Type"
+sample_types = raw.iloc[0, 1:].values          # QC / Exposure / Normal / Control
 sample_names = raw.columns[1:].values
 
 # Build data matrix: samples x features
-data_values = raw.iloc[1:, 1:].values.T
+data_values = raw.iloc[1:, 1:].values.T  # transpose: samples as rows
 data_values = pd.DataFrame(data_values, columns=feature_names, index=sample_names)
 data_values = data_values.apply(pd.to_numeric, errors="coerce")
 
@@ -69,49 +73,28 @@ labels = pd.Series(sample_types, index=sample_names, name="Group")
 print(f"  Samples: {data_values.shape[0]}, Features: {data_values.shape[1]}")
 print(f"  Groups: {dict(labels.value_counts())}")
 print(f"  Zeros: {(data_values == 0).sum().sum()} / {data_values.size}")
-
-# ── Load SampleInfo & build concentration factors ────────
-print("\n" + "=" * 60)
-print("Loading SampleInfo for concentration correction...")
-sample_info = read_sample_info_sheet(INPUT_FILE)
-if sample_info is None:
-    raise RuntimeError("SampleInfo sheet not found!")
-
-candidates, default_col = detect_factor_columns(sample_info)
-print(f"  Factor columns found: {candidates}")
-print(f"  Default factor column: {default_col}")
-
-# Use DNA_mg/20uL as concentration factor
-FACTOR_COL = "DNA_mg/20uL"
-factors, meta = build_aligned_factors(sample_info, data_values.index, FACTOR_COL)
-print(f"  Factor column: {FACTOR_COL}")
-print(f"  Aligned: {meta['n_samples']} samples")
-print(f"  Range: {meta['min_factor']:.2f} ~ {meta['max_factor']:.2f}")
-print(f"  Fuzzy matches: {meta['n_fuzzy_matches']}")
-print(f"  QC skipped (factor=1.0): {meta['n_qc_skipped']}")
+print(f"  Missing: {data_values.isna().sum().sum()} / {data_values.size}")
 
 # ── Step 1: Run preprocessing pipeline ───────────────────
 print("\n" + "=" * 60)
-print("Running preprocessing pipeline (with SpecNorm)...")
+print("Running preprocessing pipeline...")
 pipeline = MetaboAnalystPipeline(data_values, labels)
 
 processed = pipeline.run_pipeline(
-    # Missing value — same as other analyses
+    # Missing value — same as PQN analysis
     missing_thresh=0.50,
     impute_method="min",
     # Filtering
     filter_method="iqr",
-    filter_cutoff=None,
+    filter_cutoff=None,         # auto-adaptive
     qc_rsd_enabled=True,
     qc_rsd_threshold=0.20,
-    # Row normalization — DNA concentration correction
-    row_norm="SpecNorm",
-    factors=factors,
-    factor_source=FACTOR_COL,
+    # Row normalization (None)
+    row_norm="None",
     # Transformation
-    transform="LogNorm",
+    transform="LogNorm",        # glog2 (generalized log)
     # Scaling
-    scaling="AutoNorm",
+    scaling="AutoNorm",         # auto-scaling (z-score)
 )
 
 print("\nPipeline log:")
@@ -125,7 +108,7 @@ final_labels = pipeline.processed_labels
 if final_labels is None:
     final_labels = labels
 
-# Remove any remaining QC samples
+# Remove any remaining QC samples from labels/data if not already removed
 qc_mask = final_labels.astype(str).str.contains("QC", case=False, na=False)
 if qc_mask.any():
     print(f"  Removing {qc_mask.sum()} remaining QC samples for analysis...")
@@ -147,18 +130,21 @@ pca_result = run_pca(processed, final_labels, n_components=5)
 evr = pca_result.explained_variance_ratio
 print(f"  Variance explained (PC1-5): {[f'{v*100:.1f}%' for v in evr[:5]]}")
 
+# PCA Score plot
 fig_score = plt.figure(figsize=(10, 8))
 plot_pca_score(pca_result, pc_x=0, pc_y=1, fig=fig_score)
 fig_score.savefig(os.path.join(OUTPUT_DIR, "pca_score_plot.png"), dpi=150, bbox_inches="tight")
 plt.close(fig_score)
 print("  Saved pca_score_plot.png")
 
+# PCA Scree plot
 fig_scree = plt.figure(figsize=(8, 5))
 plot_pca_scree(pca_result, fig=fig_scree)
 fig_scree.savefig(os.path.join(OUTPUT_DIR, "pca_scree_plot.png"), dpi=150, bbox_inches="tight")
 plt.close(fig_scree)
 print("  Saved pca_scree_plot.png")
 
+# PCA Loading plot
 fig_loading = plt.figure(figsize=(10, 6))
 plot_pca_loading(pca_result, fig=fig_loading)
 fig_loading.savefig(os.path.join(OUTPUT_DIR, "pca_loading_plot.png"), dpi=150, bbox_inches="tight")
@@ -178,15 +164,18 @@ anova_result = run_anova(
 sig_count = anova_result.n_significant
 print(f"  Significant features (FDR < 0.05): {sig_count} / {len(anova_result.result_df)}")
 
+# Save ANOVA results
 anova_result.result_df.to_csv(os.path.join(OUTPUT_DIR, "anova_results.csv"))
 print("  Saved anova_results.csv")
 
+# ANOVA importance plot
 fig_anova = plt.figure(figsize=(10, 8))
 plot_anova_importance(anova_result, top_n=25, fig=fig_anova)
 fig_anova.savefig(os.path.join(OUTPUT_DIR, "anova_importance.png"), dpi=150, bbox_inches="tight")
 plt.close(fig_anova)
 print("  Saved anova_importance.png")
 
+# Top feature boxplots
 top_features = anova_result.result_df.sort_values("pvalue_adj").head(6)["Feature"].tolist()
 for i, feat in enumerate(top_features):
     fig_box = plt.figure(figsize=(7, 5))
@@ -243,14 +232,16 @@ except Exception as e:
 print("\n" + "=" * 60)
 print("Generating sample-level overview plots...")
 
+# Sample boxplot
 fig_sbox = plt.figure(figsize=(16, 6))
-plot_sample_boxplot(processed, final_labels, title="Sample Distribution (SpecNorm + glog2 + AutoScale)", fig=fig_sbox)
+plot_sample_boxplot(processed, final_labels, title="Sample Distribution (after processing)", fig=fig_sbox)
 fig_sbox.savefig(os.path.join(OUTPUT_DIR, "sample_boxplot.png"), dpi=150, bbox_inches="tight")
 plt.close(fig_sbox)
 print("  Saved sample_boxplot.png")
 
+# Density plot
 fig_den = plt.figure(figsize=(10, 6))
-plot_density(processed, final_labels, title="Density Plot (SpecNorm + glog2 + AutoScale)", fig=fig_den)
+plot_density(processed, final_labels, title="Density Plot (after processing)", fig=fig_den)
 fig_den.savefig(os.path.join(OUTPUT_DIR, "density_plot.png"), dpi=150, bbox_inches="tight")
 plt.close(fig_den)
 print("  Saved density_plot.png")

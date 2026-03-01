@@ -1,10 +1,10 @@
 """
 Universal analysis runner — reads a YAML config and executes the full pipeline.
 
-Usage:
-    python run_from_config.py configs/step4_dnp_specnorm.yaml
-    python run_from_config.py configs/step4_dnp_no_norm.yaml
-    python run_from_config.py configs/dnp_pqn_normalized.yaml
+Usage (from project root):
+    python scripts/run_from_config.py configs/step4_dnp_specnorm.yaml
+    python scripts/run_from_config.py configs/step4_dnp_no_norm.yaml
+    python scripts/run_from_config.py configs/dnp_pqn_normalized.yaml
 """
 
 import argparse
@@ -19,8 +19,9 @@ import numpy as np
 import pandas as pd
 import yaml
 
-# Ensure project root on path
-sys.path.insert(0, os.path.dirname(__file__))
+# Ensure project root on path (scripts/ lives one level below project root)
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _PROJECT_ROOT)
 
 from core.pipeline import MetaboAnalystPipeline
 from core.sample_info import read_sample_info_sheet, detect_factor_columns, build_aligned_factors
@@ -154,7 +155,7 @@ def run_analysis(cfg: dict):
     analysis_cfg = cfg["analysis"]
 
     # ── Resolve output directory ──────────────────────────
-    results_root = os.path.join(os.path.dirname(__file__), "results")
+    results_root = os.path.join(_PROJECT_ROOT, "results")
     input_stem = os.path.splitext(os.path.basename(cfg["input"]["file"]))[0]
     suffix = cfg["output"].get("suffix", "")
     output_dir = os.path.join(results_root, input_stem + suffix)

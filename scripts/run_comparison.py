@@ -18,11 +18,13 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
-sys.path.insert(0, os.path.dirname(__file__))
+# Ensure project root on path (scripts/ lives one level below project root)
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _PROJECT_ROOT)
 warnings.filterwarnings("ignore")
 
 # ── Paths ─────────────────────────────────────────────────
-RESULTS_ROOT = os.path.join(os.path.dirname(__file__), "results")
+RESULTS_ROOT = os.path.join(_PROJECT_ROOT, "results")
 DIRS = {
     "baseline": "STEP1_program2_DNA_alignment_20260225_112532",   # non-MZmine
     "mzmine":   "mzmine_FH_aligment_NTU_DNA_AfterVBA_1",
