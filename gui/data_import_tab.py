@@ -10,10 +10,15 @@ Features:
 
 from __future__ import annotations
 
+import sys
+import tempfile
 from pathlib import Path
 
 import pandas as pd
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import (
+    QApplication,
     QComboBox,
     QFileDialog,
     QGroupBox,
@@ -61,6 +66,14 @@ class DataImportTab(QWidget):
         self.btn_preview = QPushButton()
         self.btn_preview.clicked.connect(self._preview_current_path)
         file_row.addWidget(self.btn_preview)
+
+        self.btn_import_dnp = QPushButton()
+        self.btn_import_dnp.clicked.connect(self._import_from_dnp)
+        self.btn_import_dnp.setStyleSheet(
+            "QPushButton { background-color: #1a73e8; color: white; padding: 4px 12px; }"
+            "QPushButton:hover { background-color: #1557b0; }"
+        )
+        file_row.addWidget(self.btn_import_dnp)
 
         file_layout.addLayout(file_row)
         file_group.setLayout(file_layout)
@@ -136,6 +149,7 @@ class DataImportTab(QWidget):
         self.preview_group.setTitle(self.tr("Preview"))
         self.btn_browse.setText(self.tr("Browse..."))
         self.btn_preview.setText(self.tr("Preview"))
+        self.btn_import_dnp.setText(self.tr("Import from DNP"))
         self.orientation_label.setText(self.tr("Data orientation:"))
         self.btn_load.setText(self.tr("Load Data"))
         self._update_mapping_labels()
@@ -155,6 +169,76 @@ class DataImportTab(QWidget):
             return
         self.path_edit.setText(path)
         self._load_file_for_preview(path)
+
+    def _import_from_dnp(self):
+        """Import DNP output file and convert to Metaboanalyst format."""
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            self.tr("Select DNP output file"),
+            "",
+            "Excel files (*.xlsx *.xls);;All files (*.*)",
+        )
+        if not path:
+            return
+
+        # Show loading state
+        original_text = self.btn_import_dnp.text()
+        self.btn_import_dnp.setText(self.tr("⏳ Importing..."))
+        self.btn_import_dnp.setEnabled(False)
+        QApplication.setOverrideCursor(QCursor(Qt.WaitCursor))
+        QApplication.processEvents()
+
+        try:
+            # Import adapter dynamically from DNP project
+            desktop = Path.home() / "Desktop"
+            dnp_candidates = [
+                desktop / "Data_Normalization_project_v2" / "src",
+                Path(__file__).resolve().parent.parent.parent / "Data_Normalization_project_v2" / "src",
+            ]
+            for dnp_src in dnp_candidates:
+                if dnp_src.exists() and str(dnp_src) not in sys.path:
+                    sys.path.insert(0, str(dnp_src))
+                    break
+
+            from metabolomics.adapters.dnp_to_metaboanalyst import convert_dnp_to_metaboanalyst
+
+            # Convert to temp file in same directory
+            input_dir = Path(path).parent
+            base_name = Path(path).stem
+            output_path = str(input_dir / f"Metaboanalyst_import_{base_name}.xlsx")
+
+            result_path = convert_dnp_to_metaboanalyst(path, output_path)
+
+            # Load converted file into the import tab
+            self.path_edit.setText(result_path)
+            self._load_file_for_preview(result_path)
+
+            QMessageBox.information(
+                self,
+                self.tr("Import Successful"),
+                self.tr("DNP file converted and loaded:\n{path}").format(
+                    path=Path(result_path).name
+                ),
+            )
+        except ImportError:
+            QMessageBox.critical(
+                self,
+                self.tr("Adapter Not Found"),
+                self.tr(
+                    "Could not find DNP adapter module.\n"
+                    "Ensure Data_Normalization_project_v2 project is in the expected location."
+                ),
+            )
+        except Exception as exc:
+            QMessageBox.critical(
+                self,
+                self.tr("Import Failed"),
+                self.tr("Conversion error:\n{err}").format(err=str(exc)),
+            )
+        finally:
+            QApplication.restoreOverrideCursor()
+            self.btn_import_dnp.setText(original_text)
+            self.btn_import_dnp.setEnabled(True)
 
     def _preview_current_path(self):
         path = self.path_edit.text().strip()
@@ -212,8 +296,7 @@ class DataImportTab(QWidget):
         return pd.read_csv(path, sep=None, engine="python")
 
     def _update_preview(self, df: pd.DataFrame):
-        preview_df = df.iloc[:100, :80]
-        source, proxy = create_sortable_model(preview_df)
+        source, proxy = create_sortable_model(df)
         self._preview_source_model = source
         self._preview_proxy_model = proxy
         self.preview_table.setModel(proxy)
@@ -284,8 +367,11 @@ class DataImportTab(QWidget):
 
         guess = 0
         for idx, key in enumerate(unique_keys):
-            lower = key.lower()
+            lower = key.lower().replace(" ", "").replace("_", "")
             if "group" in lower or "class" in lower or "label" in lower:
+                guess = idx
+                break
+            if lower in {"sampletype", "type", "category", "condition", "treatment"}:
                 guess = idx
                 break
         self.group_combo.setCurrentIndex(guess)
@@ -300,13 +386,18 @@ class DataImportTab(QWidget):
 
     @staticmethod
     def _guess_group_column(columns: list, sample_idx: int) -> int:
+        # Priority 1: exact-ish group/class/label keywords
         for idx, col in enumerate(columns):
             lower = str(col).strip().lower()
             if "group" in lower or "class" in lower or "label" in lower:
                 return idx
-        if len(columns) > 1:
-            return 1 if sample_idx == 0 else 0
-        return 0
+        # Priority 2: sample-type / category keywords
+        for idx, col in enumerate(columns):
+            lower = str(col).strip().lower().replace(" ", "").replace("_", "")
+            if lower in {"sampletype", "type", "category", "condition", "treatment"}:
+                return idx
+        # No confident guess — return -1 so combo stays at 0 via max(0, -1)
+        return -1
 
     # ------------------------------------------------------------------
     # Parse + send to MainWindow

@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from core.missing_values import IMPUTE_METHODS
+from ms_core.processing.missing_values import IMPUTE_METHODS
 
 
 class MissingValueTab(QWidget):

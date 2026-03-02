@@ -27,6 +27,10 @@ class PandasTableModel(QAbstractTableModel):
             if isinstance(val, float):
                 return f"{val:.4g}"
             return str(val)
+        if role == Qt.ItemDataRole.UserRole:
+            # Return raw Python value for sorting
+            val = self._df.iloc[index.row(), index.column()]
+            return val
         if role == Qt.ItemDataRole.TextAlignmentRole:
             return Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
         return None
@@ -48,9 +52,26 @@ class PandasTableModel(QAbstractTableModel):
         return self._df
 
 
+class NumericSortProxy(QSortFilterProxyModel):
+    """Sort proxy that compares raw values via UserRole for correct numeric ordering."""
+
+    def lessThan(self, left, right):
+        left_val = self.sourceModel().data(left, Qt.ItemDataRole.UserRole)
+        right_val = self.sourceModel().data(right, Qt.ItemDataRole.UserRole)
+
+        # Try numeric comparison first
+        try:
+            return float(left_val) < float(right_val)
+        except (TypeError, ValueError):
+            pass
+
+        # Fall back to case-insensitive string comparison
+        return str(left_val).lower() < str(right_val).lower()
+
+
 def create_sortable_model(df: pd.DataFrame) -> tuple:
     """建立可排序的 Model + Proxy，回傳 (source_model, proxy_model)"""
     source = PandasTableModel(df)
-    proxy = QSortFilterProxyModel()
+    proxy = NumericSortProxy()
     proxy.setSourceModel(source)
     return source, proxy

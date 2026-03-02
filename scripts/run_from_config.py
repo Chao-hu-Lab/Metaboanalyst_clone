@@ -25,14 +25,14 @@ sys.path.insert(0, _PROJECT_ROOT)
 
 from core.pipeline import MetaboAnalystPipeline
 from core.sample_info import read_sample_info_sheet, detect_factor_columns, build_aligned_factors
-from analysis.pca import run_pca
-from analysis.anova import run_anova
-from analysis.univariate import volcano_analysis
-from visualization.pca_plot import plot_pca_score, plot_pca_scree, plot_pca_loading
-from visualization.heatmap import plot_heatmap
-from visualization.boxplot import plot_sample_boxplot, plot_group_boxplot
-from visualization.density_plot import plot_density
-from visualization.anova_plot import plot_anova_importance, plot_feature_boxplot
+from ms_core.analysis.pca import run_pca
+from ms_core.analysis.anova import run_anova
+from ms_core.analysis.univariate import volcano_analysis
+from ms_core.visualization.pca_plot import plot_pca_score, plot_pca_scree, plot_pca_loading
+from ms_core.visualization.heatmap import plot_heatmap
+from ms_core.visualization.boxplot import plot_sample_boxplot, plot_group_boxplot
+from ms_core.visualization.density_plot import plot_density
+from ms_core.visualization.anova_plot import plot_anova_importance, plot_feature_boxplot
 
 warnings.filterwarnings("ignore")
 

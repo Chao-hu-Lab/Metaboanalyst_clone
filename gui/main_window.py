@@ -17,15 +17,20 @@ from PySide6.QtCore import (
     QLibraryInfo,
     QLocale,
     QSettings,
+    QSize,
     Qt,
     QTranslator,
 )
-from PySide6.QtGui import QAction, QIcon, QUndoCommand, QUndoStack
+from PySide6.QtGui import QAction, QFont, QIcon, QUndoCommand, QUndoStack
 from PySide6.QtWidgets import (
     QApplication,
     QDockWidget,
     QFileDialog,
+    QFrame,
+    QHBoxLayout,
     QLabel,
+    QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QMessageBox,
     QPlainTextEdit,
@@ -33,7 +38,6 @@ from PySide6.QtWidgets import (
     QSplitter,
     QStackedWidget,
     QStatusBar,
-    QTabWidget,
     QTableView,
     QVBoxLayout,
     QWidget,
@@ -168,9 +172,7 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _setup_ui(self):
-        self.tabs = QTabWidget()
-        self.tabs.setTabPosition(QTabWidget.TabPosition.West)
-
+        # --- Sidebar navigation (QListWidget) + content pages (QStackedWidget) ---
         self.import_tab = DataImportTab(self)
         self.mv_tab = MissingValueTab(self)
         self.filter_tab = FilterTab(self)
@@ -178,19 +180,39 @@ class MainWindow(QMainWindow):
         self.stats_tab = StatsTab(self)
         self.visual_tab = VisualTab(self)
 
-        self.tabs.addTab(self.import_tab, _icon("mdi6.file-import"), "")
-        self.tabs.addTab(self.mv_tab, _icon("mdi6.table-question"), "")
-        self.tabs.addTab(self.filter_tab, _icon("mdi6.filter-variant"), "")
-        self.tabs.addTab(self.norm_tab, _icon("mdi6.chart-bell-curve"), "")
-        self.tabs.addTab(self.stats_tab, _icon("mdi6.calculator-variant"), "")
-        self.tabs.addTab(self.visual_tab, _icon("mdi6.chart-scatter-plot"), "")
-        self.tabs.currentChanged.connect(self._sync_shared_preview_from_active_tab)
+        self._tab_widgets = [
+            self.import_tab, self.mv_tab, self.filter_tab,
+            self.norm_tab, self.stats_tab, self.visual_tab,
+        ]
+        self._tab_icons = [
+            "mdi6.file-import", "mdi6.table-question", "mdi6.filter-variant",
+            "mdi6.chart-bell-curve", "mdi6.calculator-variant", "mdi6.chart-scatter-plot",
+        ]
+
+        # Sidebar list
+        self._nav_list = QListWidget()
+        self._nav_list.setObjectName("nav_list")
+        self._nav_list.setFixedWidth(200)
+        self._nav_list.setIconSize(QSize(24, 24))
+        self._nav_list.setSpacing(4)
+        for i, icon_name in enumerate(self._tab_icons):
+            item = QListWidgetItem(_icon(icon_name), "")
+            item.setSizeHint(QSize(190, 48))
+            self._nav_list.addItem(item)
+
+        # Content stack
+        self._page_stack = QStackedWidget()
+        for w in self._tab_widgets:
+            self._page_stack.addWidget(w)
+
+        self._nav_list.currentRowChanged.connect(self._on_nav_changed)
         self._retranslate_tabs()
+        self._nav_list.setCurrentRow(0)
 
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(0, 0, 0, 0)
-        left_layout.addWidget(self.tabs)
+        left_layout.addWidget(self._nav_list)
 
         self._preview_title = QLabel()
         self._preview_plot = MplWidget(figsize=(8, 6))
@@ -211,28 +233,99 @@ class MainWindow(QMainWindow):
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(left_panel)
+        splitter.addWidget(self._page_stack)
         splitter.addWidget(right_panel)
-        splitter.setSizes([420, 940])
+        splitter.setSizes([200, 420, 740])
         splitter.setCollapsible(0, False)
         splitter.setCollapsible(1, False)
-        self.setCentralWidget(splitter)
+        splitter.setCollapsible(2, False)
+
+        # Wrap splitter with pipeline navigation bar
+        central = QWidget()
+        central_layout = QVBoxLayout(central)
+        central_layout.setContentsMargins(0, 0, 0, 0)
+        central_layout.setSpacing(0)
+        central_layout.addWidget(self._create_pipeline_nav())
+        central_layout.addWidget(splitter, stretch=1)
+        self.setCentralWidget(central)
+
+    def _create_pipeline_nav(self) -> QFrame:
+        """Create pipeline navigation bar showing overall workflow position."""
+        nav = QFrame()
+        nav.setFixedHeight(42)
+        nav.setStyleSheet("background-color: #0d1b2a;")
+
+        layout = QHBoxLayout(nav)
+        layout.setContentsMargins(12, 0, 12, 0)
+        layout.setSpacing(0)
+
+        # Project name on the left
+        self._project_label = QLabel("PyMetaboAnalyst")
+        self._project_label.setStyleSheet(
+            "color: #FFFFFF; font-weight: bold; font-size: 13pt; "
+            "background: transparent; padding: 0 16px 0 4px;"
+        )
+        layout.addWidget(self._project_label)
+        layout.addStretch()
+
+        self._pipeline_step_labels = []
+        self._pipeline_arrows = []
+        steps_current = [False, False, True]
+
+        for i, is_current in enumerate(steps_current):
+            if i > 0:
+                arrow = QLabel("  →  ")
+                arrow.setStyleSheet(
+                    "color: #7EB0E8; font-family: Consolas; font-size: 12pt; "
+                    "background: transparent;"
+                )
+                layout.addWidget(arrow)
+                self._pipeline_arrows.append(arrow)
+
+            lbl = QLabel("")
+            if is_current:
+                lbl.setStyleSheet(
+                    "color: #FFFFFF; font-weight: bold; font-size: 11pt; "
+                    "background-color: #1976D2; border-radius: 4px; "
+                    "padding: 4px 14px;"
+                )
+            else:
+                lbl.setStyleSheet(
+                    "color: #A0B8D0; font-size: 11pt; "
+                    "background: transparent; padding: 4px 14px;"
+                )
+            layout.addWidget(lbl)
+            self._pipeline_step_labels.append(lbl)
+
+        layout.addStretch()
+        self._retranslate_pipeline_nav()
+        return nav
+
+    def _retranslate_pipeline_nav(self):
+        texts = [
+            self.tr("Step 1: Preprocessing"),
+            self.tr("Step 2: Normalization"),
+            self.tr("Step 3: Statistical Analysis"),
+        ]
+        for lbl, text in zip(self._pipeline_step_labels, texts):
+            lbl.setText(text)
 
     def _create_menu_bar(self):
         menubar = self.menuBar()
 
         self.file_menu = menubar.addMenu(_icon("mdi6.file-document-outline"), "")
-        self.edit_menu = menubar.addMenu(_icon("mdi6.pencil"), "")
         self.view_menu = menubar.addMenu(_icon("mdi6.eye-outline"), "")
         self.tools_menu = menubar.addMenu(_icon("mdi6.cog-outline"), "")
         self.help_menu = menubar.addMenu(_icon("mdi6.help-circle-outline"), "")
 
+        # -- File menu --
         self.act_export_data = QAction(_icon("mdi6.content-save"), "", self)
         self.act_export_data.triggered.connect(self._export_data)
         self.file_menu.addAction(self.act_export_data)
 
-        self.act_export_raw = QAction(_icon("mdi6.file-export-outline"), "", self)
-        self.act_export_raw.triggered.connect(self._export_raw)
-        self.file_menu.addAction(self.act_export_raw)
+        self.act_load_config = QAction(_icon("mdi6.file-cog-outline"), "", self)
+        self.act_load_config.triggered.connect(self._load_config_yaml)
+        self.file_menu.addAction(self.act_load_config)
 
         self.file_menu.addSeparator()
 
@@ -241,34 +334,14 @@ class MainWindow(QMainWindow):
         self.act_quit.triggered.connect(self.close)
         self.file_menu.addAction(self.act_quit)
 
-        self.undo_action = self.undo_stack.createUndoAction(self)
-        self.undo_action.setIcon(_icon("mdi6.undo"))
-        self.undo_action.setShortcut("Ctrl+Z")
-        self.edit_menu.addAction(self.undo_action)
-
-        self.redo_action = self.undo_stack.createRedoAction(self)
-        self.redo_action.setIcon(_icon("mdi6.redo"))
-        self.redo_action.setShortcut("Ctrl+Y")
-        self.edit_menu.addAction(self.redo_action)
-
+        # -- View menu --
         self.act_toggle_log = QAction(_icon("mdi6.text-box-outline"), "", self)
         self.act_toggle_log.triggered.connect(
             lambda: self._log_dock.setVisible(not self._log_dock.isVisible())
         )
         self.view_menu.addAction(self.act_toggle_log)
 
-        self.act_show_table_preview = QAction(_icon("mdi6.table"), "", self)
-        self.act_show_table_preview.triggered.connect(self._show_preview_table)
-        self.view_menu.addAction(self.act_show_table_preview)
-
-        self.act_show_plot_preview = QAction(_icon("mdi6.chart-line"), "", self)
-        self.act_show_plot_preview.triggered.connect(self._show_preview_plot)
-        self.view_menu.addAction(self.act_show_plot_preview)
-
-        self.act_settings = QAction(_icon("mdi6.cog"), "", self)
-        self.act_settings.triggered.connect(self._show_settings)
-        self.tools_menu.addAction(self.act_settings)
-
+        # -- Tools menu --
         self.lang_menu = self.tools_menu.addMenu(_icon("mdi6.translate"), "")
         self.act_lang_zh = QAction("", self)
         self.act_lang_zh.triggered.connect(lambda: self.switch_language("zh_TW"))
@@ -277,6 +350,13 @@ class MainWindow(QMainWindow):
         self.act_lang_en.triggered.connect(lambda: self.switch_language("en"))
         self.lang_menu.addAction(self.act_lang_en)
 
+        self.font_menu = self.tools_menu.addMenu(_icon("mdi6.format-size"), "")
+        for label, size in [("Small (9pt)", 9), ("Medium (11pt)", 11), ("Large (13pt)", 13)]:
+            act = QAction(label, self)
+            act.triggered.connect(lambda checked, s=size: self._set_font_size(s))
+            self.font_menu.addAction(act)
+
+        # -- Help menu --
         self.act_about = QAction(_icon("mdi6.information-outline"), "", self)
         self.act_about.triggered.connect(self._show_about)
         self.help_menu.addAction(self.act_about)
@@ -314,36 +394,41 @@ class MainWindow(QMainWindow):
     # i18n
     # ------------------------------------------------------------------
 
+    def _on_nav_changed(self, index: int):
+        """Handle sidebar navigation item selection."""
+        if 0 <= index < self._page_stack.count():
+            self._page_stack.setCurrentIndex(index)
+            self._sync_shared_preview_from_active_tab(index)
+
     def _retranslate_tabs(self):
-        self.tabs.setTabText(0, self.tr("1. Data Import"))
-        self.tabs.setTabText(1, self.tr("2. Missing Values"))
-        self.tabs.setTabText(2, self.tr("3. Filtering"))
-        self.tabs.setTabText(3, self.tr("4. Normalization"))
-        self.tabs.setTabText(4, self.tr("5. Statistics"))
-        self.tabs.setTabText(5, self.tr("6. Visualization"))
+        labels = [
+            self.tr("1. Data Import"),
+            self.tr("2. Missing Values"),
+            self.tr("3. Filtering"),
+            self.tr("4. Normalization"),
+            self.tr("5. Statistics"),
+            self.tr("6. Visualization"),
+        ]
+        for i, text in enumerate(labels):
+            if i < self._nav_list.count():
+                self._nav_list.item(i).setText(text)
 
     def _retranslate_menus(self):
         self.file_menu.setTitle(self.tr("File"))
-        self.edit_menu.setTitle(self.tr("Edit"))
         self.view_menu.setTitle(self.tr("View"))
         self.tools_menu.setTitle(self.tr("Tools"))
         self.help_menu.setTitle(self.tr("Help"))
 
         self.act_export_data.setText(self.tr("Export Processed Data (CSV)"))
-        self.act_export_raw.setText(self.tr("Export Raw Data (CSV)"))
+        self.act_load_config.setText(self.tr("Load Config (YAML)"))
         self.act_quit.setText(self.tr("Quit"))
 
-        self.undo_action.setText(self.tr("Undo"))
-        self.redo_action.setText(self.tr("Redo"))
-
         self.act_toggle_log.setText(self.tr("Toggle Log Panel"))
-        self.act_show_table_preview.setText(self.tr("Show Shared Table Preview"))
-        self.act_show_plot_preview.setText(self.tr("Show Shared Plot Preview"))
 
-        self.act_settings.setText(self.tr("Settings..."))
         self.lang_menu.setTitle(self.tr("Language"))
         self.act_lang_zh.setText(self.tr("Traditional Chinese"))
         self.act_lang_en.setText(self.tr("English"))
+        self.font_menu.setTitle(self.tr("Font Size"))
         self.act_about.setText(self.tr("About"))
 
         self._preview_title.setText(self.tr("Live Preview"))
@@ -352,11 +437,12 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(self.tr("PyMetaboAnalyst"))
         self._retranslate_tabs()
         self._retranslate_menus()
+        self._retranslate_pipeline_nav()
         self._log_dock.setWindowTitle(self.tr("Processing Log"))
         self.status_bar.showMessage(self.tr("Ready"))
 
-        for i in range(self.tabs.count()):
-            widget = self.tabs.widget(i)
+        for i in range(self._page_stack.count()):
+            widget = self._page_stack.widget(i)
             if hasattr(widget, "retranslateUi"):
                 widget.retranslateUi()
 
@@ -411,12 +497,16 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _update_tab_states(self):
-        self.tabs.setTabEnabled(0, True)
-        self.tabs.setTabEnabled(1, self._stage >= 1)
-        self.tabs.setTabEnabled(2, self._stage >= 2)
-        self.tabs.setTabEnabled(3, self._stage >= 3)
-        self.tabs.setTabEnabled(4, self._stage >= 4)
-        self.tabs.setTabEnabled(5, self._stage >= 4)
+        enabled = [True, self._stage >= 1, self._stage >= 2,
+                   self._stage >= 3, self._stage >= 4, self._stage >= 4]
+        for i, en in enumerate(enabled):
+            if i < self._nav_list.count():
+                item = self._nav_list.item(i)
+                flags = item.flags()
+                if en:
+                    item.setFlags(flags | Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+                else:
+                    item.setFlags(flags & ~(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable))
 
     def _show_preview_table(self):
         self._preview_stack.setCurrentWidget(self._preview_table)
@@ -425,7 +515,7 @@ class MainWindow(QMainWindow):
         self._preview_stack.setCurrentWidget(self._preview_plot)
 
     def _sync_shared_preview_from_active_tab(self, index: int):
-        widget = self.tabs.widget(index)
+        widget = self._page_stack.widget(index)
         if widget is None:
             return
         plot_widgets = widget.findChildren(MplWidget)
@@ -571,7 +661,7 @@ class MainWindow(QMainWindow):
         if hasattr(self.stats_tab, "_refresh_groups"):
             self.stats_tab._refresh_groups()
 
-        self.tabs.setCurrentIndex(1)
+        self._nav_list.setCurrentRow(1)
 
     def update_data(
         self,
@@ -597,8 +687,11 @@ class MainWindow(QMainWindow):
 
         self._update_tab_states()
 
-        if step_key in next_tab_map and self.tabs.isTabEnabled(next_tab_map[step_key]):
-            self.tabs.setCurrentIndex(next_tab_map[step_key])
+        if step_key in next_tab_map:
+            next_idx = next_tab_map[step_key]
+            item = self._nav_list.item(next_idx)
+            if item and item.flags() & Qt.ItemIsEnabled:
+                self._nav_list.setCurrentRow(next_idx)
 
         msg = self.tr("[{step}] Current shape: {n_samples} x {n_features}").format(
             step=source_tab, n_samples=df.shape[0], n_features=df.shape[1]
@@ -703,6 +796,41 @@ class MainWindow(QMainWindow):
         logger.info("Theme switched to %s", theme)
 
         self.switch_language(locale)
+
+    def _load_config_yaml(self):
+        from PySide6.QtWidgets import QFileDialog
+
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            self.tr("Load Config (YAML)"),
+            "",
+            "YAML Files (*.yaml *.yml);;All Files (*)",
+        )
+        if not path:
+            return
+        try:
+            import yaml
+
+            with open(path, "r", encoding="utf-8") as f:
+                config = yaml.safe_load(f)
+            self.status_bar.showMessage(
+                self.tr("Config loaded: {path}").format(path=path)
+            )
+            logger.info("Loaded config from %s", path)
+        except Exception as exc:
+            QMessageBox.warning(
+                self, self.tr("Load Error"), str(exc)
+            )
+
+    def _set_font_size(self, size: int):
+        app = QApplication.instance()
+        if app is not None:
+            apply_flat_theme(app, self._current_theme, size)
+        self._settings.setValue("font_size", size)
+        self.status_bar.showMessage(
+            self.tr("Font size set to {size}pt").format(size=size)
+        )
+        logger.info("Font size changed to %dpt", size)
 
     def _show_about(self):
         QMessageBox.about(

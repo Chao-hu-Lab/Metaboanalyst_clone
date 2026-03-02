@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from core.filtering import FILTER_METHODS, get_auto_cutoff
+from ms_core.processing.feature_filter import FILTER_METHODS, get_auto_cutoff
 
 
 class FilterTab(QWidget):

@@ -19,10 +19,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from core.normalization import ROW_NORM_METHODS
+from ms_core.processing.normalization import ROW_NORM_METHODS
 from core.sample_info import build_aligned_factors, detect_factor_columns
-from core.scaling import SCALING_METHODS
-from core.transformation import TRANSFORM_METHODS
+from ms_core.processing.scaling import SCALING_METHODS
+from ms_core.processing.transformation import TRANSFORM_METHODS
 from gui.widgets.mpl_canvas import MplWidget
 
 

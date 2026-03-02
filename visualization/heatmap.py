@@ -10,7 +10,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from analysis.clustering import select_top_features
+from ms_core.analysis.clustering import select_top_features
 
 
 def plot_heatmap(

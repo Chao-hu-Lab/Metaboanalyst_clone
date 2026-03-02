@@ -13,7 +13,7 @@ _LIGHT = {
     "surface_alt": "#ECF1F8",
     "border": "#D7DFEA",
     "text": "#1E293B",
-    "muted": "#64748B",
+    "muted": "#475569",
     "accent": "#2F80ED",
     "accent_hover": "#1F6FD8",
     "accent_pressed": "#165CB8",
@@ -26,7 +26,7 @@ _DARK = {
     "surface_alt": "#324058",
     "border": "#42526E",
     "text": "#E8EEF8",
-    "muted": "#AEBBD0",
+    "muted": "#C0CCDD",
     "accent": "#5CA2FF",
     "accent_hover": "#7AB4FF",
     "accent_pressed": "#438CE8",
@@ -42,10 +42,11 @@ def _resolve_scheme(app, theme: str) -> str:
     return "dark" if window.lightness() < 128 else "light"
 
 
-def _build_stylesheet(c: dict[str, str]) -> str:
+def _build_stylesheet(c: dict[str, str], font_size: int = 11) -> str:
     return f"""
 * {{
     font-family: "Segoe UI", "Noto Sans TC", "Microsoft JhengHei";
+    font-size: {font_size}pt;
     color: {c["text"]};
 }}
 QMainWindow, QDialog {{
@@ -105,14 +106,15 @@ QGroupBox {{
     background-color: {c["surface"]};
     border: 1px solid {c["border"]};
     border-radius: 8px;
-    margin-top: 10px;
-    padding: 10px 10px 12px 10px;
+    margin-top: 14px;
+    padding: 12px 10px 12px 10px;
 }}
 QGroupBox::title {{
     subcontrol-origin: margin;
     left: 10px;
     padding: 0 6px;
-    color: {c["muted"]};
+    color: {c["text"]};
+    font-weight: 700;
 }}
 QPushButton {{
     background-color: {c["surface"]};
@@ -176,6 +178,28 @@ QTabBar::tab:selected {{
 }}
 QTabBar::tab:!selected:hover {{
     background: {c["selection"]};
+}}
+QListWidget#nav_list {{
+    background-color: {c["surface"]};
+    border: none;
+    border-right: 1px solid {c["border"]};
+    outline: none;
+}}
+QListWidget#nav_list::item {{
+    padding: 10px 14px;
+    border-radius: 6px;
+    margin: 2px 4px;
+}}
+QListWidget#nav_list::item:selected {{
+    background-color: {c["accent"]};
+    color: #FFFFFF;
+    font-weight: 600;
+}}
+QListWidget#nav_list::item:hover:!selected {{
+    background-color: {c["selection"]};
+}}
+QListWidget#nav_list::item:disabled {{
+    color: {c["muted"]};
 }}
 QHeaderView::section {{
     background-color: {c["surface_alt"]};
@@ -269,7 +293,7 @@ def _apply_matplotlib(c: dict[str, str]):
     plt.rcParams["savefig.edgecolor"] = c["surface"]
 
 
-def apply_flat_theme(app, theme: str = "auto") -> str:
+def apply_flat_theme(app, theme: str = "auto", font_size: int = 11) -> str:
     """
     Apply the project flat minimalist theme.
 
@@ -278,7 +302,7 @@ def apply_flat_theme(app, theme: str = "auto") -> str:
     scheme = _resolve_scheme(app, theme)
     colors = _DARK if scheme == "dark" else _LIGHT
     _apply_palette(app, colors)
-    app.setStyleSheet(_build_stylesheet(colors))
+    app.setStyleSheet(_build_stylesheet(colors, font_size))
     _apply_matplotlib(colors)
     return scheme
 

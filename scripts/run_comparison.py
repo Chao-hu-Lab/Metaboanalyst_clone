@@ -158,7 +158,7 @@ ax.tick_params(axis="x", labelsize=8)
 
 # 1c: PCA PC1 variance explained
 ax = axes[0, 2]
-from analysis.pca import run_pca
+from ms_core.analysis.pca import run_pca
 pc1_vars = []
 for k in keys:
     df, lab, _ = data[k]
@@ -255,7 +255,7 @@ print("  Saved 01_dashboard.png")
 # ══════════════════════════════════════════════════════════
 # Figure 2: PCA score plots side-by-side
 # ══════════════════════════════════════════════════════════
-from visualization.pca_plot import plot_pca_score
+from ms_core.visualization.pca_plot import plot_pca_score
 
 fig2, axes2 = plt.subplots(1, 3, figsize=(21, 6))
 fig2.suptitle("PCA Score Plots — 三種處理方式比較", fontsize=14, fontweight="bold")

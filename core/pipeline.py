@@ -15,11 +15,11 @@ from __future__ import annotations
 
 import pandas as pd
 
-from core.filtering import filter_by_qc_rsd, filter_features
-from core.missing_values import impute_missing, remove_missing_percent, replace_zero_with_nan
-from core.normalization import apply_row_norm
-from core.scaling import apply_scaling
-from core.transformation import apply_transform
+from ms_core.processing.feature_filter import filter_by_qc_rsd, filter_features
+from ms_core.processing.missing_values import impute_missing, remove_missing_percent, replace_zero_with_nan
+from ms_core.processing.normalization import apply_row_norm
+from ms_core.processing.scaling import apply_scaling
+from ms_core.processing.transformation import apply_transform
 
 
 class MetaboAnalystPipeline:
