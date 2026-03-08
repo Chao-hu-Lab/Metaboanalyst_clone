@@ -3,6 +3,24 @@ import pandas as pd
 import pytest
 
 
+def test_feature_boxplot_displays_ttest_and_pvalue_for_two_groups():
+    from visualization.anova_plot import plot_feature_boxplot
+
+    df = pd.DataFrame(
+        {
+            "FeatA": [10.0, 11.2, 9.8, 10.5, 14.5, 15.2, 16.1, 14.9],
+        }
+    )
+    labels = pd.Series(["Tumor"] * 4 + ["Adjacent"] * 4)
+
+    fig = plot_feature_boxplot(df, labels, "FeatA")
+    ax = fig.axes[0]
+    all_text = "\n".join(t.get_text() for t in ax.texts)
+
+    assert "P =" in all_text
+    assert "T-test" in all_text
+
+
 def test_oplsda_has_fallback_without_pyopls(monkeypatch):
     import analysis.oplsda as oplsda_mod
 
