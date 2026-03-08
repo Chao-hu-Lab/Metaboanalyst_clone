@@ -4,11 +4,12 @@ Helpers for SampleInfo-based normalization factors.
 
 from __future__ import annotations
 
-from difflib import SequenceMatcher
 from pathlib import Path
 import re
 
 import pandas as pd
+
+from core.sample_interface import normalize_sample_name
 
 
 def _normalize_sheet_name(name: str) -> str:
@@ -69,51 +70,11 @@ def _extract_qc_number(text: str) -> str:
 
 
 def _canonical_sample_key(value) -> str:
-    raw = _normalize_key(value)
-    if not raw:
-        return ""
-
-    qc_num = _extract_qc_number(raw)
-    if qc_num:
-        return f"qc_{qc_num}"
-
-    group = _extract_group_token(raw)
-    bc = _extract_bc_number(raw)
-    assay = _extract_assay_token(raw)
-
-    if bc:
-        prefix = f"{group}_" if group else ""
-        suffix = f"_{assay}" if assay else ""
-        return f"{prefix}bc{bc}{suffix}"
-
-    return _alnum_key(raw)
+    return normalize_sample_name(value)
 
 
 def _is_qc_sample_name(value) -> bool:
-    key = _canonical_sample_key(value)
-    if key.startswith("qc_"):
-        return True
-    return "qc" in str(value).lower()
-
-
-def _levenshtein(a: str, b: str) -> int:
-    if a == b:
-        return 0
-    if not a:
-        return len(b)
-    if not b:
-        return len(a)
-
-    prev = list(range(len(b) + 1))
-    for i, ca in enumerate(a, start=1):
-        curr = [i]
-        for j, cb in enumerate(b, start=1):
-            ins = curr[j - 1] + 1
-            dele = prev[j] + 1
-            sub = prev[j - 1] + (ca != cb)
-            curr.append(min(ins, dele, sub))
-        prev = curr
-    return prev[-1]
+    return "qc" in normalize_sample_name(value)
 
 
 def read_sample_info_sheet(path: str) -> pd.DataFrame | None:
@@ -202,56 +163,6 @@ def _infer_sample_id_column(sample_info: pd.DataFrame, sample_ids: pd.Index) -> 
     return best_col, best_overlap
 
 
-def _fuzzy_match_key(raw_name: str, candidates: dict[str, str]) -> tuple[str | None, float]:
-    """
-    Fuzzy match unmatched sample names for typo-tolerant alignment.
-    Returns (matched_key, score).
-    """
-    if not candidates:
-        return None, 0.0
-
-    raw_group = _extract_group_token(raw_name)
-    raw_assay = _extract_assay_token(raw_name)
-    raw_bc = _extract_bc_number(raw_name)
-    raw_comp = _alnum_key(raw_name)
-
-    scored: list[tuple[float, str]] = []
-    for cand_key, cand_name in candidates.items():
-        cand_group = _extract_group_token(cand_name)
-        cand_assay = _extract_assay_token(cand_name)
-        cand_bc = _extract_bc_number(cand_name)
-
-        if raw_group and cand_group and raw_group != cand_group:
-            continue
-        if raw_assay and cand_assay and raw_assay != cand_assay:
-            continue
-
-        ratio = SequenceMatcher(None, raw_comp, _alnum_key(cand_name)).ratio()
-
-        if raw_bc and cand_bc:
-            if raw_bc == cand_bc:
-                ratio += 0.20
-            else:
-                dist = _levenshtein(raw_bc, cand_bc)
-                if dist <= 1:
-                    ratio += 0.12
-                elif dist <= 2:
-                    ratio += 0.05
-
-        scored.append((ratio, cand_key))
-
-    if not scored:
-        return None, 0.0
-
-    scored.sort(reverse=True, key=lambda x: x[0])
-    best_score, best_key = scored[0]
-    second_score = scored[1][0] if len(scored) > 1 else 0.0
-
-    if best_score >= 0.86 and (best_score - second_score) >= 0.03:
-        return best_key, best_score
-    return None, best_score
-
-
 def build_aligned_factors(
     sample_info: pd.DataFrame,
     sample_ids: pd.Index,
@@ -287,36 +198,16 @@ def build_aligned_factors(
 
     factors_numeric = pd.to_numeric(table[factor_column], errors="coerce")
     lookup = pd.Series(factors_numeric.values, index=table["_sample_key"].values)
-    name_lookup = pd.Series(table["_sample_name"].values, index=table["_sample_key"].values)
 
     aligned_values = []
-    used_keys: set[str] = set()
-    unresolved: list[tuple[str, str, int]] = []
-    for pos, sample in enumerate(sample_ids):
+    for sample in sample_ids:
         key = _canonical_sample_key(sample)
         if key in lookup.index:
             aligned_values.append(float(lookup.loc[key]))
-            used_keys.add(key)
         else:
             aligned_values.append(float("nan"))
-            unresolved.append((str(sample), key, pos))
 
     fuzzy_pairs: list[tuple[str, str, float]] = []
-    if unresolved:
-        remaining_candidates = {
-            key: str(name_lookup.loc[key])
-            for key in lookup.index
-            if key not in used_keys
-        }
-        for raw_name, _, pos in unresolved:
-            matched_key, score = _fuzzy_match_key(raw_name, remaining_candidates)
-            if matched_key is None:
-                continue
-            aligned_values[pos] = float(lookup.loc[matched_key])
-            used_keys.add(matched_key)
-            fuzzy_pairs.append((raw_name, str(name_lookup.loc[matched_key]), float(score)))
-            remaining_candidates.pop(matched_key, None)
-
     missing_positions = [i for i, v in enumerate(aligned_values) if pd.isna(v)]
     qc_skipped = 0
     for i in missing_positions:

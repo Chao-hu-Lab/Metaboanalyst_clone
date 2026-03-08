@@ -24,6 +24,7 @@ _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _PROJECT_ROOT)
 
 from core.pipeline import MetaboAnalystPipeline
+from core.sample_interface import identify_sample_columns
 from core.sample_info import read_sample_info_sheet, detect_factor_columns, build_aligned_factors
 from ms_core.analysis.pca import run_pca
 from ms_core.analysis.anova import run_anova
@@ -56,7 +57,10 @@ def load_config(path: str) -> dict:
 
     # Defaults for analysis sub-sections
     analysis = cfg["analysis"]
-    analysis.setdefault("pca", {}).setdefault("n_components", 5)
+    pca = analysis.setdefault("pca", {})
+    if "n_components" not in pca and "Old_Statistics_PM" in pca:
+        pca["n_components"] = pca["Old_Statistics_PM"]
+    pca.setdefault("n_components", 5)
     anova = analysis.setdefault("anova", {})
     anova.setdefault("p_thresh", 0.05)
     anova.setdefault("nonpar", False)
@@ -94,6 +98,14 @@ def assign_group_from_name(name: str) -> str:
     return "__EXCLUDE__"
 
 
+def get_feature_id_column(raw: pd.DataFrame) -> str:
+    """Return the feature identifier column for spreadsheet-style inputs."""
+    for candidate in ("Mz/RT", "FeatureID"):
+        if candidate in raw.columns:
+            return candidate
+    return raw.columns[0]
+
+
 def load_data(cfg: dict) -> tuple[pd.DataFrame, pd.Series]:
     """Load Excel data and return (samples x features DataFrame, labels Series)."""
     input_file = cfg["input"]["file"]
@@ -102,24 +114,28 @@ def load_data(cfg: dict) -> tuple[pd.DataFrame, pd.Series]:
     print("=" * 60)
     print(f"Loading data from: {os.path.basename(input_file)}")
     raw = pd.read_excel(input_file)
+    feature_col = get_feature_id_column(raw)
+    sample_columns = [col for col in identify_sample_columns(raw) if col != feature_col]
 
     if fmt == "sample_type_row":
         # Row 0 = Sample_Type labels; rows 1+ = feature values
-        feature_names = raw["Mz/RT"].iloc[1:].values
-        sample_types = raw.iloc[0, 1:].values
-        sample_names = raw.columns[1:].values
+        sample_type_row = pd.Series(raw.iloc[0].values, index=raw.columns)
+        valid_sample_cols = [col for col in sample_columns if pd.notna(sample_type_row.get(col))]
+        feature_names = raw[feature_col].iloc[1:].values
+        sample_types = sample_type_row.loc[valid_sample_cols].values
+        sample_names = np.array(valid_sample_cols)
 
-        data = raw.iloc[1:, 1:].values.T
+        data = raw.loc[1:, valid_sample_cols].values.T
         data = pd.DataFrame(data, columns=feature_names, index=sample_names)
         data = data.apply(pd.to_numeric, errors="coerce")
         labels = pd.Series(sample_types, index=sample_names, name="Group")
 
     elif fmt == "plain":
         # All rows are features; groups inferred from column names
-        feature_names = raw["Mz/RT"].values
-        sample_names = raw.columns[1:].values
+        feature_names = raw[feature_col].values
+        sample_names = np.array(sample_columns)
 
-        data = raw.iloc[:, 1:].values.T
+        data = raw.loc[:, sample_columns].values.T
         data = pd.DataFrame(data, columns=feature_names, index=sample_names)
         data = data.apply(pd.to_numeric, errors="coerce")
         labels = pd.Series(

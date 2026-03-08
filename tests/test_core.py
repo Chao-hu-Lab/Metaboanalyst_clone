@@ -530,6 +530,73 @@ class TestSampleInfoFactors:
                 factor_column="FactorColF",
             )
 
+    def test_build_aligned_factors_matches_normalized_sample_names(self):
+        from core.sample_info import build_aligned_factors
+
+        sample_info = pd.DataFrame(
+            {
+                "Sample_Name": [
+                    "Breast Cancer Tissue_ pooled_QC_1",
+                    "Tumor tissue BC2286 DNA +RNA",
+                    "Normal tissue BC2257 DNA",
+                ],
+                "FactorColF": [1.0, 2.0, 3.0],
+            }
+        )
+        sample_ids = pd.Index(
+            [
+                "Breast_Cancer_Tissue_pooled_QC_1",
+                "TumorBC2286_DNAandRNA",
+                "NormalBC2257_DNA",
+            ]
+        )
+
+        factors, meta = build_aligned_factors(
+            sample_info=sample_info,
+            sample_ids=sample_ids,
+            factor_column="FactorColF",
+        )
+
+        np.testing.assert_allclose(factors.values, [1.0, 2.0, 3.0])
+        assert meta["n_fuzzy_matches"] == 0
+
+    def test_build_aligned_factors_does_not_guess_nearby_sample_ids(self):
+        from core.sample_info import build_aligned_factors
+
+        sample_info = pd.DataFrame(
+            {
+                "Sample_Name": ["Tumor tissue BC2287 DNA"],
+                "FactorColF": [2.0],
+            }
+        )
+
+        with pytest.raises(ValueError, match="no sample ID column matches"):
+            build_aligned_factors(
+                sample_info=sample_info,
+                sample_ids=pd.Index(["TumorBC2286_DNA"]),
+                factor_column="FactorColF",
+            )
+
+    def test_build_aligned_factors_does_not_use_fuzzy_substitution_for_partial_overlap(self):
+        from core.sample_info import build_aligned_factors
+
+        sample_info = pd.DataFrame(
+            {
+                "Sample_Name": [
+                    "Tumor tissue BC2287 DNA",
+                    "Tumor tissue BC2290 DNA",
+                ],
+                "FactorColF": [2.0, 4.0],
+            }
+        )
+
+        with pytest.raises(ValueError, match="missing factor values"):
+            build_aligned_factors(
+                sample_info=sample_info,
+                sample_ids=pd.Index(["TumorBC2286_DNA", "TumorBC2290_DNA"]),
+                factor_column="FactorColF",
+            )
+
     def test_pipeline_log_records_specnorm_source(self):
         from core.pipeline import MetaboAnalystPipeline
 
