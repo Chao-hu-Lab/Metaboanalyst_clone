@@ -1,130 +1,148 @@
 """
-OPLS-DA 分析 — 使用 pyopls 套件
+OPLS-DA analysis.
+
+When `pyopls` is unavailable, this module falls back to a PLS-based path so
+the UI can still run and export score/loading information.
 """
+
+from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
-from dataclasses import dataclass, field
+from sklearn.cross_decomposition import PLSRegression
+from sklearn.model_selection import LeaveOneOut, StratifiedKFold, cross_val_score
+from sklearn.preprocessing import LabelEncoder
 
 try:
     from pyopls import OPLS
+
     HAS_PYOPLS = True
 except ImportError:
     HAS_PYOPLS = False
 
-from sklearn.preprocessing import LabelEncoder
-from sklearn.model_selection import cross_val_score, LeaveOneOut, StratifiedKFold
-from sklearn.cross_decomposition import PLSRegression
-
 
 @dataclass
 class OPLSDAResult:
-    """OPLS-DA 分析結果"""
-    scores_predictive: np.ndarray       # T predictive (n_samples, 1)
-    scores_orthogonal: np.ndarray       # T orthogonal (n_samples, 1)
-    labels: object                       # group labels
-    r2x: float = 0.0                    # R²X
-    r2y: float = 0.0                    # R²Y
-    q2: float = 0.0                     # Q² (交叉驗證)
+    """OPLS-DA analysis result container."""
+
+    scores_predictive: np.ndarray
+    scores_orthogonal: np.ndarray
+    labels: object
+    r2x: float = 0.0
+    r2y: float = 0.0
+    q2: float = 0.0
     feature_names: list = field(default_factory=list)
-    loadings_predictive: np.ndarray = None  # P predictive
-    vip_scores: np.ndarray = None       # VIP-like importance
+    loadings_predictive: np.ndarray | None = None
+    vip_scores: np.ndarray | None = None
     class_names: list = field(default_factory=list)
+    backend: str = "pyopls"
 
     def get_score_df(self) -> pd.DataFrame:
-        """回傳 score DataFrame"""
-        labels_arr = self.labels.values if hasattr(self.labels, 'values') else np.array(self.labels)
-        return pd.DataFrame({
-            'T_predictive': self.scores_predictive[:, 0],
-            'T_orthogonal': self.scores_orthogonal[:, 0],
-            'Group': labels_arr,
-        })
+        labels_arr = self.labels.values if hasattr(self.labels, "values") else np.array(self.labels)
+        return pd.DataFrame(
+            {
+                "T_predictive": self.scores_predictive[:, 0],
+                "T_orthogonal": self.scores_orthogonal[:, 0],
+                "Group": labels_arr,
+            }
+        )
 
     def get_importance_df(self) -> pd.DataFrame:
-        """回傳特徵重要性 DataFrame"""
         if self.loadings_predictive is None:
             return pd.DataFrame()
         importance = np.abs(self.loadings_predictive[:, 0])
-        df = pd.DataFrame({
-            'Feature': self.feature_names,
-            'Loading': self.loadings_predictive[:, 0],
-            'Importance': importance,
-        })
-        return df.sort_values('Importance', ascending=False).reset_index(drop=True)
+        df = pd.DataFrame(
+            {
+                "Feature": self.feature_names,
+                "Loading": self.loadings_predictive[:, 0],
+                "Importance": importance,
+            }
+        )
+        return df.sort_values("Importance", ascending=False).reset_index(drop=True)
+
+
+def _to_single_component(arr: np.ndarray) -> np.ndarray:
+    arr = np.asarray(arr)
+    if arr.ndim == 1:
+        return arr.reshape(-1, 1)
+    if arr.ndim == 2:
+        return arr[:, :1]
+    raise ValueError("Expected 1D or 2D array for score matrix.")
+
+
+def _build_cv(y: np.ndarray, cv_method: str):
+    if cv_method == "loo":
+        return LeaveOneOut()
+
+    class_counts = np.bincount(y)
+    min_count = int(class_counts.min()) if len(class_counts) > 0 else 0
+    n_splits = min(5, min_count)
+    if n_splits < 2:
+        return LeaveOneOut()
+    return StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
+
+
+def _safe_q2(pls_model: PLSRegression, x_data: np.ndarray, y_data: np.ndarray, cv) -> float:
+    if isinstance(cv, LeaveOneOut):
+        return 0.0
+    try:
+        scores = cross_val_score(pls_model, x_data, y_data, cv=cv, scoring="r2")
+        scores = np.asarray(scores, dtype=float)
+        finite_scores = scores[np.isfinite(scores)]
+        if finite_scores.size == 0:
+            return 0.0
+        return float(finite_scores.mean())
+    except Exception:
+        return 0.0
 
 
 def run_oplsda(data, labels, n_components=1, cv_method="loo") -> OPLSDAResult:
     """
-    執行 OPLS-DA 分析
+    Run OPLS-DA analysis.
 
-    Parameters
-    ----------
-    data : DataFrame
-        特徵矩陣 (samples x features)
-    labels : Series/array
-        分組標籤
-    n_components : int
-        正交成分數 (預設 1)
-    cv_method : str
-        "loo" 或 "kfold5"
-
-    Returns
-    -------
-    OPLSDAResult
+    Falls back to PLS when `pyopls` is not installed.
     """
-    if not HAS_PYOPLS:
-        raise ImportError(
-            "OPLS-DA 需要 pyopls 套件。請執行: pip install pyopls"
-        )
-
-    X = data.values.astype(float)
-    le = LabelEncoder()
-    y = le.fit_transform(labels)
+    x_data = data.values.astype(float)
+    encoder = LabelEncoder()
+    y_data = encoder.fit_transform(labels)
     feature_names = list(data.columns)
-    class_names = list(le.classes_)
+    class_names = list(encoder.classes_)
 
-    # OPLS 分解
-    opls = OPLS(n_components=n_components)
-    Z = opls.fit_transform(X, y)  # Z = X 去除正交成分後
+    backend = "pyopls" if HAS_PYOPLS else "pls_fallback"
+    r2x = 0.0
 
-    # 取得 scores
-    scores_predictive = opls.T_ortho_  # 這是正交 score
-    # 用去除正交後的 Z 做 PLS 得到 predictive score
-    pls = PLSRegression(n_components=1, scale=False)
-    pls.fit(Z, y)
-    t_pred = pls.x_scores_
-
-    # R² 和 Q²
-    r2x = 1 - np.var(Z) / np.var(X) if np.var(X) > 0 else 0
-    r2y = pls.score(Z, y)
-
-    # 交叉驗證 Q²
-    if cv_method == "loo":
-        cv = LeaveOneOut()
+    if HAS_PYOPLS:
+        opls = OPLS(n_components=max(1, int(n_components)))
+        z_data = opls.fit_transform(x_data, y_data)
+        x_for_pls = z_data
+        orth_scores = _to_single_component(opls.T_ortho_)
+        if np.var(x_data) > 0:
+            r2x = float(1.0 - (np.var(z_data) / np.var(x_data)))
     else:
-        cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+        x_for_pls = x_data
+        orth_scores = np.zeros((x_data.shape[0], 1), dtype=float)
 
-    try:
-        cv_scores = cross_val_score(pls, Z, y, cv=cv, scoring='r2')
-        q2 = np.mean(cv_scores)
-    except Exception:
-        q2 = 0.0
+    pls = PLSRegression(n_components=1, scale=False)
+    pls.fit(x_for_pls, y_data)
+    pred_scores = _to_single_component(pls.x_scores_)
 
-    # Loadings
-    loadings_pred = pls.x_loadings_
+    cv = _build_cv(y_data, cv_method=cv_method)
+    q2 = _safe_q2(pls, x_for_pls, y_data, cv)
+    r2y = float(pls.score(x_for_pls, y_data))
 
-    # VIP-like scores (simplified from PLS loadings)
-    vip = np.abs(loadings_pred[:, 0])
+    loadings_pred = _to_single_component(pls.x_loadings_)
+    vip_scores = np.abs(loadings_pred[:, 0])
 
     return OPLSDAResult(
-        scores_predictive=t_pred,
-        scores_orthogonal=opls.T_ortho_,
+        scores_predictive=pred_scores,
+        scores_orthogonal=orth_scores,
         labels=labels,
         r2x=r2x,
         r2y=r2y,
         q2=q2,
         feature_names=feature_names,
         loadings_predictive=loadings_pred,
-        vip_scores=vip,
+        vip_scores=vip_scores,
         class_names=class_names,
+        backend=backend,
     )

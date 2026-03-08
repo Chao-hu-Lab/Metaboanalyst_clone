@@ -1449,6 +1449,8 @@ class StatsTab(QWidget):
                 self.tr("R2X = {val}").format(val=f"{result.r2x:.4f}"),
                 self.tr("R2Y = {val}").format(val=f"{result.r2y:.4f}"),
                 self.tr("Q2 = {val}").format(val=f"{result.q2:.4f}"),
+                self.tr("Backend: {name}").format(
+                    name=getattr(result, "backend", "pyopls")),
                 self.tr("Predictive components: {n}").format(n=n),
                 self.tr("Groups: {groups}").format(
                     groups=", ".join(str(c) for c in result.class_names)),

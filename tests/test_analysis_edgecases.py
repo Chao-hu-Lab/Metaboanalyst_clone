@@ -3,6 +3,33 @@ import pandas as pd
 import pytest
 
 
+def test_oplsda_has_fallback_without_pyopls(monkeypatch):
+    import analysis.oplsda as oplsda_mod
+
+    monkeypatch.setattr(oplsda_mod, "HAS_PYOPLS", False)
+    df = pd.DataFrame(
+        np.array(
+            [
+                [1.0, 2.0, 1.1, 0.9],
+                [1.2, 1.8, 1.0, 1.1],
+                [0.9, 2.1, 1.2, 1.0],
+                [2.5, 3.0, 2.2, 2.0],
+                [2.8, 3.2, 2.4, 2.1],
+                [2.6, 2.9, 2.3, 1.9],
+            ]
+        ),
+        columns=["F1", "F2", "F3", "F4"],
+    )
+    labels = pd.Series(["A", "A", "A", "B", "B", "B"])
+
+    result = oplsda_mod.run_oplsda(df, labels, n_components=1, cv_method="loo")
+
+    assert result.scores_predictive.shape == (6, 1)
+    assert result.scores_orthogonal.shape == (6, 1)
+    assert np.isfinite(result.r2y)
+    assert np.isfinite(result.q2)
+
+
 def test_random_forest_uses_requested_folds_when_valid():
     from analysis.random_forest import run_random_forest
 
