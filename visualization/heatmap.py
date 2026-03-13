@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 from ms_core.analysis.clustering import select_top_features
+from visualization.theme import apply_publication_style, get_group_colors
 
 
 def plot_heatmap(
@@ -21,6 +22,7 @@ def plot_heatmap(
     scale: str = "row",
     max_features: int = 2000,
     top_by: str = "var",
+    theme: str = "light",
     fig=None,
 ):
     """
@@ -43,6 +45,8 @@ def plot_heatmap(
     top_by : str
         選擇 top 特徵的依據: "var", "mad"
     """
+    apply_publication_style(theme)
+
     if hasattr(labels, "values"):
         labels_arr = labels.values
     else:
@@ -59,9 +63,9 @@ def plot_heatmap(
     else:
         standard_scale = None
 
-    # 組別色帶
+    # 組別色帶 — use theme-aware colors
     groups = sorted(set(labels_arr))
-    palette = dict(zip(groups, sns.color_palette("Set1", len(groups))))
+    palette = dict(zip(groups, get_group_colors(theme, len(groups))))
     row_colors = pd.Series(labels_arr, index=plot_df.index).map(palette)
 
     # ward 強制 euclidean

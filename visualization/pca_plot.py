@@ -9,10 +9,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Ellipse
 from scipy.stats import chi2
+from visualization.theme import apply_publication_style, get_group_colors
 from visualization.vip_plot import _format_mzrt_label
 
 
-def plot_pca_score(pca_result, pc_x=0, pc_y=1, fig=None):
+def plot_pca_score(pca_result, pc_x=0, pc_y=1, theme: str = "light", fig=None):
     """
     繪製 PCA Score Plot (2D)
 
@@ -21,8 +22,12 @@ def plot_pca_score(pca_result, pc_x=0, pc_y=1, fig=None):
     pca_result : PCAResult
     pc_x, pc_y : int
         要顯示的主成分索引 (0-based)
+    theme : str
+        Color theme: "light", "dark", or "colorblind". Default "light".
     fig : Figure or None
     """
+    apply_publication_style(theme)
+
     if fig is None:
         fig, ax = plt.subplots(figsize=(8, 6))
     else:
@@ -39,14 +44,13 @@ def plot_pca_score(pca_result, pc_x=0, pc_y=1, fig=None):
         labels_arr = np.array(labels)
 
     groups = sorted(set(labels_arr))
-    cmap = plt.cm.Set1
-    colors = [cmap(i / max(len(groups) - 1, 1)) for i in range(len(groups))]
+    colors = get_group_colors(theme, len(groups))
 
     for i, group in enumerate(groups):
         mask = labels_arr == group
         x = scores[mask, pc_x]
         y = scores[mask, pc_y]
-        ax.scatter(x, y, c=[colors[i]], label=str(group), s=50, alpha=0.8, edgecolors="white", linewidth=0.5)
+        ax.scatter(x, y, c=[colors[i]], label=str(group), s=60, alpha=0.8, edgecolors="white", linewidth=0.5)
 
         # 95% 信賴橢圓
         if len(x) > 2:
@@ -73,8 +77,10 @@ def plot_pca_score(pca_result, pc_x=0, pc_y=1, fig=None):
     return fig
 
 
-def plot_pca_scree(pca_result, fig=None):
+def plot_pca_scree(pca_result, theme: str = "light", fig=None):
     """繪製 Scree Plot（解釋變異比例）"""
+    apply_publication_style(theme)
+
     if fig is None:
         fig, ax = plt.subplots(figsize=(6, 4))
     else:
@@ -84,9 +90,10 @@ def plot_pca_scree(pca_result, fig=None):
     var = pca_result.explained_variance_ratio
     n = len(var)
     x = np.arange(1, n + 1)
+    colors = get_group_colors(theme)
 
-    ax.bar(x, var * 100, color="steelblue", alpha=0.8, label="個別")
-    ax.plot(x, np.cumsum(var) * 100, "ro-", markersize=5, label="累積")
+    ax.bar(x, var * 100, color=colors[0], alpha=0.8, label="個別")
+    ax.plot(x, np.cumsum(var) * 100, "o-", color=colors[1], markersize=5, label="累積")
     ax.set_xlabel("主成分")
     ax.set_ylabel("解釋變異 (%)")
     ax.set_title("Scree Plot")
@@ -97,8 +104,10 @@ def plot_pca_scree(pca_result, fig=None):
     return fig
 
 
-def plot_pca_loading(pca_result, pc=0, top_n=20, fig=None):
+def plot_pca_loading(pca_result, pc=0, top_n=20, theme: str = "light", fig=None):
     """繪製 Loading Plot（特徵貢獻度）"""
+    apply_publication_style(theme)
+
     if fig is None:
         fig, ax = plt.subplots(figsize=(8, 6))
     else:
@@ -108,8 +117,9 @@ def plot_pca_loading(pca_result, pc=0, top_n=20, fig=None):
     loading_df = pca_result.get_loading_df()
     col = loading_df.columns[pc]
     vals = loading_df[col].abs().nlargest(top_n).sort_values(ascending=True)
+    palette = get_group_colors(theme)
 
-    colors = ["#e74c3c" if loading_df.loc[f, col] > 0 else "#3498db" for f in vals.index]
+    colors = [palette[0] if loading_df.loc[f, col] > 0 else palette[1] for f in vals.index]
     actual_vals = [loading_df.loc[f, col] for f in vals.index]
 
     ax.barh(range(len(vals)), actual_vals, color=colors)

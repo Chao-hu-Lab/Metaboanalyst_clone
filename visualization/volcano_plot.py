@@ -14,8 +14,10 @@ try:
 except ImportError:
     HAS_ADJUSTTEXT = False
 
+from visualization.theme import apply_publication_style, get_group_colors
 
-def plot_volcano(volcano_result, top_n: int = 5, fig=None):
+
+def plot_volcano(volcano_result, top_n: int = 5, theme: str = "light", fig=None):
     """
     Render a volcano plot.
 
@@ -23,6 +25,8 @@ def plot_volcano(volcano_result, top_n: int = 5, fig=None):
     - use_fdr=True  -> FDR-adjusted p-values
     - use_fdr=False -> raw p-values
     """
+    apply_publication_style(theme)
+
     if fig is None:
         fig, ax = plt.subplots(figsize=(8, 6))
     else:
@@ -40,14 +44,16 @@ def plot_volcano(volcano_result, top_n: int = 5, fig=None):
     sig = rdf["significant"].to_numpy(dtype=bool)
     features = rdf["Feature"].astype(str).to_numpy()
 
+    palette = get_group_colors(theme)
     nonsig_label = "Not significant"
     sig_label = "Significant (FDR)" if use_fdr else "Significant"
-    ax.scatter(log2fc[~sig], neg_log10p[~sig], c="grey", alpha=0.5, s=20, label=nonsig_label)
-    ax.scatter(log2fc[sig], neg_log10p[sig], c="red", alpha=0.7, s=30, label=sig_label)
+    ax.scatter(log2fc[~sig], neg_log10p[~sig], c="#AAAAAA", alpha=0.5, s=20, label=nonsig_label)
+    ax.scatter(log2fc[sig], neg_log10p[sig], c=palette[0], alpha=0.7, s=30, label=sig_label)
 
-    ax.axhline(-np.log10(p_thresh), ls="--", c="blue", alpha=0.4, linewidth=0.8)
-    ax.axvline(np.log2(fc_thresh), ls="--", c="blue", alpha=0.4, linewidth=0.8)
-    ax.axvline(-np.log2(fc_thresh), ls="--", c="blue", alpha=0.4, linewidth=0.8)
+    threshold_color = palette[1]
+    ax.axhline(-np.log10(p_thresh), ls="--", c=threshold_color, alpha=0.5, linewidth=0.9)
+    ax.axvline(np.log2(fc_thresh), ls="--", c=threshold_color, alpha=0.5, linewidth=0.9)
+    ax.axvline(-np.log2(fc_thresh), ls="--", c=threshold_color, alpha=0.5, linewidth=0.9)
 
     rank_col = "pvalue_adj" if use_fdr and "pvalue_adj" in rdf.columns else "pvalue"
     top_idx = np.argsort(rdf[rank_col].to_numpy(dtype=float))[:top_n]
