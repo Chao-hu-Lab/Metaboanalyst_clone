@@ -74,7 +74,6 @@ def run_anova(
     group_data = {g: df[labels_arr == g] for g in groups}
 
     # 每個特徵做檢定
-    stats_list = []
     fvals = []
     pvals = []
 

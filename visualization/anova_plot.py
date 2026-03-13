@@ -8,7 +8,6 @@ ANOVA visualization helpers.
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from matplotlib.patches import FancyBboxPatch
 from scipy.stats import f_oneway, ttest_ind
 
 # MetaboAnalyst-style group colors (crimson, green, blue, orange, purple)
@@ -91,7 +90,7 @@ def _draw_r_style_boxplot(ax, data_by_group, group_names, group_colors):
             continue
 
         color = group_colors[i % len(group_colors)]
-        bp = ax.boxplot(
+        ax.boxplot(
             [values], positions=[positions[i]], widths=0.55,
             patch_artist=True, showmeans=False, showfliers=True,
             boxprops=dict(facecolor=color, edgecolor='#555555', linewidth=1.0),

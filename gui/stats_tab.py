@@ -3,10 +3,9 @@
 """
 
 import numpy as np
-import pandas as pd
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
-    QComboBox, QGroupBox, QTextEdit, QSpinBox, QDoubleSpinBox,
+    QComboBox, QTextEdit, QSpinBox, QDoubleSpinBox,
     QCheckBox, QTabWidget, QTableWidget,
     QTableWidgetItem, QHeaderView, QMessageBox, QSplitter,
     QFileDialog,

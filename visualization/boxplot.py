@@ -11,14 +11,18 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+from visualization.theme import apply_publication_style, get_group_colors
 
 
-def plot_group_boxplot(df: pd.DataFrame, labels, title="Feature Distribution", fig=None):
+def plot_group_boxplot(df: pd.DataFrame, labels, title="Feature Distribution",
+                       theme: str = "light", fig=None):
     """
     按組別顯示整體強度分佈 boxplot
 
     每個樣本計算所有特徵的 summary 後按組別繪製
     """
+    apply_publication_style(theme)
+
     if fig is None:
         fig, ax = plt.subplots(figsize=(8, 5))
     else:
@@ -30,12 +34,15 @@ def plot_group_boxplot(df: pd.DataFrame, labels, title="Feature Distribution", f
     else:
         labels_arr = np.array(labels)
 
+    groups = sorted(set(labels_arr))
+    palette = dict(zip(groups, get_group_colors(theme, len(groups))))
+
     plot_df = df.copy()
     plot_df["_Group"] = labels_arr
     melted = plot_df.melt(id_vars="_Group", var_name="Feature", value_name="Value")
 
     sns.boxplot(data=melted, x="_Group", y="Value", hue="_Group", ax=ax,
-                palette="Set1", fliersize=2, linewidth=0.8, legend=False)
+                palette=palette, fliersize=2, linewidth=0.8, legend=False)
     ax.set_xlabel("組別")
     ax.set_ylabel("數值")
     ax.set_title(title)
@@ -43,10 +50,13 @@ def plot_group_boxplot(df: pd.DataFrame, labels, title="Feature Distribution", f
     return fig
 
 
-def plot_sample_boxplot(df: pd.DataFrame, labels, title="Sample Distribution", fig=None):
+def plot_sample_boxplot(df: pd.DataFrame, labels, title="Sample Distribution",
+                        theme: str = "light", fig=None):
     """
     每個樣本一個 boxplot，顏色依組別
     """
+    apply_publication_style(theme)
+
     if fig is None:
         fig, ax = plt.subplots(figsize=(max(10, len(df) * 0.4), 5))
     else:
@@ -59,7 +69,7 @@ def plot_sample_boxplot(df: pd.DataFrame, labels, title="Sample Distribution", f
         labels_arr = np.array(labels)
 
     groups = sorted(set(labels_arr))
-    palette = dict(zip(groups, sns.color_palette("Set1", len(groups))))
+    palette = dict(zip(groups, get_group_colors(theme, len(groups))))
     colors = [palette[g] for g in labels_arr]
 
     bp = ax.boxplot(
@@ -143,6 +153,7 @@ def plot_feature_boxplot_paired(
     df_normalized: pd.DataFrame,
     labels,
     feature_name: str,
+    theme: str = "light",
     fig=None,
 ):
     """
@@ -164,6 +175,8 @@ def plot_feature_boxplot_paired(
         Column name to plot.
     fig : Figure or None
     """
+    apply_publication_style(theme)
+
     if fig is None:
         fig, (ax_l, ax_r) = plt.subplots(1, 2, figsize=(10, 5))
     else:
@@ -173,6 +186,7 @@ def plot_feature_boxplot_paired(
 
     labels_arr = labels.values if hasattr(labels, "values") else np.array(labels)
     groups = sorted(set(labels_arr))
+    box_colors = get_group_colors(theme, len(groups))
 
     for ax, df, subtitle in [
         (ax_l, df_original, "Original Conc."),
@@ -183,7 +197,7 @@ def plot_feature_boxplot_paired(
             mask = labels_arr == g
             vals = pd.to_numeric(df.loc[mask, feature_name], errors="coerce").dropna().values
             data_by_group.append(vals)
-        _draw_r_boxplot_on_ax(ax, data_by_group, groups, _MA_BOX_COLORS, subtitle=subtitle)
+        _draw_r_boxplot_on_ax(ax, data_by_group, groups, box_colors, subtitle=subtitle)
 
     fig.suptitle(f"{feature_name}", fontsize=13, fontweight='bold', y=1.02)
     fig.tight_layout()

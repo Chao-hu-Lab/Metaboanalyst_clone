@@ -12,6 +12,7 @@ plotly
 adjustText
 Pillow
 pyyaml
+openpyxl
 
 # === Optional (enhanced features) ===
 # qtawesome        # Icon pack — tab icons fallback to no-icon if missing
