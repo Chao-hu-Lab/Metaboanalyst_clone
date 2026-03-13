@@ -232,7 +232,7 @@ class TestNormalization:
     def test_invalid_norm(self):
         from core.normalization import apply_row_norm
         df = self._get_clean_df()
-        with pytest.raises(ValueError, match="未知"):
+        with pytest.raises(ValueError, match="Unsupported"):
             apply_row_norm(df, method="InvalidMethod")
 
     def test_missing_ref_raises(self):
