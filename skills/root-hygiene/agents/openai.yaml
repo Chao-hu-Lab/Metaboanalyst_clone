@@ -1,0 +1,4 @@
+interface:
+  display_name: "Root Hygiene"
+  short_description: "Keep the repository root clean from pytest artifacts, temp files, and caches"
+  default_prompt: "Use $root-hygiene to clean up temp files or fix test paths that write to the repository root."

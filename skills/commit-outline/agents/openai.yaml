@@ -1,0 +1,4 @@
+interface:
+  display_name: "Commit Outline"
+  short_description: "Draft concise commit, PR, and release summaries from local changes"
+  default_prompt: "Use $commit-outline to draft commit and PR text for the current repository changes."

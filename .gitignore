@@ -28,3 +28,8 @@ dist/
 .DS_Store
 Thumbs.db
 NUL
+
+# Git worktrees (isolated development branches)
+.worktrees/
+.tmp/
+tmp*/

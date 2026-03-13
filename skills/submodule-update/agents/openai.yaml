@@ -1,0 +1,4 @@
+interface:
+  display_name: "Submodule Update"
+  short_description: "Safely coordinate commits and pushes across ms-core and the top-level repository"
+  default_prompt: "Use $submodule-update to commit and push changes that span ms-core and the top-level repository."

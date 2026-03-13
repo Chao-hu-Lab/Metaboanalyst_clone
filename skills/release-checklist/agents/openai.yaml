@@ -1,0 +1,4 @@
+interface:
+  display_name: "Release Checklist"
+  short_description: "Run the full release flow: version bump, tag, push, and verify GitHub Release"
+  default_prompt: "Use $release-checklist to prepare and execute a versioned release for this repository."
