@@ -44,7 +44,7 @@ def plot_density(df: pd.DataFrame, labels, title="Density Plot", fig=None):
         try:
             kde = gaussian_kde(values)
             label = str(group) if group not in plotted_groups else None
-            ax.plot(x_range, kde(x_range), color=color_map[group], alpha=0.3, label=label)
+            ax.plot(x_range, kde(x_range), color=color_map[group], alpha=0.6, label=label)
             plotted_groups.add(group)
         except Exception:
             continue

@@ -58,7 +58,8 @@ def plot_volcano(volcano_result, top_n: int = 5, fig=None):
             name = f"{name[:18]}.."
         texts.append(ax.text(log2fc[idx], neg_log10p[idx], name, fontsize=7, ha="center"))
     if texts and HAS_ADJUSTTEXT:
-        adjust_text(texts, ax=ax)
+        adjust_text(texts, ax=ax,
+                    arrowprops=dict(arrowstyle="-", color="grey", lw=0.5))
 
     ylabel = "-log10(FDR-adjusted p-value)" if use_fdr else "-log10(p-value)"
     ax.set_xlabel("log2(Fold Change)")

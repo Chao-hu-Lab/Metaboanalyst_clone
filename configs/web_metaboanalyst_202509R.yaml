@@ -1,0 +1,49 @@
+input:
+  file: ""  # override via --input on CLI
+  format: "sample_type_row"
+
+groups:
+  include: ["Exposure", "Normal", "Control"]
+  volcano_pairs:
+    - ["Exposure", "Normal"]
+    - ["Exposure", "Control"]
+    - ["Normal", "Control"]
+  oplsda_pairs:
+    - ["Exposure", "Normal"]
+    - ["Exposure", "Control"]
+    - ["Normal", "Control"]
+
+pipeline:
+  missing_thresh: 0.5       # Remove features with > 50% missing
+  impute_method: "min"      # LoD imputation (min value)
+  qc_rsd_enabled: false     # No QC RSD filter (input is already PQN-normalized)
+  filter_method: "iqr"      # IQR-based feature filter
+  filter_cutoff: 0.08       # Remove bottom 8% by IQR
+  row_norm: "None"          # Already PQN-normalized upstream
+  transform: "Log10Norm"    # Log10 transformation
+  scaling: "ParetoNorm"     # Pareto scaling
+
+analysis:
+  pca:
+    n_components: 3
+  plsda:
+    n_components: 2
+    top_vip: 15
+  anova:
+    p_thresh: 0.05
+    nonpar: false
+    use_fdr: true
+    posthoc: true
+  volcano:
+    fc_thresh: 2.0
+    p_thresh: 0.05
+    use_fdr: true
+  heatmap:
+    max_features: 50
+    top_by: "var"
+    method: "ward"
+    metric: "euclidean"
+    scale: "row"
+
+output:
+  suffix: ""  # optional tag appended to output folder name

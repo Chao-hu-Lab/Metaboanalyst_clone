@@ -180,9 +180,9 @@ def plot_oplsda_score(oplsda_result, fig: Figure = None,
     ax.set_ylabel(f"Orthogonal T score [1] ( {var_o:.1f} %)", fontsize=10.5)
     ax.set_title("Scores Plot", fontsize=12, fontweight='bold', pad=10)
 
-    # Legend — small, upper right, no frame background
-    ax.legend(handles=legend_handles, loc='upper right', fontsize=8.5,
-              framealpha=0.9, edgecolor='#DDDDDD', fancybox=False)
+    # Legend — outside plot area to avoid occluding data points
+    ax.legend(handles=legend_handles, bbox_to_anchor=(1.05, 1), loc='upper left',
+              borderaxespad=0., fontsize=8.5, frameon=False)
 
     fig.tight_layout()
     return fig

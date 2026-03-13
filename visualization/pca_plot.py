@@ -65,7 +65,7 @@ def plot_pca_score(pca_result, pc_x=0, pc_y=1, fig=None):
 
     ax.set_xlabel(f"PC{pc_x+1} ({var_ratio[pc_x]*100:.1f}%)")
     ax.set_ylabel(f"PC{pc_y+1} ({var_ratio[pc_y]*100:.1f}%)")
-    ax.legend(loc="best", fontsize=9)
+    ax.legend(bbox_to_anchor=(1.05, 1), loc="upper left", borderaxespad=0., fontsize=9)
     ax.set_title("PCA Score Plot")
     ax.axhline(0, color="grey", linewidth=0.5, linestyle=":")
     ax.axvline(0, color="grey", linewidth=0.5, linestyle=":")
