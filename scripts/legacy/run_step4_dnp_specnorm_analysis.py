@@ -14,27 +14,26 @@ import os
 import sys
 import warnings
 
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
-
-# Ensure project root on path
-# Project root (legacy scripts live in scripts/legacy/)
+# Ensure project root on path (must precede project imports)
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, _PROJECT_ROOT)
 
-from core.pipeline import MetaboAnalystPipeline
-from core.sample_info import read_sample_info_sheet, detect_factor_columns, build_aligned_factors
-from ms_core.analysis.pca import run_pca
-from ms_core.analysis.anova import run_anova
-from ms_core.analysis.univariate import volcano_analysis
-from ms_core.visualization.pca_plot import plot_pca_score, plot_pca_scree, plot_pca_loading
-from ms_core.visualization.heatmap import plot_heatmap
-from ms_core.visualization.boxplot import plot_sample_boxplot, plot_group_boxplot
-from ms_core.visualization.density_plot import plot_density
-from ms_core.visualization.anova_plot import plot_anova_importance, plot_feature_boxplot
+import matplotlib  # noqa: E402
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt  # noqa: E402
+import pandas as pd  # noqa: E402
+
+from core.pipeline import MetaboAnalystPipeline  # noqa: E402
+from core.sample_info import read_sample_info_sheet, detect_factor_columns, build_aligned_factors  # noqa: E402
+from ms_core.analysis.pca import run_pca  # noqa: E402
+from ms_core.analysis.anova import run_anova  # noqa: E402
+from ms_core.analysis.univariate import volcano_analysis  # noqa: E402
+from ms_core.visualization.pca_plot import plot_pca_score, plot_pca_scree, plot_pca_loading  # noqa: E402
+from ms_core.visualization.heatmap import plot_heatmap  # noqa: E402
+from ms_core.visualization.boxplot import plot_sample_boxplot  # noqa: E402
+from ms_core.visualization.density_plot import plot_density  # noqa: E402
+from ms_core.visualization.anova_plot import plot_anova_importance, plot_feature_boxplot  # noqa: E402
+from ms_core.visualization.volcano_plot import plot_volcano  # noqa: E402
 
 warnings.filterwarnings("ignore")
 
@@ -203,8 +202,6 @@ print("\n" + "=" * 60)
 print("Running pairwise volcano analyses...")
 groups = ["Exposure", "Normal", "Control"]
 pairs = [(groups[i], groups[j]) for i in range(len(groups)) for j in range(i + 1, len(groups))]
-
-from ms_core.visualization.volcano_plot import plot_volcano
 
 for g1, g2 in pairs:
     print(f"  {g1} vs {g2}...")

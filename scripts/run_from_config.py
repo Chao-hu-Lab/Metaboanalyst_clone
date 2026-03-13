@@ -12,27 +12,27 @@ import os
 import sys
 import warnings
 
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
-import yaml
-
 # Ensure project root on path (scripts/ lives one level below project root)
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _PROJECT_ROOT)
 
-from core.pipeline import MetaboAnalystPipeline
-from core.sample_interface import identify_sample_columns
-from core.sample_info import read_sample_info_sheet, detect_factor_columns, build_aligned_factors
-from ms_core.analysis.pca import run_pca
-from ms_core.analysis.anova import run_anova
-from ms_core.analysis.univariate import volcano_analysis
-from ms_core.visualization.pca_plot import plot_pca_score, plot_pca_scree, plot_pca_loading
-from ms_core.visualization.boxplot import plot_sample_boxplot, plot_group_boxplot
-from ms_core.visualization.density_plot import plot_density
-from ms_core.visualization.anova_plot import plot_anova_importance, plot_feature_boxplot
+import matplotlib  # noqa: E402
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt  # noqa: E402
+import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
+import yaml  # noqa: E402
+
+from core.pipeline import MetaboAnalystPipeline  # noqa: E402
+from core.sample_interface import identify_sample_columns  # noqa: E402
+from core.sample_info import read_sample_info_sheet, build_aligned_factors  # noqa: E402
+from ms_core.analysis.pca import run_pca  # noqa: E402
+from ms_core.analysis.anova import run_anova  # noqa: E402
+from ms_core.analysis.univariate import volcano_analysis  # noqa: E402
+from ms_core.visualization.pca_plot import plot_pca_score, plot_pca_scree, plot_pca_loading  # noqa: E402
+from ms_core.visualization.boxplot import plot_sample_boxplot  # noqa: E402
+from ms_core.visualization.density_plot import plot_density  # noqa: E402
+from ms_core.visualization.anova_plot import plot_anova_importance, plot_feature_boxplot  # noqa: E402
 
 warnings.filterwarnings("ignore")
 
@@ -328,7 +328,6 @@ def run_analysis(cfg: dict):
     final_labels.to_csv(os.path.join(output_dir, "sample_labels.csv"))
 
     # Save a copy of the config used
-    import shutil
     config_copy_path = os.path.join(output_dir, "config_used.yaml")
     with open(config_copy_path, "w", encoding="utf-8") as f:
         yaml.dump(cfg, f, allow_unicode=True, default_flow_style=False, sort_keys=False)

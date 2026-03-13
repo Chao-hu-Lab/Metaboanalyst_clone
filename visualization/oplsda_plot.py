@@ -12,37 +12,9 @@ from matplotlib.patches import Ellipse
 from matplotlib.lines import Line2D
 from scipy.stats import chi2
 
-# MetaboAnalyst-style: softer colors matching ggplot2 defaults
-_MA_COLORS = [
-    "#F8766D",  # salmon / soft red   (ggplot2 default hue 1)
-    "#00BA38",  # green               (ggplot2 default hue 2)
-    "#619CFF",  # periwinkle blue     (ggplot2 default hue 3)
-    "#F564E3",  # pink                (ggplot2 default hue 4)
-    "#FF9900",  # orange              (ggplot2 default hue 5)
-]
-# Fill colors for ellipses — lighter tints
-_MA_FILL_COLORS = [
-    "#FFB3B0",  # light pink
-    "#80DD80",  # light green
-    "#A8C8FF",  # light blue
-    "#F5B0EC",  # light pink-purple
-    "#FFCC66",  # light orange
-]
+from visualization.theme import apply_publication_style, get_group_colors
+
 _MA_MARKERS = ["o", "^", "s", "D", "v"]
-
-
-def _apply_ggplot_style(ax):
-    """Apply ggplot2-like theme_gray style to axes."""
-    ax.set_facecolor("#EBEBEB")
-    ax.grid(True, color="white", linewidth=1.0, zorder=0)
-    ax.set_axisbelow(True)
-    # Thin gray border
-    for spine in ax.spines.values():
-        spine.set_visible(True)
-        spine.set_color("#CCCCCC")
-        spine.set_linewidth(0.6)
-    ax.tick_params(colors="#333333", labelsize=9, direction="out",
-                   length=0)  # ggplot2 has no tick marks
 
 
 def _confidence_ellipse(ax, x, y, color, fill_color, confidence=0.95):
@@ -101,9 +73,10 @@ def _mahalanobis_outliers(x, y, confidence=0.95):
 
 
 def plot_oplsda_score(oplsda_result, fig: Figure = None,
-                      show_labels: str = "outlier", confidence: float = 0.95):
+                      show_labels: str = "outlier", confidence: float = 0.95,
+                      theme: str = "light"):
     """
-    OPLS-DA Score Plot — MetaboAnalyst / ggplot2 style.
+    OPLS-DA Score Plot — publication-grade theme style.
 
     Parameters
     ----------
@@ -113,15 +86,19 @@ def plot_oplsda_score(oplsda_result, fig: Figure = None,
         "none"    — no labels
     confidence : float
         Confidence level for ellipse and outlier detection (default 0.95).
+    theme : str
+        Color theme: "light", "dark", or "colorblind". Default "light".
     """
+    apply_publication_style(theme)
+
     if fig is None:
         fig = plt.figure(figsize=(8, 6.5))
     fig.clf()
     ax = fig.add_subplot(111)
-    _apply_ggplot_style(ax)
 
     score_df = oplsda_result.get_score_df()
     groups = sorted(score_df['Group'].unique())
+    colors = get_group_colors(theme, len(groups))
 
     # Compute variance explained by each score axis
     all_t = score_df['T_predictive'].values
@@ -135,8 +112,8 @@ def plot_oplsda_score(oplsda_result, fig: Figure = None,
 
     legend_handles = []
     for i, g in enumerate(groups):
-        color = _MA_COLORS[i % len(_MA_COLORS)]
-        fill_color = _MA_FILL_COLORS[i % len(_MA_FILL_COLORS)]
+        color = colors[i % len(colors)]
+        fill_color = color  # same color, alpha on Ellipse handles transparency
         marker = _MA_MARKERS[i % len(_MA_MARKERS)]
         mask = score_df['Group'] == g
         x = score_df.loc[mask, 'T_predictive'].values
@@ -188,16 +165,18 @@ def plot_oplsda_score(oplsda_result, fig: Figure = None,
     return fig
 
 
-def plot_oplsda_splot(oplsda_result, fig: Figure = None, top_n: int = 10):
+def plot_oplsda_splot(oplsda_result, fig: Figure = None, top_n: int = 10,
+                      theme: str = "light"):
     """
     OPLS-DA S-Plot: Loading scatter.
     Marks top important features.
     """
+    apply_publication_style(theme)
+
     if fig is None:
         fig = plt.figure(figsize=(8, 6))
     fig.clf()
     ax = fig.add_subplot(111)
-    _apply_ggplot_style(ax)
 
     imp_df = oplsda_result.get_importance_df()
     if imp_df.empty:
@@ -208,8 +187,9 @@ def plot_oplsda_splot(oplsda_result, fig: Figure = None, top_n: int = 10):
     loadings = imp_df['Loading'].values
     importance = imp_df['Importance'].values
     features = imp_df['Feature'].values
+    palette = get_group_colors(theme)
 
-    ax.scatter(loadings, importance, c='steelblue', s=30, alpha=0.6, zorder=2)
+    ax.scatter(loadings, importance, c=palette[1], s=30, alpha=0.6, zorder=2)
 
     top_idx = np.argsort(importance)[-top_n:]
     for idx in top_idx:

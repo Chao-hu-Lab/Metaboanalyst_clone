@@ -15,7 +15,6 @@ except ImportError:
     HAS_WEBENGINE = False
 
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton
-from PySide6.QtCore import QUrl
 
 
 class PlotlyWidget(QWidget):
