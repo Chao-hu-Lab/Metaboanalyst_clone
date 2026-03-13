@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import re
-import sys
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
 
@@ -388,7 +387,6 @@ def build_ts_xml(ctx_strings: dict[str, list[str]]) -> str:
                 tr_el.set("type", "unfinished")
                 tr_el.text = source_text
 
-        context_el_text = ctx_name
 
     # Pretty print
     rough = ET.tostring(root, encoding="unicode")

@@ -6,7 +6,7 @@
 
 import numpy as np
 import pandas as pd
-from scipy.cluster.hierarchy import linkage, dendrogram
+from scipy.cluster.hierarchy import linkage
 from scipy.spatial.distance import pdist
 
 

@@ -21,7 +21,7 @@ from PySide6.QtCore import (
     Qt,
     QTranslator,
 )
-from PySide6.QtGui import QAction, QFont, QIcon, QUndoCommand, QUndoStack
+from PySide6.QtGui import QAction, QIcon, QUndoCommand, QUndoStack
 from PySide6.QtWidgets import (
     QApplication,
     QDockWidget,
@@ -812,7 +812,7 @@ class MainWindow(QMainWindow):
             import yaml
 
             with open(path, "r", encoding="utf-8") as f:
-                config = yaml.safe_load(f)
+                yaml.safe_load(f)
             self.status_bar.showMessage(
                 self.tr("Config loaded: {path}").format(path=path)
             )

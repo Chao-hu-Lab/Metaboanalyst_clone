@@ -173,7 +173,7 @@ def plot_vip(plsda_result, top_n: int = 25,
             ax_heat.tick_params(axis='y', length=0)
 
             # ── Continuous colorbar ─────────────────────────────────
-            cb = ColorbarBase(
+            ColorbarBase(
                 ax_cb, cmap=_VIP_CMAP, norm=norm,
                 orientation='vertical',
             )

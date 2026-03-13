@@ -4,7 +4,6 @@ PCA 分析模組 — 複製 MetaboAnalyst 6.0 的 PCA.Anal()
 使用 sklearn PCA (SVD-based)，等同 R 的 prcomp()
 """
 
-import numpy as np
 import pandas as pd
 from sklearn.decomposition import PCA
 

@@ -2,7 +2,7 @@
 PipelineWorker — QRunnable 背景運算，避免阻塞 GUI
 """
 
-from PySide6.QtCore import QRunnable, Signal, QObject, QThreadPool
+from PySide6.QtCore import QRunnable, Signal, QObject
 import traceback
 
 

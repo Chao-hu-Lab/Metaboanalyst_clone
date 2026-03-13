@@ -7,16 +7,13 @@ Comparison 2: non-MZmine (baseline) vs DNP   -> preprocessing improvement
 
 import os
 import sys
-import re
 import warnings
 
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
 import numpy as np
 import pandas as pd
-from scipy import stats
 
 # Ensure project root on path (scripts/ lives one level below project root)
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -158,7 +155,7 @@ ax.tick_params(axis="x", labelsize=8)
 
 # 1c: PCA PC1 variance explained
 ax = axes[0, 2]
-from ms_core.analysis.pca import run_pca
+from ms_core.analysis.pca import run_pca  # noqa: E402
 pc1_vars = []
 for k in keys:
     df, lab, _ = data[k]
@@ -255,7 +252,7 @@ print("  Saved 01_dashboard.png")
 # ══════════════════════════════════════════════════════════
 # Figure 2: PCA score plots side-by-side
 # ══════════════════════════════════════════════════════════
-from ms_core.visualization.pca_plot import plot_pca_score
+from ms_core.visualization.pca_plot import plot_pca_score  # noqa: E402
 
 fig2, axes2 = plt.subplots(1, 3, figsize=(21, 6))
 fig2.suptitle("PCA Score Plots — 三種處理方式比較", fontsize=14, fontweight="bold")
@@ -538,7 +535,7 @@ print(report_text)
 
 with open(os.path.join(OUTPUT_DIR, "comparison_report.txt"), "w", encoding="utf-8") as f:
     f.write(report_text)
-print(f"\n  Saved comparison_report.txt")
+print("\n  Saved comparison_report.txt")
 
 print("\n" + "=" * 60)
 print("ALL COMPARISON FILES:")

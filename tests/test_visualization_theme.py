@@ -9,7 +9,6 @@ import matplotlib
 matplotlib.use("Agg")  # non-interactive backend, safe in CI
 
 import matplotlib.pyplot as plt
-import pytest
 
 from visualization.theme import COLORS, apply_publication_style, get_group_colors
 

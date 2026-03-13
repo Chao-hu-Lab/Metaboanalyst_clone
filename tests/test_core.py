@@ -252,7 +252,7 @@ class TestTransformation:
         return make_test_df().fillna(1).clip(lower=0.01)
 
     def test_glog2_basic(self):
-        from core.transformation import apply_transform, DataTransformer
+        from core.transformation import apply_transform
         df = self._get_clean_df()
         result = apply_transform(df, method="LogNorm")
         assert result.shape == df.shape

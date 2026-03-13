@@ -6,7 +6,6 @@
   - 高度相關特徵偵測（冗餘移除）
 """
 
-import numpy as np
 import pandas as pd
 from dataclasses import dataclass
 from typing import Optional

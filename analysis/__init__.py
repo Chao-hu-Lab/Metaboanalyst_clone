@@ -10,6 +10,6 @@ from analysis.outlier import run_outlier_detection as run_outlier_detection, Out
 from analysis.random_forest import run_random_forest as run_random_forest, RFResult as RFResult
 
 try:
-    from analysis.oplsda import run_oplsda, OPLSDAResult
+    from analysis.oplsda import run_oplsda as run_oplsda, OPLSDAResult as OPLSDAResult
 except ImportError:
     pass  # pyopls not installed
