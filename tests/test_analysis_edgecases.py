@@ -14,8 +14,8 @@ def test_feature_boxplot_displays_ttest_and_pvalue_for_two_groups():
     labels = pd.Series(["Tumor"] * 4 + ["Adjacent"] * 4)
 
     fig = plot_feature_boxplot(df, labels, "FeatA")
-    ax = fig.axes[0]
-    all_text = "\n".join(t.get_text() for t in ax.texts)
+    # Stat annotation is placed on the figure margin (fig.texts), not ax.texts
+    all_text = "\n".join(t.get_text() for t in fig.texts)
 
     assert "P =" in all_text
     assert "T-test" in all_text

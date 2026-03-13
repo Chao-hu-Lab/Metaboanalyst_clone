@@ -35,17 +35,23 @@ class OPLSDAResult:
     loadings_predictive: np.ndarray | None = None
     vip_scores: np.ndarray | None = None
     class_names: list = field(default_factory=list)
+    sample_names: list = field(default_factory=list)
     backend: str = "pyopls"
 
     def get_score_df(self) -> pd.DataFrame:
         labels_arr = self.labels.values if hasattr(self.labels, "values") else np.array(self.labels)
-        return pd.DataFrame(
+        df = pd.DataFrame(
             {
                 "T_predictive": self.scores_predictive[:, 0],
                 "T_orthogonal": self.scores_orthogonal[:, 0],
                 "Group": labels_arr,
             }
         )
+        if self.sample_names:
+            df["Sample"] = list(self.sample_names)
+        else:
+            df["Sample"] = [f"S{i}" for i in range(len(df))]
+        return df
 
     def get_importance_df(self) -> pd.DataFrame:
         if self.loadings_predictive is None:
@@ -144,5 +150,6 @@ def run_oplsda(data, labels, n_components=1, cv_method="loo") -> OPLSDAResult:
         loadings_predictive=loadings_pred,
         vip_scores=vip_scores,
         class_names=class_names,
+        sample_names=list(data.index),
         backend=backend,
     )

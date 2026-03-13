@@ -24,7 +24,7 @@ matplotlib.rcParams["axes.prop_cycle"] = matplotlib.cycler(color=COLORBLIND_PALE
 
 from visualization.pca_plot import plot_pca_score, plot_pca_scree, plot_pca_loading
 from visualization.pca_3d import plot_pca_3d, pca_3d_to_html
-from visualization.boxplot import plot_group_boxplot, plot_sample_boxplot
+from visualization.boxplot import plot_group_boxplot, plot_sample_boxplot, plot_feature_boxplot_paired
 from visualization.density_plot import plot_density
 from visualization.volcano_plot import plot_volcano
 from visualization.heatmap import plot_heatmap

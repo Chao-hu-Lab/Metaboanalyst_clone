@@ -30,7 +30,6 @@ from ms_core.analysis.pca import run_pca
 from ms_core.analysis.anova import run_anova
 from ms_core.analysis.univariate import volcano_analysis
 from ms_core.visualization.pca_plot import plot_pca_score, plot_pca_scree, plot_pca_loading
-from ms_core.visualization.heatmap import plot_heatmap
 from ms_core.visualization.boxplot import plot_sample_boxplot, plot_group_boxplot
 from ms_core.visualization.density_plot import plot_density
 from ms_core.visualization.anova_plot import plot_anova_importance, plot_feature_boxplot
@@ -66,6 +65,9 @@ def load_config(path: str) -> dict:
     anova.setdefault("nonpar", False)
     anova.setdefault("use_fdr", True)
     anova.setdefault("posthoc", True)
+    plsda = analysis.setdefault("plsda", {})
+    plsda.setdefault("n_components", 2)
+    plsda.setdefault("top_vip", 15)
     volcano = analysis.setdefault("volcano", {})
     volcano.setdefault("fc_thresh", 2.0)
     volcano.setdefault("p_thresh", 0.05)
@@ -161,6 +163,76 @@ def load_data(cfg: dict) -> tuple[pd.DataFrame, pd.Series]:
     return data, labels
 
 
+# ── Significant features Excel export ────────────────────
+
+def _export_significant_features_excel(
+    sheets: dict, output_dir: str, top_n: int = 20,
+):
+    """
+    Write a consolidated Excel workbook with significant features from all analyses.
+
+    Sheets collected during the pipeline are written as-is, then a 'Summary'
+    sheet is generated that cross-references feature appearances across methods.
+    """
+    if not sheets:
+        print("  No significant feature data collected — skipping Excel export.")
+        return
+
+    excel_path = os.path.join(output_dir, "significant_features_summary.xlsx")
+
+    # Build cross-reference summary: count how many sheets each feature appears in
+    feature_counts = {}  # feature -> {sheet_name: rank_or_score}
+    for sheet_name, df in sheets.items():
+        if "Feature" not in df.columns:
+            continue
+        for idx, row in df.head(top_n).iterrows():
+            feat = row["Feature"]
+            if feat not in feature_counts:
+                feature_counts[feat] = {}
+            # Store the rank or key metric
+            if "VIP" in df.columns:
+                feature_counts[feat][sheet_name] = f"VIP={row['VIP']:.2f}"
+            elif "pvalue_adj" in df.columns:
+                feature_counts[feat][sheet_name] = f"p_adj={row['pvalue_adj']:.2e}"
+            elif "Importance" in df.columns:
+                feature_counts[feat][sheet_name] = f"|p|={row['Importance']:.4f}"
+            else:
+                feature_counts[feat][sheet_name] = "Yes"
+
+    # Build summary DataFrame
+    all_sheet_names = [s for s in sheets.keys() if "Feature" in sheets[s].columns]
+    summary_rows = []
+    for feat, appearances in feature_counts.items():
+        row = {"Feature": feat, "Appeared_in_N_analyses": len(appearances)}
+        for sn in all_sheet_names:
+            row[sn] = appearances.get(sn, "")
+        summary_rows.append(row)
+
+    summary_df = pd.DataFrame(summary_rows)
+    if not summary_df.empty:
+        summary_df = summary_df.sort_values(
+            "Appeared_in_N_analyses", ascending=False
+        ).reset_index(drop=True)
+        summary_df.insert(0, "Rank", range(1, len(summary_df) + 1))
+
+    # Write all sheets
+    with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
+        # Summary first
+        if not summary_df.empty:
+            summary_df.to_excel(writer, sheet_name="Summary", index=False)
+
+        # Individual analysis sheets (top_n rows each)
+        for sheet_name, df in sheets.items():
+            # Truncate sheet name to Excel's 31-char limit
+            safe_name = sheet_name[:31]
+            df.head(top_n).to_excel(writer, sheet_name=safe_name, index=False)
+
+    print(f"  Saved {excel_path}")
+    print(f"  Sheets: {', '.join(['Summary'] + list(sheets.keys()))}")
+    print(f"  Summary: {len(feature_counts)} unique features across "
+          f"{len(all_sheet_names)} analyses (top {top_n} each)")
+
+
 # ── Main analysis ─────────────────────────────────────────
 
 def run_analysis(cfg: dict):
@@ -246,6 +318,9 @@ def run_analysis(cfg: dict):
     print(f"  Final: {processed.shape[0]} samples x {processed.shape[1]} features")
     print(f"  Groups: {dict(final_labels.value_counts())}")
 
+    # Collectors for the summary Excel export
+    _excel_sheets = {}  # sheet_name -> DataFrame
+
     # Save processed data
     processed.to_csv(os.path.join(output_dir, "processed_data.csv"))
     final_labels.to_csv(os.path.join(output_dir, "sample_labels.csv"))
@@ -299,6 +374,14 @@ def run_analysis(cfg: dict):
 
     anova_result.result_df.to_csv(os.path.join(output_dir, "anova_results.csv"))
 
+    # Collect ANOVA significant features for Excel export
+    _anova_sig = (anova_result.result_df
+                  .sort_values("pvalue_adj")
+                  .head(50)
+                  [["Feature", "pvalue", "pvalue_adj", "neg_log10p", "significant"]]
+                  .copy())
+    _excel_sheets["ANOVA_Top50"] = _anova_sig
+
     fig = plt.figure(figsize=(10, 8))
     plot_anova_importance(anova_result, top_n=25, fig=fig)
     fig.savefig(os.path.join(output_dir, "anova_importance.png"), dpi=150, bbox_inches="tight")
@@ -312,6 +395,88 @@ def run_analysis(cfg: dict):
                     dpi=150, bbox_inches="tight")
         plt.close(fig)
     print(f"  Saved ANOVA results + {len(top_features)} boxplots")
+
+    # ── PLS-DA + VIP (pairwise, 2-group) ─────────────────────
+    plsda_cfg = analysis_cfg.get("plsda", {})
+    plsda_pairs = cfg["groups"].get("oplsda_pairs", [])  # reuse OPLS-DA pairs
+    if plsda_cfg and plsda_pairs:
+        print("\n" + "=" * 60)
+        print("Running pairwise PLS-DA + VIP...")
+        try:
+            from ms_core.analysis.plsda import run_plsda
+            from ms_core.visualization.vip_plot import plot_vip
+        except ImportError as e:
+            print(f"  Import error: {e}")
+            plsda_pairs = []
+
+        n_comp = plsda_cfg.get("n_components", 2)
+        top_vip = plsda_cfg.get("top_vip", 15)
+
+        for g1, g2 in plsda_pairs:
+            print(f"  {g1} vs {g2}...")
+            try:
+                pair_mask = final_labels.isin([g1, g2])
+                pair_data = processed.loc[pair_mask]
+                pair_labels = final_labels.loc[pair_mask]
+
+                plsda_result = run_plsda(pair_data, pair_labels, n_components=n_comp)
+                print(f"    VIP range: {plsda_result.vips.min():.2f} - "
+                      f"{plsda_result.vips.max():.2f}")
+
+                # Collect VIP scores for Excel export
+                vip_df = plsda_result.get_vip_df()
+                vip_df.insert(0, "Rank", range(1, len(vip_df) + 1))
+                _excel_sheets[f"VIP_{g1}_vs_{g2}"] = vip_df
+
+                fig = plt.figure(figsize=(10, max(6, top_vip * 0.32)))
+                plot_vip(plsda_result, top_n=top_vip,
+                         data=pair_data, labels=pair_labels, fig=fig)
+                fig.savefig(os.path.join(output_dir, f"plsda_vip_{g1}_vs_{g2}.png"),
+                            dpi=150, bbox_inches="tight")
+                plt.close(fig)
+                print(f"    Saved plsda_vip_{g1}_vs_{g2}.png")
+            except Exception as e:
+                print(f"    Error: {e}")
+
+    # ── OPLS-DA (pairwise, 2-group only) ──────────────────
+    oplsda_pairs = cfg["groups"].get("oplsda_pairs", [])
+    if oplsda_pairs:
+        print("\n" + "=" * 60)
+        print("Running pairwise OPLS-DA...")
+        try:
+            from ms_core.analysis.oplsda import run_oplsda
+            from ms_core.visualization.oplsda_plot import plot_oplsda_score
+        except ImportError as e:
+            print(f"  Import error: {e}")
+            oplsda_pairs = []
+
+        for g1, g2 in oplsda_pairs:
+            print(f"  {g1} vs {g2}...")
+            try:
+                pair_mask = final_labels.isin([g1, g2])
+                pair_data = processed.loc[pair_mask]
+                pair_labels = final_labels.loc[pair_mask]
+
+                oplsda_result = run_oplsda(pair_data, pair_labels)
+                print(f"    R2Y={oplsda_result.r2y:.3f}, Q2={oplsda_result.q2:.3f}, "
+                      f"backend={oplsda_result.backend}")
+
+                # Collect OPLS-DA loadings for Excel export
+                imp_df = oplsda_result.get_importance_df()
+                if not imp_df.empty:
+                    imp_df.insert(0, "Rank", range(1, len(imp_df) + 1))
+                    _excel_sheets[f"OPLSDA_{g1}_vs_{g2}"] = imp_df
+
+                # Score plot
+                fig = plt.figure(figsize=(8, 6))
+                plot_oplsda_score(oplsda_result, fig=fig)
+                fig.savefig(os.path.join(output_dir, f"oplsda_score_{g1}_vs_{g2}.png"),
+                            dpi=150, bbox_inches="tight")
+                plt.close(fig)
+
+                print("    Saved score plot")
+            except Exception as e:
+                print(f"    Error: {e}")
 
     # ── Volcano ───────────────────────────────────────────
     print("\n" + "=" * 60)
@@ -334,6 +499,12 @@ def run_analysis(cfg: dict):
                   f"(Up: {vresult.n_up}, Down: {vresult.n_down})")
             vresult.result_df.to_csv(
                 os.path.join(output_dir, f"volcano_{g1}_vs_{g2}.csv"))
+
+            # Collect volcano significant features for Excel export
+            vol_sig = vresult.significant.copy()
+            if not vol_sig.empty:
+                vol_sig = vol_sig.sort_values("pvalue_adj").head(50)
+                _excel_sheets[f"Volcano_{g1}_vs_{g2}"] = vol_sig
             fig = plt.figure(figsize=(10, 8))
             plot_volcano(vresult, fig=fig)
             fig.savefig(os.path.join(output_dir, f"volcano_{g1}_vs_{g2}.png"),
@@ -341,25 +512,6 @@ def run_analysis(cfg: dict):
             plt.close(fig)
         except Exception as e:
             print(f"    Error: {e}")
-
-    # ── Heatmap ───────────────────────────────────────────
-    print("\n" + "=" * 60)
-    hm_cfg = analysis_cfg["heatmap"]
-    print(f"Generating heatmap (top {hm_cfg['max_features']} features)...")
-    try:
-        fig = plt.figure(figsize=(14, 10))
-        plot_heatmap(
-            processed, final_labels,
-            method=hm_cfg["method"], metric=hm_cfg["metric"],
-            scale=hm_cfg["scale"], max_features=hm_cfg["max_features"],
-            top_by=hm_cfg["top_by"], fig=fig,
-        )
-        fig.savefig(os.path.join(output_dir, "heatmap_top50.png"),
-                    dpi=150, bbox_inches="tight")
-        plt.close(fig)
-        print("  Saved heatmap_top50.png")
-    except Exception as e:
-        print(f"  Heatmap error: {e}")
 
     # ── Sample overview ───────────────────────────────────
     print("\n" + "=" * 60)
@@ -378,6 +530,17 @@ def run_analysis(cfg: dict):
                 dpi=150, bbox_inches="tight")
     plt.close(fig)
     print("  Saved sample_boxplot.png + density_plot.png")
+
+    # ── Export significant features summary Excel ─────────
+    print("\n" + "=" * 60)
+    print("Exporting significant features summary...")
+    export_top_n = cfg.get("output", {}).get("export_top_n", 20)
+    try:
+        _export_significant_features_excel(
+            _excel_sheets, output_dir, top_n=export_top_n,
+        )
+    except Exception as e:
+        print(f"  Excel export error: {e}")
 
     # ── Summary ───────────────────────────────────────────
     print("\n" + "=" * 60)

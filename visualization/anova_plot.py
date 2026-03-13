@@ -2,14 +2,23 @@
 ANOVA visualization helpers.
 
 - Importance ranking bar chart (by -log10 p-value)
-- Single feature boxplot with statistical annotation
+- Single feature boxplot with statistical annotation (MetaboAnalyst / R style)
 """
 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import seaborn as sns
+from matplotlib.patches import FancyBboxPatch
 from scipy.stats import f_oneway, ttest_ind
+
+# MetaboAnalyst-style group colors (crimson, green, blue, orange, purple)
+_MA_BOX_COLORS = [
+    "#E41A1C",  # crimson/red
+    "#4DAF4A",  # green
+    "#377EB8",  # blue
+    "#FF7F00",  # orange
+    "#984EA3",  # purple
+]
 
 
 def plot_anova_importance(anova_result, top_n=25, fig=None):
@@ -44,10 +53,12 @@ def plot_anova_importance(anova_result, top_n=25, fig=None):
 
 def _build_stat_annotation(plot_data: pd.DataFrame) -> str:
     grouped_values = []
-    for _, group_df in plot_data.groupby("Group"):
+    group_names = []
+    for name, group_df in plot_data.groupby("Group"):
         values = pd.to_numeric(group_df["Value"], errors="coerce").dropna().values
         if len(values) > 0:
             grouped_values.append(values)
+            group_names.append(name)
 
     if len(grouped_values) == 2:
         if min(len(grouped_values[0]), len(grouped_values[1])) < 2:
@@ -64,8 +75,55 @@ def _build_stat_annotation(plot_data: pd.DataFrame) -> str:
     return ""
 
 
+def _draw_r_style_boxplot(ax, data_by_group, group_names, group_colors):
+    """
+    Draw R/MetaboAnalyst-style boxplots on given axes.
+
+    Features: filled colored boxes, gray outlines, yellow diamond mean,
+    black outlier/jitter points. Matches MetaboAnalyst web output.
+    """
+    positions = list(range(len(group_names)))
+
+    for i, (gname, values) in enumerate(zip(group_names, data_by_group)):
+        values = np.array(values, dtype=float)
+        values = values[np.isfinite(values)]
+        if len(values) == 0:
+            continue
+
+        color = group_colors[i % len(group_colors)]
+        bp = ax.boxplot(
+            [values], positions=[positions[i]], widths=0.55,
+            patch_artist=True, showmeans=False, showfliers=True,
+            boxprops=dict(facecolor=color, edgecolor='#555555', linewidth=1.0),
+            medianprops=dict(color='black', linewidth=1.5),
+            whiskerprops=dict(color='#555555', linewidth=1.0),
+            capprops=dict(color='#555555', linewidth=1.0),
+            flierprops=dict(marker='o', markerfacecolor='black',
+                            markeredgecolor='black', markersize=4, alpha=0.7),
+        )
+
+        # Yellow diamond for mean
+        mean_val = np.mean(values)
+        ax.plot(positions[i], mean_val, marker='D', color='#FFD700',
+                markersize=6, markeredgecolor='#B8860B', markeredgewidth=0.7,
+                zorder=4)
+
+    ax.set_xticks(positions)
+    ax.set_xticklabels(group_names, fontsize=9)
+
+    # Clean spines
+    for spine in ['top', 'right']:
+        ax.spines[spine].set_visible(False)
+    ax.spines['left'].set_linewidth(0.8)
+    ax.spines['bottom'].set_linewidth(0.8)
+
+
 def plot_feature_boxplot(df: pd.DataFrame, labels, feature_name: str, fig=None):
-    """Plot one feature by group and annotate t-test / p-value (or ANOVA p-value)."""
+    """
+    Plot one feature by group — R/MetaboAnalyst style with statistical annotation.
+
+    Colored boxes per group, yellow diamond mean, black jittered data points.
+    """
     if fig is None:
         fig, ax = plt.subplots(figsize=(6, 5))
     else:
@@ -80,45 +138,33 @@ def plot_feature_boxplot(df: pd.DataFrame, labels, feature_name: str, fig=None):
         }
     )
 
-    sns.boxplot(
-        data=plot_data,
-        x="Group",
-        y="Value",
-        hue="Group",
-        palette="Set1",
-        ax=ax,
-        legend=False,
-    )
-    sns.stripplot(
-        data=plot_data,
-        x="Group",
-        y="Value",
-        color="black",
-        alpha=0.4,
-        size=4,
-        ax=ax,
-    )
+    groups = sorted(plot_data["Group"].unique())
+    data_by_group = []
+    for g in groups:
+        vals = pd.to_numeric(
+            plot_data.loc[plot_data["Group"] == g, "Value"], errors="coerce"
+        ).dropna().values
+        data_by_group.append(vals)
 
+    _draw_r_style_boxplot(ax, data_by_group, groups, _MA_BOX_COLORS)
+
+    ax.set_title(f"{feature_name}", fontsize=11, fontweight='bold')
+    ax.set_ylabel("Value", fontsize=10)
+
+    # Statistical annotation — placed in the figure margin above the plot
     stat_text = _build_stat_annotation(plot_data)
     if stat_text:
-        ax.text(
-            0.02,
-            0.98,
-            stat_text,
-            transform=ax.transAxes,
-            va="top",
-            ha="left",
-            fontsize=9,
+        fig.subplots_adjust(top=0.82)
+        fig.text(
+            0.02, 0.97, stat_text,
+            va="top", ha="left", fontsize=9,
             bbox={
-                "boxstyle": "round,pad=0.25",
-                "facecolor": "white",
-                "alpha": 0.75,
-                "edgecolor": "#888888",
+                "boxstyle": "round,pad=0.3",
+                "facecolor": "#F5F5F5",
+                "alpha": 0.9,
+                "edgecolor": "#AAAAAA",
             },
         )
-
-    ax.set_title(f"Feature: {feature_name}", fontsize=10)
-    ax.set_xlabel("Group")
-    ax.set_ylabel("Value")
-    fig.tight_layout()
+    else:
+        fig.tight_layout()
     return fig

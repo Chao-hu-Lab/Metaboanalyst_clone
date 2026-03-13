@@ -9,6 +9,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Ellipse
 from scipy.stats import chi2
+from visualization.vip_plot import _format_mzrt_label
 
 
 def plot_pca_score(pca_result, pc_x=0, pc_y=1, fig=None):
@@ -113,7 +114,7 @@ def plot_pca_loading(pca_result, pc=0, top_n=20, fig=None):
 
     ax.barh(range(len(vals)), actual_vals, color=colors)
     ax.set_yticks(range(len(vals)))
-    ax.set_yticklabels([str(f)[:25] for f in vals.index], fontsize=8)
+    ax.set_yticklabels([_format_mzrt_label(str(f)) for f in vals.index], fontsize=8)
     ax.set_xlabel(f"Loading ({col})")
     ax.set_title(f"PCA Loading Plot — Top {top_n} Features")
     ax.axvline(0, color="grey", linewidth=0.5)

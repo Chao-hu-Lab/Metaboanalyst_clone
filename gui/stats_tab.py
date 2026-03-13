@@ -420,7 +420,11 @@ class StatsTab(QWidget):
         plot_key = self.pls_plot_type.currentData()
 
         if plot_key == "vip":
-            plot_vip(self._plsda_result, top_n=self.vip_topn.value(), fig=fig)
+            from core.shared_metadata import align_labels_to_data
+            _data = self.mw.current_data
+            _labels = align_labels_to_data(self.mw.current_data, self.mw.labels)
+            plot_vip(self._plsda_result, top_n=self.vip_topn.value(),
+                     data=_data, labels=_labels, fig=fig)
         elif plot_key == "score":
             fig.clear()
             ax = fig.add_subplot(111)
@@ -1388,7 +1392,7 @@ class StatsTab(QWidget):
         ctrl.addWidget(QLabel(self.tr("Plot:")))
         self.oplsda_plot_type = QComboBox()
         self.oplsda_plot_type.addItem(self.tr("Score Plot"), "score")
-        self.oplsda_plot_type.addItem(self.tr("S-Plot"), "splot")
+        # Keep S-Plot implementation available, but hide the selector for now.
         self.oplsda_plot_type.currentIndexChanged.connect(self._update_oplsda_plot)
         ctrl.addWidget(self.oplsda_plot_type)
 
@@ -1511,4 +1515,3 @@ class StatsTab(QWidget):
         if path:
             canvas.figure.savefig(path, dpi=300, bbox_inches="tight")
             self.mw.status_bar.showMessage(self.tr("Saved figure: {path}").format(path=path))
-
