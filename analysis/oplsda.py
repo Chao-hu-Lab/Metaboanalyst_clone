@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 from sklearn.cross_decomposition import PLSRegression
-from sklearn.model_selection import LeaveOneOut, StratifiedKFold, cross_val_score
+from sklearn.model_selection import LeaveOneOut, StratifiedKFold, cross_val_predict
 from sklearn.preprocessing import LabelEncoder
 
 try:
@@ -89,16 +89,21 @@ def _build_cv(y: np.ndarray, cv_method: str):
 
 
 def _safe_q2(pls_model: PLSRegression, x_data: np.ndarray, y_data: np.ndarray, cv) -> float:
-    if isinstance(cv, LeaveOneOut):
-        return 0.0
+    """
+    Compute Q² via PRESS/TSS using cross_val_predict.
+
+    Works correctly for both LOO and K-Fold. Standard formula used by
+    SIMCA and MetaboAnalyst: Q² = 1 - PRESS / TSS.
+    """
     try:
-        scores = cross_val_score(pls_model, x_data, y_data, cv=cv, scoring="r2")
-        scores = np.asarray(scores, dtype=float)
-        finite_scores = scores[np.isfinite(scores)]
-        if finite_scores.size == 0:
+        y_pred = cross_val_predict(pls_model, x_data, y_data, cv=cv)
+        press = np.sum((y_data - y_pred) ** 2)
+        tss = np.sum((y_data - np.mean(y_data)) ** 2)
+        if tss == 0:
             return 0.0
-        return float(finite_scores.mean())
-    except Exception:
+        return float(1.0 - press / tss)
+    except Exception as e:
+        print(f"    Q2 calculation failed: {e}")
         return 0.0
 
 

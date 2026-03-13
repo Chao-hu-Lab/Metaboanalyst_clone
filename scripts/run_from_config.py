@@ -111,6 +111,8 @@ def get_feature_id_column(raw: pd.DataFrame) -> str:
 def load_data(cfg: dict) -> tuple[pd.DataFrame, pd.Series]:
     """Load Excel data and return (samples x features DataFrame, labels Series)."""
     input_file = cfg["input"]["file"]
+    if not input_file:
+        raise ValueError("No input file specified. Use --input <path> on the command line.")
     fmt = cfg["input"].get("format", "sample_type_row")
 
     print("=" * 60)
@@ -563,6 +565,11 @@ def main():
         "config",
         help="Path to YAML configuration file (e.g., configs/step4_dnp_specnorm.yaml)",
     )
+    parser.add_argument(
+        "--input", "-i",
+        help="Override the input file path from config (e.g., path/to/data.xlsx)",
+        default=None,
+    )
     args = parser.parse_args()
 
     if not os.path.isfile(args.config):
@@ -570,6 +577,9 @@ def main():
         sys.exit(1)
 
     cfg = load_config(args.config)
+    if args.input:
+        cfg["input"]["file"] = args.input
+        print(f"Input overridden: {args.input}")
     print(f"Loaded config: {args.config}")
     run_analysis(cfg)
 
