@@ -36,6 +36,8 @@ _DARK = {
 
 def _resolve_scheme(app, theme: str) -> str:
     pref = (theme or "auto").lower()
+    if pref == "colorblind":
+        return "light"
     if pref in {"light", "dark"}:
         return pref
     window = app.palette().color(QPalette.ColorRole.Window)

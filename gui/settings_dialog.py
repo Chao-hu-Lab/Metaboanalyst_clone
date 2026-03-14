@@ -1,19 +1,24 @@
-"""
-設定對話框 — 主題 / 語言 偏好設定
-"""
+"""Application settings dialog for theme and language preferences."""
+
+from __future__ import annotations
 
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox,
-    QGroupBox, QDialogButtonBox,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QVBoxLayout,
 )
 
 
 class SettingsDialog(QDialog):
-    """應用程式偏好設定對話框"""
+    """Dialog used to update application appearance and language."""
 
-    def __init__(self, parent=None, current_theme="auto", current_locale="zh_TW"):
+    def __init__(self, parent=None, current_theme="light", current_locale="zh_TW"):
         super().__init__(parent)
-        self.setWindowTitle(self.tr("偏好設定"))
+        self.setWindowTitle(self.tr("Settings"))
         self.setMinimumWidth(400)
         self._current_theme = current_theme
         self._current_locale = current_locale
@@ -22,15 +27,14 @@ class SettingsDialog(QDialog):
     def _init_ui(self):
         layout = QVBoxLayout(self)
 
-        # ── 主題設定 ──
-        theme_group = QGroupBox(self.tr("外觀"))
+        theme_group = QGroupBox(self.tr("Appearance"))
         theme_layout = QHBoxLayout()
-        theme_layout.addWidget(QLabel(self.tr("主題:")))
+        theme_layout.addWidget(QLabel(self.tr("Theme:")))
         self.theme_combo = QComboBox()
-        self.theme_combo.addItem(self.tr("自動 (跟隨系統)"), "auto")
-        self.theme_combo.addItem(self.tr("淺色模式"), "light")
-        self.theme_combo.addItem(self.tr("深色模式"), "dark")
-        # 設定目前值
+        self.theme_combo.addItem(self.tr("Auto"), "auto")
+        self.theme_combo.addItem(self.tr("Light"), "light")
+        self.theme_combo.addItem(self.tr("Dark"), "dark")
+        self.theme_combo.addItem(self.tr("Colorblind-friendly"), "colorblind")
         for i in range(self.theme_combo.count()):
             if self.theme_combo.itemData(i) == self._current_theme:
                 self.theme_combo.setCurrentIndex(i)
@@ -39,12 +43,11 @@ class SettingsDialog(QDialog):
         theme_group.setLayout(theme_layout)
         layout.addWidget(theme_group)
 
-        # ── 語言設定 ──
-        lang_group = QGroupBox(self.tr("語言"))
+        lang_group = QGroupBox(self.tr("Language"))
         lang_layout = QHBoxLayout()
-        lang_layout.addWidget(QLabel(self.tr("介面語言:")))
+        lang_layout.addWidget(QLabel(self.tr("Display language:")))
         self.lang_combo = QComboBox()
-        self.lang_combo.addItem("繁體中文", "zh_TW")
+        self.lang_combo.addItem("Traditional Chinese", "zh_TW")
         self.lang_combo.addItem("English", "en")
         for i in range(self.lang_combo.count()):
             if self.lang_combo.itemData(i) == self._current_locale:
@@ -54,7 +57,6 @@ class SettingsDialog(QDialog):
         lang_group.setLayout(lang_layout)
         layout.addWidget(lang_group)
 
-        # ── 按鈕 ──
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )

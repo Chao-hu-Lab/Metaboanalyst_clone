@@ -16,6 +16,7 @@ from PySide6.QtCore import (
     QEvent,
     QLibraryInfo,
     QLocale,
+    QSignalBlocker,
     QSettings,
     QSize,
     Qt,
@@ -35,6 +36,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QProgressBar,
+    QComboBox,
     QSplitter,
     QStackedWidget,
     QStatusBar,
@@ -57,6 +59,7 @@ from gui.widgets.log_handler import QLogHandler
 from gui.widgets.mpl_canvas import MplWidget
 from gui.widgets.pandas_model import create_sortable_model
 from gui.widgets.worker import PipelineWorker
+from visualization.theme_manager import ThemeManager
 
 logger = logging.getLogger("pipeline")
 
@@ -135,16 +138,21 @@ class MainWindow(QMainWindow):
         self._app_translator = QTranslator()
         self._qt_translator = QTranslator()
         self._current_locale = "en"
-        self._current_theme = self._settings.value("theme", "auto", type=str)
+        self._current_theme = self._settings.value("theme", "light", type=str)
         app = QApplication.instance()
         if app is not None:
             apply_flat_theme(app, self._current_theme)
+        visual_theme = self._current_theme if self._current_theme in ThemeManager.SUPPORTED_THEMES else "light"
+        self.theme_manager = ThemeManager(default_theme=visual_theme)
 
         self._setup_ui()
         self._create_menu_bar()
+        self._create_main_toolbar()
         self._create_log_dock()
         self._setup_statusbar()
         self._update_tab_states()
+        self.theme_manager.register_callback(self._apply_selected_theme)
+        self._apply_selected_theme(self.theme_manager.current_theme)
 
         # Apply persisted language preference
         saved_locale = self._settings.value("language", "en", type=str)
@@ -363,6 +371,38 @@ class MainWindow(QMainWindow):
 
         self._retranslate_menus()
 
+    def _create_main_toolbar(self):
+        self.main_toolbar = self.addToolBar(self.tr("Main Tools"))
+        self.main_toolbar.setObjectName("MainToolbar")
+        self.main_toolbar.setMovable(False)
+
+        self._theme_toolbar_label = QLabel(self.tr("Theme:"))
+        self.theme_combo = QComboBox()
+        self.theme_combo.setObjectName("theme_combo")
+        self.theme_combo.addItems(self.theme_manager.get_supported_themes())
+        self.theme_combo.setCurrentText(self.theme_manager.current_theme)
+        self.theme_combo.currentTextChanged.connect(self._on_theme_combo_changed)
+
+        self.main_toolbar.addWidget(self._theme_toolbar_label)
+        self.main_toolbar.addWidget(self.theme_combo)
+
+    def _on_theme_combo_changed(self, theme_name: str):
+        self.theme_manager.set_theme(theme_name)
+
+    def _apply_selected_theme(self, theme_name: str):
+        app = QApplication.instance()
+        font_size = self._settings.value("font_size", 11, type=int)
+        if app is not None:
+            apply_flat_theme(app, theme_name, font_size)
+
+        self._current_theme = theme_name
+        self._settings.setValue("theme", theme_name)
+
+        if hasattr(self, "theme_combo") and self.theme_combo.currentText() != theme_name:
+            blocker = QSignalBlocker(self.theme_combo)
+            self.theme_combo.setCurrentText(theme_name)
+            del blocker
+
     def _create_log_dock(self):
         self.log_widget = QPlainTextEdit()
         self.log_widget.setReadOnly(True)
@@ -432,6 +472,10 @@ class MainWindow(QMainWindow):
         self.act_about.setText(self.tr("About"))
 
         self._preview_title.setText(self.tr("Live Preview"))
+        if hasattr(self, "_theme_toolbar_label"):
+            self._theme_toolbar_label.setText(self.tr("Theme:"))
+        if hasattr(self, "main_toolbar"):
+            self.main_toolbar.setWindowTitle(self.tr("Main Tools"))
 
     def retranslateUi(self):
         self.setWindowTitle(self.tr("PyMetaboAnalyst"))
@@ -788,11 +832,7 @@ class MainWindow(QMainWindow):
         theme = dlg.selected_theme
         locale = dlg.selected_locale
 
-        app = QApplication.instance()
-        if app is not None:
-            apply_flat_theme(app, theme)
-        self._current_theme = theme
-        self._settings.setValue("theme", theme)
+        self.theme_manager.set_theme(theme)
         logger.info("Theme switched to %s", theme)
 
         self.switch_language(locale)
