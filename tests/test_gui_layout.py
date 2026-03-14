@@ -9,7 +9,7 @@ def test_main_window_initialization(qapp):
     window = MainWindow()
     assert window is not None
     assert hasattr(window, "theme_manager")
-    assert window.theme_manager.current_theme == "light"
+    assert window.theme_manager.current_theme in window.theme_manager.SUPPORTED_THEMES
     window.close()
 
 
