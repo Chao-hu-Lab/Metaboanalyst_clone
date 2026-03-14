@@ -24,9 +24,9 @@ def _safe_feature_label(name, idx: int) -> str:
 
 def plot_rf_importance(
     rf_result,
-    fig: Figure | None = None,
     top_n: int = 25,
     theme: str = "light",
+    fig: Figure | None = None,
 ) -> Figure:
     """
     Plot the top Random Forest feature importances.
@@ -35,12 +35,12 @@ def plot_rf_importance(
     ----------
     rf_result : RFResult
         Result object returned by ``analysis.random_forest.run_random_forest``.
-    fig : Figure or None, default=None
-        Existing figure to reuse. When ``None``, a new figure is created.
     top_n : int, default=25
         Number of features to display.
     theme : str, default="light"
         Visualization theme name.
+    fig : Figure or None, default=None
+        Existing figure to reuse. When ``None``, a new figure is created.
 
     Returns
     -------
@@ -82,8 +82,8 @@ def plot_rf_importance(
 
 def plot_confusion_matrix(
     rf_result,
-    fig: Figure | None = None,
     theme: str = "light",
+    fig: Figure | None = None,
 ) -> Figure:
     """
     Plot the Random Forest confusion matrix.
@@ -92,10 +92,10 @@ def plot_confusion_matrix(
     ----------
     rf_result : RFResult
         Result object returned by ``analysis.random_forest.run_random_forest``.
-    fig : Figure or None, default=None
-        Existing figure to reuse. When ``None``, a new figure is created.
     theme : str, default="light"
         Visualization theme name.
+    fig : Figure or None, default=None
+        Existing figure to reuse. When ``None``, a new figure is created.
 
     Returns
     -------

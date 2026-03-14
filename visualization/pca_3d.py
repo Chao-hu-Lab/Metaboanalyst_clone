@@ -3,8 +3,14 @@
 from __future__ import annotations
 
 import numpy as np
+from typing import TYPE_CHECKING, Any
 
 from visualization.theme import COLORS, get_group_colors
+
+if TYPE_CHECKING:
+    from plotly.graph_objects import Figure as PlotlyFigure
+else:
+    PlotlyFigure = Any
 
 try:
     import plotly.graph_objects as go
@@ -21,7 +27,7 @@ def plot_pca_3d(
     pc_y: int = 1,
     pc_z: int = 2,
     theme: str = "light",
-) -> "plotly.graph_objects.Figure | None":
+) -> PlotlyFigure | None:
     """
     Plot a 3D PCA score chart using Plotly.
 

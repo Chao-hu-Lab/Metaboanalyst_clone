@@ -7,17 +7,23 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 from matplotlib.figure import Figure
+from typing import TYPE_CHECKING, Any
 
 from visualization.theme import COLORS, apply_publication_style, get_group_colors
+
+if TYPE_CHECKING:
+    from plotly.graph_objects import Figure as PlotlyFigure
+else:
+    PlotlyFigure = Any
 
 
 def plot_correlation_heatmap(
     corr_result,
-    fig: Figure | None = None,
     cmap: str = "RdBu_r",
     annot: bool = False,
     max_features: int = 30,
     theme: str = "light",
+    fig: Figure | None = None,
 ) -> Figure:
     """
     Plot a correlation heatmap for the selected result object.
@@ -26,8 +32,6 @@ def plot_correlation_heatmap(
     ----------
     corr_result : CorrelationResult
         Result object returned by ``analysis.correlation.run_correlation``.
-    fig : Figure or None, default=None
-        Existing figure to reuse. When ``None``, a new figure is created.
     cmap : str, default="RdBu_r"
         Matplotlib colormap name.
     annot : bool, default=False
@@ -36,6 +40,8 @@ def plot_correlation_heatmap(
         Maximum number of features to render.
     theme : str, default="light"
         Visualization theme name.
+    fig : Figure or None, default=None
+        Existing figure to reuse. When ``None``, a new figure is created.
 
     Returns
     -------
@@ -75,10 +81,10 @@ def plot_correlation_heatmap(
 
 def plot_correlation_network(
     corr_result,
-    fig: Figure | None = None,
     threshold: float = 0.8,
     top_n: int = 30,
     theme: str = "light",
+    fig: Figure | None = None,
 ) -> Figure:
     """
     Plot the strongest correlated feature pairs as a ranked bar chart.
@@ -87,14 +93,14 @@ def plot_correlation_network(
     ----------
     corr_result : CorrelationResult
         Result object returned by ``analysis.correlation.run_correlation``.
-    fig : Figure or None, default=None
-        Existing figure to reuse. When ``None``, a new figure is created.
     threshold : float, default=0.8
         Absolute correlation threshold shown in the title and empty state.
     top_n : int, default=30
         Number of pairs to display.
     theme : str, default="light"
         Visualization theme name.
+    fig : Figure or None, default=None
+        Existing figure to reuse. When ``None``, a new figure is created.
 
     Returns
     -------
@@ -142,7 +148,7 @@ def plot_correlation_network_interactive(
     df: pd.DataFrame,
     threshold: float = 0.7,
     theme: str = "light",
-) -> "plotly.graph_objects.Figure | None":
+) -> PlotlyFigure | None:
     """
     Build an interactive correlation network using Plotly.
 

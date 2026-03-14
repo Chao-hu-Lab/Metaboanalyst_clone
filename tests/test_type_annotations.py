@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import typing
 
 import pytest
 
@@ -34,3 +35,10 @@ def test_fig_parameter_typed_when_present(name, func):
         assert param.annotation is not inspect.Signature.empty, (
             f"{name}() 'fig' parameter is missing a type annotation"
         )
+
+
+@pytest.mark.parametrize("name,func", _PLOT_FUNCTIONS, ids=[name for name, _ in _PLOT_FUNCTIONS])
+def test_type_hints_resolve(name, func):
+    """Runtime type-hint resolution should not fail for public plot functions."""
+    hints = typing.get_type_hints(func)
+    assert "return" in hints, f"{name}() return type hint could not be resolved"

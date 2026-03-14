@@ -14,8 +14,8 @@ from visualization.theme import COLORS, apply_publication_style, get_group_color
 def plot_outlier_score(
     outlier_result,
     labels=None,
-    fig: Figure | None = None,
     theme: str = "light",
+    fig: Figure | None = None,
 ) -> Figure:
     """
     Plot the PCA score scatter and Hotelling's T2 bar chart for outlier review.
@@ -26,10 +26,10 @@ def plot_outlier_score(
         Result object returned by ``analysis.outlier.run_outlier_detection``.
     labels : array-like or None, default=None
         Optional labels for compatibility with existing callers.
-    fig : Figure or None, default=None
-        Existing figure to reuse. When ``None``, a new figure is created.
     theme : str, default="light"
         Visualization theme name.
+    fig : Figure or None, default=None
+        Existing figure to reuse. When ``None``, a new figure is created.
 
     Returns
     -------
@@ -123,8 +123,8 @@ def plot_outlier_score(
 
 def plot_dmodx(
     outlier_result,
-    fig: Figure | None = None,
     theme: str = "light",
+    fig: Figure | None = None,
 ) -> Figure:
     """
     Plot the DModX outlier chart.
@@ -133,10 +133,10 @@ def plot_dmodx(
     ----------
     outlier_result : OutlierResult
         Result object returned by ``analysis.outlier.run_outlier_detection``.
-    fig : Figure or None, default=None
-        Existing figure to reuse. When ``None``, a new figure is created.
     theme : str, default="light"
         Visualization theme name.
+    fig : Figure or None, default=None
+        Existing figure to reuse. When ``None``, a new figure is created.
 
     Returns
     -------

@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
+import pandas as pd
+
 from gui.main_window import MainWindow
 
 
@@ -79,4 +83,69 @@ def test_chart_type_visibility_changes(qapp):
 
     assert not visual_tab.heatmap_group.isHidden()
     assert visual_tab.boxplot_group.isHidden()
+    window.close()
+
+
+def test_visual_tab_exposes_interactive_chart_types(qapp):
+    window = MainWindow()
+    visual_tab = window.visual_tab
+
+    items = [visual_tab.chart_type_combo.itemText(i) for i in range(visual_tab.chart_type_combo.count())]
+    assert "Volcano Plot (Interactive)" in items
+    assert "ROC Curves (Interactive)" in items
+    window.close()
+
+
+def test_visual_tab_routes_interactive_volcano_to_plotly_widget(qapp, monkeypatch):
+    import visualization.volcano_plot as volcano_plot
+
+    window = MainWindow()
+    window.current_data = pd.DataFrame({"A": [1.0, 2.0], "B": [2.0, 3.0]}, index=["S1", "S2"])
+    window.labels = pd.Series(["Case", "Control"], index=window.current_data.index)
+    window.stats_tab._volcano_result = SimpleNamespace()
+
+    captured = {}
+
+    def fake_plot_volcano_interactive(volcano_result, top_n: int = 10, fc_threshold=None, pval_threshold=None, theme: str = "light"):
+        captured["theme"] = theme
+        captured["result"] = volcano_result
+        return object()
+
+    def fake_show_figure(fig):
+        captured["figure"] = fig
+
+    monkeypatch.setattr(volcano_plot, "plot_volcano_interactive", fake_plot_volcano_interactive)
+    monkeypatch.setattr(window.visual_tab.plotly_widget, "show_figure", fake_show_figure)
+
+    window.visual_tab.chart_type_combo.setCurrentIndex(
+        window.visual_tab.chart_type_combo.findData("volcano_interactive")
+    )
+    window.visual_tab.redraw_plot()
+
+    assert captured["result"] is window.stats_tab._volcano_result
+    assert captured["theme"] == window.theme_manager.current_theme
+    assert captured["figure"] is not None
+    assert window.visual_tab.preview_stack.currentWidget() is window.visual_tab.plotly_widget
+    window.close()
+
+
+def test_stats_tab_passes_active_theme_to_plot_helpers(qapp, monkeypatch):
+    import visualization.roc_plot as roc_plot
+
+    window = MainWindow()
+    window.theme_manager.set_theme("dark")
+    stats_tab = window.stats_tab
+    stats_tab._roc_result = SimpleNamespace()
+
+    captured = {}
+
+    def fake_plot_roc_curves(roc_result, show_multi: bool = True, top_n: int = 5, theme: str = "light", fig=None):
+        captured["theme"] = theme
+        return fig
+
+    monkeypatch.setattr(roc_plot, "plot_roc_curves", fake_plot_roc_curves)
+    stats_tab.roc_plot_type.setCurrentIndex(stats_tab.roc_plot_type.findData("roc"))
+    stats_tab._update_roc_plot()
+
+    assert captured["theme"] == "dark"
     window.close()

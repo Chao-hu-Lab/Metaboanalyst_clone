@@ -5,6 +5,7 @@ from __future__ import annotations
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.figure import Figure
+from typing import TYPE_CHECKING, Any
 
 try:
     from adjustText import adjust_text
@@ -14,6 +15,11 @@ except ImportError:
     HAS_ADJUSTTEXT = False
 
 from visualization.theme import COLORS, apply_publication_style, get_group_colors
+
+if TYPE_CHECKING:
+    from plotly.graph_objects import Figure as PlotlyFigure
+else:
+    PlotlyFigure = Any
 
 
 def plot_volcano(
@@ -99,7 +105,7 @@ def plot_volcano_interactive(
     fc_threshold: float | None = None,
     pval_threshold: float | None = None,
     theme: str = "light",
-) -> "plotly.graph_objects.Figure | None":
+) -> PlotlyFigure | None:
     """
     Build an interactive Plotly volcano plot.
 

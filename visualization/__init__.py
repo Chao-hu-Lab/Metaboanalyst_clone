@@ -46,17 +46,13 @@ from visualization.density_plot import plot_density  # noqa: E402
 from visualization.heatmap import plot_heatmap  # noqa: E402
 from visualization.norm_preview import plot_norm_comparison  # noqa: E402
 from visualization.outlier_plot import plot_dmodx, plot_outlier_score  # noqa: E402
+from visualization.oplsda_plot import plot_oplsda_score, plot_oplsda_splot  # noqa: E402
 from visualization.pca_3d import pca_3d_to_html, plot_pca_3d, plotly_to_html  # noqa: E402
 from visualization.pca_plot import plot_pca_loading, plot_pca_score, plot_pca_scree  # noqa: E402
 from visualization.rf_plot import plot_confusion_matrix, plot_rf_importance  # noqa: E402
 from visualization.roc_plot import plot_auc_ranking, plot_roc_curves, plot_roc_interactive  # noqa: E402
 from visualization.vip_plot import plot_vip  # noqa: E402
 from visualization.volcano_plot import plot_volcano, plot_volcano_interactive  # noqa: E402
-
-try:
-    from visualization.oplsda_plot import plot_oplsda_score, plot_oplsda_splot  # noqa: E402
-except ImportError:
-    pass
 
 
 __all__ = [
@@ -73,6 +69,8 @@ __all__ = [
     "plot_group_boxplot",
     "plot_heatmap",
     "plot_norm_comparison",
+    "plot_oplsda_score",
+    "plot_oplsda_splot",
     "plot_outlier_score",
     "plot_pca_3d",
     "plot_pca_loading",

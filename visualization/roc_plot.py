@@ -5,16 +5,22 @@ from __future__ import annotations
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.figure import Figure
+from typing import TYPE_CHECKING, Any
 
 from visualization.theme import COLORS, apply_publication_style, get_group_colors
+
+if TYPE_CHECKING:
+    from plotly.graph_objects import Figure as PlotlyFigure
+else:
+    PlotlyFigure = Any
 
 
 def plot_roc_curves(
     roc_result,
-    fig: Figure | None = None,
     show_multi: bool = True,
     top_n: int = 5,
     theme: str = "light",
+    fig: Figure | None = None,
 ) -> Figure:
     """
     Plot ROC curves for the top-ranked biomarkers and optional multi-feature model.
@@ -23,14 +29,14 @@ def plot_roc_curves(
     ----------
     roc_result : ROCResult
         Result object returned by ``analysis.roc.run_roc_analysis``.
-    fig : Figure or None, default=None
-        Existing figure to reuse. When ``None``, a new figure is created.
     show_multi : bool, default=True
         Whether to overlay the multi-feature logistic regression ROC curve.
     top_n : int, default=5
         Number of single-feature ROC curves to display.
     theme : str, default="light"
         Visualization theme name.
+    fig : Figure or None, default=None
+        Existing figure to reuse. When ``None``, a new figure is created.
 
     Returns
     -------
@@ -84,9 +90,9 @@ def plot_roc_curves(
 
 def plot_auc_ranking(
     roc_result,
-    fig: Figure | None = None,
     top_n: int = 15,
     theme: str = "light",
+    fig: Figure | None = None,
 ) -> Figure:
     """
     Plot AUC ranking for the top biomarkers.
@@ -95,12 +101,12 @@ def plot_auc_ranking(
     ----------
     roc_result : ROCResult
         Result object returned by ``analysis.roc.run_roc_analysis``.
-    fig : Figure or None, default=None
-        Existing figure to reuse. When ``None``, a new figure is created.
     top_n : int, default=15
         Number of ranked biomarkers to display.
     theme : str, default="light"
         Visualization theme name.
+    fig : Figure or None, default=None
+        Existing figure to reuse. When ``None``, a new figure is created.
 
     Returns
     -------
@@ -143,7 +149,7 @@ def plot_roc_interactive(
     roc_result,
     top_n: int = 10,
     theme: str = "light",
-) -> "plotly.graph_objects.Figure | None":
+) -> PlotlyFigure | None:
     """
     Build an interactive Plotly ROC chart.
 

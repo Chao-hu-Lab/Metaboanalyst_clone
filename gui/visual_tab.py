@@ -16,11 +16,13 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSpinBox,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from gui.widgets.mpl_canvas import MatplotlibCanvas
+from gui.widgets.plotly_widget import PlotlyWidget
 from visualization.theme import apply_publication_style
 
 logger = logging.getLogger(__name__)
@@ -41,7 +43,9 @@ class VisualTab(QWidget):
         self.update_timer.timeout.connect(self.redraw_plot)
 
         self.theme_manager.register_callback(self.on_theme_changed)
-        self.destroyed.connect(lambda *_: self.theme_manager.unregister_callback(self.on_theme_changed))
+        self.destroyed.connect(
+            lambda *_: self.theme_manager.unregister_callback(self.on_theme_changed)
+        )
         self._init_ui()
 
     def _init_ui(self) -> None:
@@ -62,6 +66,7 @@ class VisualTab(QWidget):
         self.header_label.setStyleSheet("font-size: 15px; font-weight: 600;")
         content_layout.addWidget(self.header_label)
 
+        self.preview_stack = QStackedWidget()
         self.mpl_canvas = MatplotlibCanvas(
             self,
             figsize=(9, 6),
@@ -69,7 +74,11 @@ class VisualTab(QWidget):
             use_default_toolbar=False,
             use_plot_toolbar=True,
         )
-        content_layout.addWidget(self.mpl_canvas, stretch=1)
+        self.plotly_widget = PlotlyWidget(self)
+        self.preview_stack.addWidget(self.mpl_canvas)
+        self.preview_stack.addWidget(self.plotly_widget)
+        content_layout.addWidget(self.preview_stack, stretch=1)
+
         layout.addWidget(self.content_frame, stretch=1)
 
         self._apply_control_visibility()
@@ -99,6 +108,8 @@ class VisualTab(QWidget):
         self.chart_type_combo.addItem("Heatmap", "heatmap")
         self.chart_type_combo.addItem("PCA Score", "pca")
         self.chart_type_combo.addItem("Volcano Plot", "volcano")
+        self.chart_type_combo.addItem("Volcano Plot (Interactive)", "volcano_interactive")
+        self.chart_type_combo.addItem("ROC Curves (Interactive)", "roc_interactive")
         self.chart_type_combo.currentIndexChanged.connect(self._on_chart_type_changed)
         general_layout.addWidget(self.chart_type_combo)
 
@@ -244,7 +255,14 @@ class VisualTab(QWidget):
         width, height = base_sizes.get(chart_key, (8, 5))
         fig.set_size_inches(width * scale_factor, height * scale_factor, forward=True)
 
+    def _show_matplotlib_view(self) -> None:
+        self.preview_stack.setCurrentWidget(self.mpl_canvas)
+
+    def _show_plotly_view(self) -> None:
+        self.preview_stack.setCurrentWidget(self.plotly_widget)
+
     def _show_placeholder(self, message: str) -> None:
+        self._show_matplotlib_view()
         fig = self.mpl_canvas.figure
         config = self.theme_manager.get_theme_config()
         fig.clear()
@@ -265,11 +283,16 @@ class VisualTab(QWidget):
         self.mpl_canvas.draw()
 
     def _set_rendered_figure(self, fig) -> None:
+        self._show_matplotlib_view()
         if fig is not self.mpl_canvas.figure:
             self.mpl_canvas.set_figure(fig)
         self.mpl_canvas.draw()
         if hasattr(self.mw, "show_shared_plot"):
             self.mw.show_shared_plot(self.mpl_canvas.figure)
+
+    def _set_rendered_plotly(self, fig) -> None:
+        self._show_plotly_view()
+        self.plotly_widget.show_figure(fig)
 
     def redraw_plot(self) -> None:
         apply_publication_style(self.theme_manager.current_theme)
@@ -283,32 +306,47 @@ class VisualTab(QWidget):
         chart_key = self.chart_type_combo.currentData()
         try:
             if chart_key == "boxplot":
-                fig = self._draw_boxplot(data, labels)
+                self._set_rendered_figure(self._draw_boxplot(data, labels))
             elif chart_key == "density":
-                fig = self._draw_density(data, labels)
+                self._set_rendered_figure(self._draw_density(data, labels))
             elif chart_key == "heatmap":
-                fig = self._draw_heatmap(data, labels)
+                self._set_rendered_figure(self._draw_heatmap(data, labels))
             elif chart_key == "pca":
-                fig = self._draw_pca(data, labels)
+                self._set_rendered_figure(self._draw_pca(data, labels))
             elif chart_key == "volcano":
-                fig = self._draw_volcano()
+                self._set_rendered_figure(self._draw_volcano())
+            elif chart_key == "volcano_interactive":
+                self._draw_plotly(self._draw_volcano_interactive)
+            elif chart_key == "roc_interactive":
+                self._draw_plotly(self._draw_roc_interactive)
             else:
                 self._show_placeholder("Select a chart type to begin.")
-                return
         except Exception as exc:
             logger.exception("VisualTab redraw failed")
             self._last_render_error = exc
             self._show_placeholder(f"Unable to render chart:\n{exc}")
-            return
 
-        self._set_rendered_figure(fig)
+    def _draw_plotly(self, draw_fn) -> None:
+        fig = draw_fn()
+        if fig is None:
+            return
+        self._set_rendered_plotly(fig)
 
     def _draw_boxplot(self, data, labels):
         from visualization.boxplot import plot_group_boxplot, plot_sample_boxplot
 
         fig = self.mpl_canvas.figure
-        plot_fn = plot_group_boxplot if self.box_mode_combo.currentData() == "group" else plot_sample_boxplot
-        rendered_fig = plot_fn(data, labels, theme=self.theme_manager.current_theme, fig=fig)
+        plot_fn = (
+            plot_group_boxplot
+            if self.box_mode_combo.currentData() == "group"
+            else plot_sample_boxplot
+        )
+        rendered_fig = plot_fn(
+            data,
+            labels,
+            theme=self.theme_manager.current_theme,
+            fig=fig,
+        )
         self._apply_scale(rendered_fig)
         return rendered_fig
 
@@ -378,6 +416,42 @@ class VisualTab(QWidget):
         )
         self._apply_scale(rendered_fig)
         return rendered_fig
+
+    def _draw_volcano_interactive(self):
+        from visualization.volcano_plot import plot_volcano_interactive
+
+        stats_tab = getattr(self.mw, "stats_tab", None)
+        volcano_result = getattr(stats_tab, "_volcano_result", None)
+        if volcano_result is None:
+            self._show_placeholder("Run volcano analysis in the Statistics tab to preview it here.")
+            return None
+
+        fig = plot_volcano_interactive(
+            volcano_result,
+            theme=self.theme_manager.current_theme,
+        )
+        if fig is None:
+            self._show_placeholder("Plotly is required to render interactive volcano charts.")
+            return None
+        return fig
+
+    def _draw_roc_interactive(self):
+        from visualization.roc_plot import plot_roc_interactive
+
+        stats_tab = getattr(self.mw, "stats_tab", None)
+        roc_result = getattr(stats_tab, "_roc_result", None)
+        if roc_result is None:
+            self._show_placeholder("Run ROC analysis in the Statistics tab to preview it here.")
+            return None
+
+        fig = plot_roc_interactive(
+            roc_result,
+            theme=self.theme_manager.current_theme,
+        )
+        if fig is None:
+            self._show_placeholder("Plotly is required to render interactive ROC charts.")
+            return None
+        return fig
 
     def on_theme_changed(self, theme_name: str) -> None:
         self.redraw_plot()

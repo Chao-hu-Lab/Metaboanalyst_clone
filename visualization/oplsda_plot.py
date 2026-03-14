@@ -68,10 +68,10 @@ def _mahalanobis_outliers(x, y, confidence: float = 0.95) -> np.ndarray:
 
 def plot_oplsda_score(
     oplsda_result,
-    fig: Figure | None = None,
     show_labels: str = "outlier",
     confidence: float = 0.95,
     theme: str = "light",
+    fig: Figure | None = None,
 ) -> Figure:
     """
     Plot the OPLS-DA score chart.
@@ -80,14 +80,14 @@ def plot_oplsda_score(
     ----------
     oplsda_result : OPLSDAResult
         Result object returned by ``analysis.oplsda.run_oplsda``.
-    fig : Figure or None, default=None
-        Existing figure to reuse. When ``None``, a new figure is created.
     show_labels : {"outlier", "all", "none"}, default="outlier"
         Labeling strategy for score points.
     confidence : float, default=0.95
         Confidence level used for ellipses and outlier detection.
     theme : str, default="light"
         Visualization theme name.
+    fig : Figure or None, default=None
+        Existing figure to reuse. When ``None``, a new figure is created.
 
     Returns
     -------
@@ -182,9 +182,9 @@ def plot_oplsda_score(
 
 def plot_oplsda_splot(
     oplsda_result,
-    fig: Figure | None = None,
     top_n: int = 10,
     theme: str = "light",
+    fig: Figure | None = None,
 ) -> Figure:
     """
     Plot the OPLS-DA S-plot.
@@ -193,12 +193,12 @@ def plot_oplsda_splot(
     ----------
     oplsda_result : OPLSDAResult
         Result object returned by ``analysis.oplsda.run_oplsda``.
-    fig : Figure or None, default=None
-        Existing figure to reuse. When ``None``, a new figure is created.
     top_n : int, default=10
         Number of top features to annotate.
     theme : str, default="light"
         Visualization theme name.
+    fig : Figure or None, default=None
+        Existing figure to reuse. When ``None``, a new figure is created.
 
     Returns
     -------

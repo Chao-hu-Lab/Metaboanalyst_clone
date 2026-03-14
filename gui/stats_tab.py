@@ -74,6 +74,10 @@ class StatsTab(QWidget):
             labels = labels.copy()
         return data, labels
 
+    def _current_theme(self) -> str:
+        theme_manager = getattr(self.mw, "theme_manager", None)
+        return getattr(theme_manager, "current_theme", "light")
+
     def _snapshot_stats_data(self, require_labels: bool = False):
         data, labels = self._snapshot_data()
         labels = align_labels_to_data(data, labels)
@@ -222,12 +226,22 @@ class StatsTab(QWidget):
         fig = self.pca_canvas.figure
 
         if plot_key == "score":
-            plot_pca_score(self._pca_result, pc_x=self.pca_pcx.value()-1,
-                           pc_y=self.pca_pcy.value()-1, fig=fig)
+            plot_pca_score(
+                self._pca_result,
+                pc_x=self.pca_pcx.value() - 1,
+                pc_y=self.pca_pcy.value() - 1,
+                theme=self._current_theme(),
+                fig=fig,
+            )
         elif plot_key == "scree":
-            plot_pca_scree(self._pca_result, fig=fig)
+            plot_pca_scree(self._pca_result, theme=self._current_theme(), fig=fig)
         elif plot_key == "loading":
-            plot_pca_loading(self._pca_result, pc=self.pca_pcx.value()-1, fig=fig)
+            plot_pca_loading(
+                self._pca_result,
+                pc=self.pca_pcx.value() - 1,
+                theme=self._current_theme(),
+                fig=fig,
+            )
         self.pca_canvas.draw()
         self.mw.show_shared_plot(self.pca_canvas.figure)
 
@@ -297,6 +311,7 @@ class StatsTab(QWidget):
             pc_x=self.pca3d_x.value()-1,
             pc_y=self.pca3d_y.value()-1,
             pc_z=self.pca3d_z.value()-1,
+            theme=self._current_theme(),
         )
         if fig is not None:
             self.pca3d_widget.show_figure(fig)
@@ -423,7 +438,7 @@ class StatsTab(QWidget):
             _data = self.mw.current_data
             _labels = align_labels_to_data(self.mw.current_data, self.mw.labels)
             plot_vip(self._plsda_result, top_n=self.vip_topn.value(),
-                     data=_data, labels=_labels, fig=fig)
+                     data=_data, labels=_labels, theme=self._current_theme(), fig=fig)
         elif plot_key == "score":
             fig.clear()
             ax = fig.add_subplot(111)
@@ -572,7 +587,7 @@ class StatsTab(QWidget):
 
         def _on_success(result):
             self._volcano_result = result
-            plot_volcano(result, fig=self.vol_canvas.figure)
+            plot_volcano(result, theme=self._current_theme(), fig=self.vol_canvas.figure)
             self.vol_canvas.draw()
             self.mw.show_shared_plot(self.vol_canvas.figure)
 
@@ -715,7 +730,11 @@ class StatsTab(QWidget):
             self._anova_result = result
             self._anova_plot_data = data
             self._anova_plot_labels = labels_snapshot
-            plot_anova_importance(result, fig=self.anova_canvas.figure)
+            plot_anova_importance(
+                result,
+                theme=self._current_theme(),
+                fig=self.anova_canvas.figure,
+            )
             self.anova_canvas.draw()
             self.mw.show_shared_plot(self.anova_canvas.figure)
 
@@ -770,6 +789,7 @@ class StatsTab(QWidget):
         )
         plot_feature_boxplot(
             data, labels, feat,
+            theme=self._current_theme(),
             fig=self.anova_feat_canvas.figure,
         )
         self.anova_feat_canvas.draw()
@@ -922,10 +942,10 @@ class StatsTab(QWidget):
         fig = self.roc_canvas.figure
         if plot_key == "roc":
             from visualization.roc_plot import plot_roc_curves
-            plot_roc_curves(self._roc_result, fig=fig)
+            plot_roc_curves(self._roc_result, theme=self._current_theme(), fig=fig)
         else:
             from visualization.roc_plot import plot_auc_ranking
-            plot_auc_ranking(self._roc_result, fig=fig)
+            plot_auc_ranking(self._roc_result, theme=self._current_theme(), fig=fig)
         self.roc_canvas.draw()
         self.mw.show_shared_plot(self.roc_canvas.figure)
 
@@ -1077,12 +1097,20 @@ class StatsTab(QWidget):
         plot_key = self.corr_plot_type.currentData()
         if plot_key == "heatmap":
             from visualization.correlation_plot import plot_correlation_heatmap
-            plot_correlation_heatmap(self._corr_result, fig=fig,
-                                     max_features=self.corr_topn.value())
+            plot_correlation_heatmap(
+                self._corr_result,
+                max_features=self.corr_topn.value(),
+                theme=self._current_theme(),
+                fig=fig,
+            )
         else:
             from visualization.correlation_plot import plot_correlation_network
-            plot_correlation_network(self._corr_result, fig=fig,
-                                     threshold=self.corr_thresh.value())
+            plot_correlation_network(
+                self._corr_result,
+                threshold=self.corr_thresh.value(),
+                theme=self._current_theme(),
+                fig=fig,
+            )
         self.corr_canvas.draw()
         self.mw.show_shared_plot(self.corr_canvas.figure)
 
@@ -1211,10 +1239,15 @@ class StatsTab(QWidget):
         plot_key = self.rf_plot_type.currentData()
         if plot_key == "importance":
             from visualization.rf_plot import plot_rf_importance
-            plot_rf_importance(self._rf_result, fig=fig, top_n=self.rf_topn.value())
+            plot_rf_importance(
+                self._rf_result,
+                top_n=self.rf_topn.value(),
+                theme=self._current_theme(),
+                fig=fig,
+            )
         else:
             from visualization.rf_plot import plot_confusion_matrix
-            plot_confusion_matrix(self._rf_result, fig=fig)
+            plot_confusion_matrix(self._rf_result, theme=self._current_theme(), fig=fig)
         self.rf_canvas.draw()
         self.mw.show_shared_plot(self.rf_canvas.figure)
 
@@ -1347,10 +1380,15 @@ class StatsTab(QWidget):
         plot_key = self.out_plot_type.currentData()
         if plot_key == "t2":
             from visualization.outlier_plot import plot_outlier_score
-            plot_outlier_score(self._outlier_result, labels=self._outlier_labels, fig=fig)
+            plot_outlier_score(
+                self._outlier_result,
+                labels=self._outlier_labels,
+                theme=self._current_theme(),
+                fig=fig,
+            )
         else:
             from visualization.outlier_plot import plot_dmodx
-            plot_dmodx(self._outlier_result, fig=fig)
+            plot_dmodx(self._outlier_result, theme=self._current_theme(), fig=fig)
         self.out_canvas.draw()
         self.mw.show_shared_plot(self.out_canvas.figure)
 
@@ -1487,9 +1525,9 @@ class StatsTab(QWidget):
         fig = self.oplsda_canvas.figure
         plot_key = self.oplsda_plot_type.currentData()
         if plot_key == "score":
-            plot_oplsda_score(self._oplsda_result, fig=fig)
+            plot_oplsda_score(self._oplsda_result, theme=self._current_theme(), fig=fig)
         else:
-            plot_oplsda_splot(self._oplsda_result, fig=fig)
+            plot_oplsda_splot(self._oplsda_result, theme=self._current_theme(), fig=fig)
         self.oplsda_canvas.draw()
         self.mw.show_shared_plot(self.oplsda_canvas.figure)
 
