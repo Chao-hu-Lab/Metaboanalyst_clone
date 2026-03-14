@@ -103,7 +103,9 @@ def run_random_forest(
         n_estimators=n_trees,
         oob_score=True,
         random_state=random_state,
-        n_jobs=-1,
+        # Single-process execution is more robust in restricted Windows environments
+        # used by tests and packaged GUI sessions.
+        n_jobs=1,
     )
     rf.fit(X, y)
     oob_acc = float(rf.oob_score_)
