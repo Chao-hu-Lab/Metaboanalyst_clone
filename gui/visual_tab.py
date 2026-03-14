@@ -316,7 +316,12 @@ class VisualTab(QWidget):
         from visualization.density_plot import plot_density
 
         fig = self.mpl_canvas.figure
-        rendered_fig = plot_density(data, labels, fig=fig)
+        rendered_fig = plot_density(
+            data,
+            labels,
+            theme=self.theme_manager.current_theme,
+            fig=fig,
+        )
         self._apply_scale(rendered_fig)
         return rendered_fig
 

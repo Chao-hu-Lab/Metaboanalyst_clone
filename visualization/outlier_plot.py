@@ -1,31 +1,52 @@
-"""
-Outlier visualization for Hotelling's T2 and DModX.
-"""
+"""Outlier visualization helpers."""
 
 from __future__ import annotations
 
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib.figure import Figure
 from matplotlib.patches import Ellipse
 from scipy.stats import chi2
+
+from visualization.theme import COLORS, apply_publication_style, get_group_colors
 
 
 def plot_outlier_score(
     outlier_result,
     labels=None,
-    fig: Figure = None,
-):
+    fig: Figure | None = None,
+    theme: str = "light",
+) -> Figure:
     """
-    Plot PCA score scatter + T2 bar chart.
-    Handles low-dimensional score spaces safely.
+    Plot the PCA score scatter and Hotelling's T2 bar chart for outlier review.
+
+    Parameters
+    ----------
+    outlier_result : OutlierResult
+        Result object returned by ``analysis.outlier.run_outlier_detection``.
+    labels : array-like or None, default=None
+        Optional labels for compatibility with existing callers.
+    fig : Figure or None, default=None
+        Existing figure to reuse. When ``None``, a new figure is created.
+    theme : str, default="light"
+        Visualization theme name.
+
+    Returns
+    -------
+    Figure
+        The rendered matplotlib figure.
     """
+    del labels
+    apply_publication_style(theme)
+    config = COLORS.get(theme, COLORS["light"])
+    palette = get_group_colors(theme, 2)
+
     if fig is None:
         fig = plt.figure(figsize=(10, 5))
     fig.clf()
 
     scores = outlier_result.scores
-    t2 = outlier_result.t2_values
+    t2_values = outlier_result.t2_values
     outlier_mask = outlier_result.outlier_mask_t2
     var_ratio = outlier_result.explained_variance
 
@@ -34,40 +55,45 @@ def plot_outlier_score(
 
     ax1 = fig.add_subplot(121)
     normal = ~outlier_mask
-    ax1.scatter(x[normal], y[normal], c="#3498db", alpha=0.7, s=40, label="Normal")
+    ax1.scatter(x[normal], y[normal], c=palette[1], alpha=0.75, s=40, label="Normal")
     ax1.scatter(
         x[outlier_mask],
         y[outlier_mask],
-        c="#e74c3c",
+        c=palette[0],
         marker="x",
         s=80,
         linewidths=2,
         label="Outlier",
     )
 
-    names = outlier_result.sample_names
-    for i in np.where(outlier_mask)[0]:
-        ax1.annotate(str(names[i]), (x[i], y[i]), fontsize=7, color="red", alpha=0.8)
+    for idx in np.where(outlier_mask)[0]:
+        ax1.annotate(
+            str(outlier_result.sample_names[idx]),
+            (x[idx], y[idx]),
+            fontsize=7,
+            color=palette[0],
+            alpha=0.9,
+        )
 
     if len(x) > 2 and scores.shape[1] > 1:
         cov = np.cov(x, y)
         if np.all(np.isfinite(cov)) and np.linalg.det(cov) > 0:
-            vals, vecs = np.linalg.eigh(cov)
-            vals = np.maximum(vals, 0)
-            angle = np.degrees(np.arctan2(*vecs[:, 1][::-1]))
+            eig_vals, eig_vecs = np.linalg.eigh(cov)
+            eig_vals = np.maximum(eig_vals, 0)
+            angle = np.degrees(np.arctan2(*eig_vecs[:, 1][::-1]))
             n_std = np.sqrt(chi2.ppf(0.95, 2))
-            w, h = 2 * n_std * np.sqrt(vals)
-            ell = Ellipse(
+            width, height = 2 * n_std * np.sqrt(eig_vals)
+            ellipse = Ellipse(
                 xy=(x.mean(), y.mean()),
-                width=w,
-                height=h,
+                width=width,
+                height=height,
                 angle=angle,
-                edgecolor="grey",
+                edgecolor=config["grid"],
                 facecolor="none",
                 linestyle="--",
                 linewidth=1.5,
             )
-            ax1.add_patch(ell)
+            ax1.add_patch(ellipse)
 
     pc1 = var_ratio[0] * 100 if len(var_ratio) > 0 else 0
     pc2 = var_ratio[1] * 100 if len(var_ratio) > 1 else 0
@@ -77,11 +103,11 @@ def plot_outlier_score(
     ax1.legend(fontsize=8)
 
     ax2 = fig.add_subplot(122)
-    colors = ["#e74c3c" if o else "#3498db" for o in outlier_mask]
-    ax2.bar(range(len(t2)), t2, color=colors, alpha=0.7)
+    bar_colors = [palette[0] if is_outlier else palette[1] for is_outlier in outlier_mask]
+    ax2.bar(range(len(t2_values)), t2_values, color=bar_colors, alpha=0.75)
     ax2.axhline(
         y=outlier_result.t2_threshold,
-        color="red",
+        color=palette[0],
         linestyle="--",
         linewidth=1.5,
         label=f"95% threshold ({outlier_result.t2_threshold:.2f})",
@@ -97,11 +123,29 @@ def plot_outlier_score(
 
 def plot_dmodx(
     outlier_result,
-    fig: Figure = None,
-):
+    fig: Figure | None = None,
+    theme: str = "light",
+) -> Figure:
     """
-    Plot DModX bar chart.
+    Plot the DModX outlier chart.
+
+    Parameters
+    ----------
+    outlier_result : OutlierResult
+        Result object returned by ``analysis.outlier.run_outlier_detection``.
+    fig : Figure or None, default=None
+        Existing figure to reuse. When ``None``, a new figure is created.
+    theme : str, default="light"
+        Visualization theme name.
+
+    Returns
+    -------
+    Figure
+        The rendered matplotlib figure.
     """
+    apply_publication_style(theme)
+    palette = get_group_colors(theme, 2)
+
     if fig is None:
         fig = plt.figure(figsize=(8, 5))
     fig.clf()
@@ -109,12 +153,12 @@ def plot_dmodx(
 
     dmodx = outlier_result.dmodx
     outlier_mask = outlier_result.outlier_mask_dmodx
-    colors = ["#e74c3c" if o else "#2ecc71" for o in outlier_mask]
+    colors = [palette[0] if is_outlier else palette[1] for is_outlier in outlier_mask]
 
-    ax.bar(range(len(dmodx)), dmodx, color=colors, alpha=0.7)
+    ax.bar(range(len(dmodx)), dmodx, color=colors, alpha=0.75)
     ax.axhline(
         y=outlier_result.dmodx_threshold,
-        color="red",
+        color=palette[0],
         linestyle="--",
         linewidth=1.5,
         label=f"95% threshold ({outlier_result.dmodx_threshold:.4f})",
@@ -124,13 +168,12 @@ def plot_dmodx(
     ax.set_title("DModX (Distance to Model)")
     ax.legend(fontsize=8)
 
-    names = outlier_result.sample_names
-    for i in np.where(outlier_mask)[0]:
+    for idx in np.where(outlier_mask)[0]:
         ax.annotate(
-            str(names[i]),
-            (i, dmodx[i]),
+            str(outlier_result.sample_names[idx]),
+            (idx, dmodx[idx]),
             fontsize=7,
-            color="red",
+            color=palette[0],
             ha="center",
             va="bottom",
         )

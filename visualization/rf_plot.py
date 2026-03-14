@@ -1,8 +1,4 @@
-"""
-Random Forest visualizations:
-- feature importance
-- confusion matrix
-"""
+"""Random Forest visualizations."""
 
 from __future__ import annotations
 
@@ -10,6 +6,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 from matplotlib.figure import Figure
+
+from visualization.theme import apply_publication_style, get_group_colors
 
 
 _INVALID_LABELS = {"", "na", "nan", "none", "null"}
@@ -26,34 +24,48 @@ def _safe_feature_label(name, idx: int) -> str:
 
 def plot_rf_importance(
     rf_result,
-    fig: Figure = None,
+    fig: Figure | None = None,
     top_n: int = 25,
-):
+    theme: str = "light",
+) -> Figure:
     """
-    Plot top-N Random Forest feature importance.
+    Plot the top Random Forest feature importances.
+
+    Parameters
+    ----------
+    rf_result : RFResult
+        Result object returned by ``analysis.random_forest.run_random_forest``.
+    fig : Figure or None, default=None
+        Existing figure to reuse. When ``None``, a new figure is created.
+    top_n : int, default=25
+        Number of features to display.
+    theme : str, default="light"
+        Visualization theme name.
+
+    Returns
+    -------
+    Figure
+        The rendered matplotlib figure.
     """
+    apply_publication_style(theme)
     imp_df = rf_result.feature_importance.head(top_n).copy()
     if "Importance" not in imp_df.columns or "Feature" not in imp_df.columns:
         raise ValueError("rf_result.feature_importance must contain 'Feature' and 'Importance' columns.")
 
-    importances = imp_df["Importance"].fillna(0.0).to_numpy(dtype=float)
-    max_importance = float(np.nanmax(importances)) if len(importances) else 0.0
-    if not np.isfinite(max_importance) or max_importance <= 0:
-        color_scale = np.zeros_like(importances)
-    else:
-        color_scale = importances / max_importance
-
-    feature_labels = [
-        _safe_feature_label(name, idx)
-        for idx, name in enumerate(imp_df["Feature"].tolist())
-    ]
-
     if fig is None:
-        fig = plt.figure(figsize=(8, max(4, len(imp_df) * 0.35)))
+        fig = plt.figure(figsize=(8, max(4, max(len(imp_df), 1) * 0.35)))
     fig.clf()
     ax = fig.add_subplot(111)
 
-    colors = plt.cm.YlOrRd(color_scale)
+    importances = imp_df["Importance"].fillna(0.0).to_numpy(dtype=float)
+    feature_labels = [_safe_feature_label(name, idx) for idx, name in enumerate(imp_df["Feature"])]
+    palette = get_group_colors(theme, 3)
+    max_importance = float(np.nanmax(importances)) if len(importances) else 0.0
+    if not np.isfinite(max_importance) or max_importance <= 0:
+        colors = [palette[1]] * len(importances)
+    else:
+        colors = [palette[0] if value >= max_importance * 0.66 else palette[1] if value >= max_importance * 0.33 else palette[2] for value in importances]
+
     ax.barh(range(len(imp_df)), importances, color=colors)
     ax.set_yticks(range(len(imp_df)))
     ax.set_yticklabels(feature_labels, fontsize=8)
@@ -70,11 +82,27 @@ def plot_rf_importance(
 
 def plot_confusion_matrix(
     rf_result,
-    fig: Figure = None,
-):
+    fig: Figure | None = None,
+    theme: str = "light",
+) -> Figure:
     """
-    Plot Random Forest confusion matrix.
+    Plot the Random Forest confusion matrix.
+
+    Parameters
+    ----------
+    rf_result : RFResult
+        Result object returned by ``analysis.random_forest.run_random_forest``.
+    fig : Figure or None, default=None
+        Existing figure to reuse. When ``None``, a new figure is created.
+    theme : str, default="light"
+        Visualization theme name.
+
+    Returns
+    -------
+    Figure
+        The rendered matplotlib figure.
     """
+    apply_publication_style(theme)
     if fig is None:
         fig = plt.figure(figsize=(6, 5))
     fig.clf()
@@ -82,12 +110,13 @@ def plot_confusion_matrix(
 
     cm = rf_result.confusion_mat
     class_names = rf_result.class_names
+    cmap = sns.light_palette(get_group_colors(theme, 1)[0], as_cmap=True)
 
     sns.heatmap(
         cm,
         annot=True,
         fmt="d",
-        cmap="Blues",
+        cmap=cmap,
         xticklabels=class_names,
         yticklabels=class_names,
         ax=ax,
@@ -98,4 +127,3 @@ def plot_confusion_matrix(
     ax.set_title(f"Confusion Matrix (CV)\nAccuracy {rf_result.cv_accuracy:.1%}")
     fig.tight_layout()
     return fig
-

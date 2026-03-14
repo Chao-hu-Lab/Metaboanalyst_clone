@@ -1,27 +1,44 @@
-"""
-ANOVA visualization helpers.
+"""ANOVA visualization helpers."""
 
-- Importance ranking bar chart (by -log10 p-value)
-- Single feature boxplot with statistical annotation (MetaboAnalyst / R style)
-"""
+from __future__ import annotations
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
 from scipy.stats import f_oneway, ttest_ind
 
-# MetaboAnalyst-style group colors (crimson, green, blue, orange, purple)
-_MA_BOX_COLORS = [
-    "#E41A1C",  # crimson/red
-    "#4DAF4A",  # green
-    "#377EB8",  # blue
-    "#FF7F00",  # orange
-    "#984EA3",  # purple
-]
+from visualization.theme import COLORS, apply_publication_style, get_group_colors
 
 
-def plot_anova_importance(anova_result, top_n=25, fig=None):
-    """Plot ANOVA importance ranking."""
+def plot_anova_importance(
+    anova_result,
+    top_n: int = 25,
+    theme: str = "light",
+    fig: Figure | None = None,
+) -> Figure:
+    """
+    Plot ANOVA feature importance as a ranked horizontal bar chart.
+
+    Parameters
+    ----------
+    anova_result : ANOVAResult
+        Result object returned by ``analysis.anova.run_anova``.
+    top_n : int, default=25
+        Number of top-ranked features to display.
+    theme : str, default="light"
+        Visualization theme name.
+    fig : Figure or None, default=None
+        Existing figure to reuse. When ``None``, a new figure is created.
+
+    Returns
+    -------
+    Figure
+        The rendered matplotlib figure.
+    """
+    apply_publication_style(theme)
+    config = COLORS.get(theme, COLORS["light"])
+
     if fig is None:
         fig, ax = plt.subplots(figsize=(8, max(6, top_n * 0.3)))
     else:
@@ -31,15 +48,17 @@ def plot_anova_importance(anova_result, top_n=25, fig=None):
     df = anova_result.result_df.sort_values("neg_log10p", ascending=False).head(top_n)
     df = df.iloc[::-1]
 
-    colors = ["#e74c3c" if s else "#95a5a6" for s in df["significant"]]
-    ax.barh(range(len(df)), df["neg_log10p"].values, color=colors, height=0.7)
+    palette = get_group_colors(theme, 2)
+    bar_colors = [palette[0] if is_sig else config["grid"] for is_sig in df["significant"]]
+
+    ax.barh(range(len(df)), df["neg_log10p"].values, color=bar_colors, height=0.7)
     ax.set_yticks(range(len(df)))
-    ax.set_yticklabels([str(f)[:25] for f in df["Feature"]], fontsize=8)
+    ax.set_yticklabels([str(feature)[:25] for feature in df["Feature"]], fontsize=8)
     ax.axvline(
         x=-np.log10(anova_result.p_thresh),
-        color="red",
+        color=palette[1],
         linestyle="--",
-        alpha=0.5,
+        alpha=0.8,
         linewidth=1,
         label=f"p = {anova_result.p_thresh}",
     )
@@ -52,12 +71,10 @@ def plot_anova_importance(anova_result, top_n=25, fig=None):
 
 def _build_stat_annotation(plot_data: pd.DataFrame) -> str:
     grouped_values = []
-    group_names = []
-    for name, group_df in plot_data.groupby("Group"):
+    for _, group_df in plot_data.groupby("Group"):
         values = pd.to_numeric(group_df["Value"], errors="coerce").dropna().values
         if len(values) > 0:
             grouped_values.append(values)
-            group_names.append(name)
 
     if len(grouped_values) == 2:
         if min(len(grouped_values[0]), len(grouped_values[1])) < 2:
@@ -66,7 +83,7 @@ def _build_stat_annotation(plot_data: pd.DataFrame) -> str:
         return f"P = {p_val:.2e}\nT-test = {t_stat:.4f}"
 
     if len(grouped_values) >= 3:
-        if any(len(v) < 2 for v in grouped_values):
+        if any(len(values) < 2 for values in grouped_values):
             return ""
         f_stat, p_val = f_oneway(*grouped_values)
         return f"P = {p_val:.2e}\nANOVA F = {f_stat:.4f}"
@@ -74,96 +91,134 @@ def _build_stat_annotation(plot_data: pd.DataFrame) -> str:
     return ""
 
 
-def _draw_r_style_boxplot(ax, data_by_group, group_names, group_colors):
-    """
-    Draw R/MetaboAnalyst-style boxplots on given axes.
-
-    Features: filled colored boxes, gray outlines, yellow diamond mean,
-    black outlier/jitter points. Matches MetaboAnalyst web output.
-    """
+def _draw_r_style_boxplot(
+    ax,
+    data_by_group: list[np.ndarray],
+    group_names: list[str],
+    group_colors: list[str],
+    config: dict,
+) -> None:
+    """Draw a MetaboAnalyst-style filled boxplot on an existing axes."""
     positions = list(range(len(group_names)))
 
-    for i, (gname, values) in enumerate(zip(group_names, data_by_group)):
-        values = np.array(values, dtype=float)
-        values = values[np.isfinite(values)]
-        if len(values) == 0:
+    for idx, values in enumerate(data_by_group):
+        clean = np.asarray(values, dtype=float)
+        clean = clean[np.isfinite(clean)]
+        if len(clean) == 0:
             continue
 
-        color = group_colors[i % len(group_colors)]
+        color = group_colors[idx % len(group_colors)]
         ax.boxplot(
-            [values], positions=[positions[i]], widths=0.55,
-            patch_artist=True, showmeans=False, showfliers=True,
-            boxprops=dict(facecolor=color, edgecolor='#555555', linewidth=1.0),
-            medianprops=dict(color='black', linewidth=1.5),
-            whiskerprops=dict(color='#555555', linewidth=1.0),
-            capprops=dict(color='#555555', linewidth=1.0),
-            flierprops=dict(marker='o', markerfacecolor='black',
-                            markeredgecolor='black', markersize=4, alpha=0.7),
+            [clean],
+            positions=[positions[idx]],
+            widths=0.55,
+            patch_artist=True,
+            showmeans=False,
+            showfliers=True,
+            boxprops=dict(facecolor=color, edgecolor=config["axes_line"], linewidth=1.0),
+            medianprops=dict(color=config["text"], linewidth=1.5),
+            whiskerprops=dict(color=config["axes_line"], linewidth=1.0),
+            capprops=dict(color=config["axes_line"], linewidth=1.0),
+            flierprops=dict(
+                marker="o",
+                markerfacecolor=config["text"],
+                markeredgecolor=config["text"],
+                markersize=4,
+                alpha=0.7,
+            ),
         )
-
-        # Yellow diamond for mean
-        mean_val = np.mean(values)
-        ax.plot(positions[i], mean_val, marker='D', color='#FFD700',
-                markersize=6, markeredgecolor='#B8860B', markeredgewidth=0.7,
-                zorder=4)
+        ax.plot(
+            positions[idx],
+            np.mean(clean),
+            marker="D",
+            color="#FFD700",
+            markersize=6,
+            markeredgecolor="#B8860B",
+            markeredgewidth=0.7,
+            zorder=4,
+        )
 
     ax.set_xticks(positions)
     ax.set_xticklabels(group_names, fontsize=9)
 
-    # Clean spines
-    for spine in ['top', 'right']:
+    for spine in ["top", "right"]:
         ax.spines[spine].set_visible(False)
-    ax.spines['left'].set_linewidth(0.8)
-    ax.spines['bottom'].set_linewidth(0.8)
+    ax.spines["left"].set_linewidth(0.8)
+    ax.spines["bottom"].set_linewidth(0.8)
 
 
-def plot_feature_boxplot(df: pd.DataFrame, labels, feature_name: str, fig=None):
+def plot_feature_boxplot(
+    df: pd.DataFrame,
+    labels,
+    feature_name: str,
+    theme: str = "light",
+    fig: Figure | None = None,
+) -> Figure:
     """
-    Plot one feature by group — R/MetaboAnalyst style with statistical annotation.
+    Plot one feature by group with statistical annotation.
 
-    Colored boxes per group, yellow diamond mean, black jittered data points.
+    Parameters
+    ----------
+    df : DataFrame
+        Input data matrix with samples as rows and features as columns.
+    labels : array-like
+        Group labels aligned to the rows of ``df``.
+    feature_name : str
+        Feature column to visualize.
+    theme : str, default="light"
+        Visualization theme name.
+    fig : Figure or None, default=None
+        Existing figure to reuse. When ``None``, a new figure is created.
+
+    Returns
+    -------
+    Figure
+        The rendered matplotlib figure.
     """
+    apply_publication_style(theme)
+    config = COLORS.get(theme, COLORS["light"])
+
     if fig is None:
         fig, ax = plt.subplots(figsize=(6, 5))
     else:
         fig.clear()
         ax = fig.add_subplot(111)
 
-    labels_arr = labels.values if hasattr(labels, "values") else np.array(labels)
-    plot_data = pd.DataFrame(
-        {
-            "Group": labels_arr,
-            "Value": df[feature_name].values,
-        }
-    )
+    labels_arr = labels.values if hasattr(labels, "values") else np.asarray(labels)
+    plot_data = pd.DataFrame({"Group": labels_arr, "Value": df[feature_name].values})
 
     groups = sorted(plot_data["Group"].unique())
-    data_by_group = []
-    for g in groups:
-        vals = pd.to_numeric(
-            plot_data.loc[plot_data["Group"] == g, "Value"], errors="coerce"
-        ).dropna().values
-        data_by_group.append(vals)
+    data_by_group = [
+        pd.to_numeric(plot_data.loc[plot_data["Group"] == group, "Value"], errors="coerce")
+        .dropna()
+        .to_numpy()
+        for group in groups
+    ]
 
-    _draw_r_style_boxplot(ax, data_by_group, groups, _MA_BOX_COLORS)
+    box_colors = get_group_colors(theme, len(groups))
+    _draw_r_style_boxplot(ax, data_by_group, groups, box_colors, config)
 
-    ax.set_title(f"{feature_name}", fontsize=11, fontweight='bold')
+    ax.set_title(str(feature_name), fontsize=11, fontweight="bold")
     ax.set_ylabel("Value", fontsize=10)
 
-    # Statistical annotation — placed in the figure margin above the plot
     stat_text = _build_stat_annotation(plot_data)
     if stat_text:
         fig.subplots_adjust(top=0.82)
         fig.text(
-            0.02, 0.97, stat_text,
-            va="top", ha="left", fontsize=9,
+            0.02,
+            0.97,
+            stat_text,
+            va="top",
+            ha="left",
+            fontsize=9,
             bbox={
                 "boxstyle": "round,pad=0.3",
-                "facecolor": "#F5F5F5",
-                "alpha": 0.9,
-                "edgecolor": "#AAAAAA",
+                "facecolor": config["background"],
+                "alpha": 0.95,
+                "edgecolor": config["grid"],
             },
         )
     else:
         fig.tight_layout()
+
     return fig
