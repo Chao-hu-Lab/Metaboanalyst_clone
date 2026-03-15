@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import matplotlib
 import platform
-import seaborn as sns
 
 
 if platform.system() == "Windows":
@@ -27,9 +26,6 @@ else:
         "DejaVu Sans",
     ]
 matplotlib.rcParams["axes.unicode_minus"] = False
-
-COLORBLIND_PALETTE = sns.color_palette("colorblind")
-matplotlib.rcParams["axes.prop_cycle"] = matplotlib.cycler(color=COLORBLIND_PALETTE)
 
 from visualization.anova_plot import plot_anova_importance, plot_feature_boxplot  # noqa: E402
 from visualization.boxplot import (  # noqa: E402

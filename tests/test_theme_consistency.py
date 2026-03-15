@@ -15,12 +15,17 @@ _PLOT_FUNCTIONS = [
     if callable(obj) and name.startswith("plot_")
 ]
 
-_PLOTLY_ONLY_FUNCTIONS = {
-    "plot_pca_3d",
-    "plot_volcano_interactive",
-    "plot_roc_interactive",
-    "plot_correlation_network_interactive",
-}
+def _is_plotly_function(func) -> bool:
+    """Return True if the function builds a Plotly figure rather than matplotlib.
+
+    Detection uses OR-logic on three markers. "import plotly" is the primary
+    signal; "go.Figure" and "go.Scatter" are additional fallbacks. A false
+    positive would require a non-Plotly function to contain any one of these
+    strings — unlikely in this codebase, but not impossible (e.g., in a
+    comment or docstring).
+    """
+    source = inspect.getsource(func)
+    return any(marker in source for marker in ("import plotly", "go.Figure", "go.Scatter"))
 
 
 @pytest.mark.parametrize("name,func", _PLOT_FUNCTIONS, ids=[name for name, _ in _PLOT_FUNCTIONS])
@@ -53,8 +58,8 @@ def test_theme_parameter_precedes_fig_when_present(name, func):
 @pytest.mark.parametrize("name,func", _PLOT_FUNCTIONS, ids=[name for name, _ in _PLOT_FUNCTIONS])
 def test_theme_parameter_is_actually_used(name, func):
     """Theme-aware plot helpers should apply the requested theme in their implementation."""
-    if name in _PLOTLY_ONLY_FUNCTIONS:
-        return
+    if _is_plotly_function(func):
+        pytest.skip("Plotly function — theme applied via layout dict, not apply_publication_style")
 
     source = inspect.getsource(func)
     assert "apply_publication_style(theme)" in source, (
