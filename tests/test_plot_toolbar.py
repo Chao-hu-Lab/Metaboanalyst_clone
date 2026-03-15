@@ -78,6 +78,33 @@ def test_export_png_writes_file(qapp, monkeypatch):
     target.unlink()
 
 
+def _make_toolbar(qapp):
+    mpl_canvas = MatplotlibCanvas()
+    return PlotToolbar(mpl_canvas)
+
+
+def test_zoom_toggle_is_idempotent(qapp):
+    """Calling _toggle_zoom(True) twice must not double-toggle the nav toolbar."""
+    from unittest.mock import MagicMock
+
+    toolbar = _make_toolbar(qapp)
+    mock_nav = MagicMock()
+    # navigation_toolbar is a plain instance attribute on MplWidget — safe to overwrite
+    toolbar.mpl_widget.navigation_toolbar = mock_nav
+
+    # First call: should invoke nav.zoom() once
+    toolbar._toggle_zoom(True)
+    assert mock_nav.zoom.call_count == 1
+
+    # Second call with same state: should NOT invoke nav.zoom() again
+    toolbar._toggle_zoom(True)
+    assert mock_nav.zoom.call_count == 1   # still 1, not 2
+
+    # Toggle off: should invoke nav.zoom() once more
+    toolbar._toggle_zoom(False)
+    assert mock_nav.zoom.call_count == 2
+
+
 def test_reset_emits_signal(qapp):
     mpl_canvas = MatplotlibCanvas()
     _seed_plot(mpl_canvas)

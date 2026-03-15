@@ -8,6 +8,7 @@ import pytest
 from PySide6.QtWidgets import QApplication
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+os.environ.setdefault("METABO_N_JOBS", "1")  # single-process in test environment
 
 
 @pytest.fixture(scope="session")

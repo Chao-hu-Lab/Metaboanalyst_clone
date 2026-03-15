@@ -18,7 +18,7 @@ class SettingsDialog(QDialog):
 
     def __init__(self, parent=None, current_theme="light", current_locale="zh_TW"):
         super().__init__(parent)
-        self.setWindowTitle(self.tr("Settings"))
+        self.setWindowTitle(self.tr("偏好設定"))
         self.setMinimumWidth(400)
         self._current_theme = current_theme
         self._current_locale = current_locale
@@ -27,14 +27,14 @@ class SettingsDialog(QDialog):
     def _init_ui(self):
         layout = QVBoxLayout(self)
 
-        theme_group = QGroupBox(self.tr("Appearance"))
+        theme_group = QGroupBox(self.tr("外觀"))
         theme_layout = QHBoxLayout()
-        theme_layout.addWidget(QLabel(self.tr("Theme:")))
+        theme_layout.addWidget(QLabel(self.tr("主題:")))
         self.theme_combo = QComboBox()
-        self.theme_combo.addItem(self.tr("Auto"), "auto")
-        self.theme_combo.addItem(self.tr("Light"), "light")
-        self.theme_combo.addItem(self.tr("Dark"), "dark")
-        self.theme_combo.addItem(self.tr("Colorblind-friendly"), "colorblind")
+        self.theme_combo.addItem(self.tr("自動 (跟隨系統)"), "auto")
+        self.theme_combo.addItem(self.tr("淺色模式"), "light")
+        self.theme_combo.addItem(self.tr("深色模式"), "dark")
+        self.theme_combo.addItem(self.tr("色盲友善"), "colorblind")
         for i in range(self.theme_combo.count()):
             if self.theme_combo.itemData(i) == self._current_theme:
                 self.theme_combo.setCurrentIndex(i)
@@ -43,12 +43,12 @@ class SettingsDialog(QDialog):
         theme_group.setLayout(theme_layout)
         layout.addWidget(theme_group)
 
-        lang_group = QGroupBox(self.tr("Language"))
+        lang_group = QGroupBox(self.tr("語言"))
         lang_layout = QHBoxLayout()
-        lang_layout.addWidget(QLabel(self.tr("Display language:")))
+        lang_layout.addWidget(QLabel(self.tr("顯示語言:")))
         self.lang_combo = QComboBox()
-        self.lang_combo.addItem("Traditional Chinese", "zh_TW")
-        self.lang_combo.addItem("English", "en")
+        self.lang_combo.addItem(self.tr("繁體中文"), "zh_TW")
+        self.lang_combo.addItem(self.tr("English"), "en")
         for i in range(self.lang_combo.count()):
             if self.lang_combo.itemData(i) == self._current_locale:
                 self.lang_combo.setCurrentIndex(i)

@@ -8,6 +8,7 @@ Random Forest analysis:
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import List
 
@@ -18,6 +19,9 @@ from sklearn.metrics import confusion_matrix
 from sklearn.model_selection import StratifiedKFold, cross_val_predict, cross_val_score
 from sklearn.preprocessing import LabelEncoder
 
+# Respect METABO_N_JOBS env var for parallelism control.
+# Defaults to -1 (all cores). Set to 1 in restricted environments (CI, PyInstaller).
+_N_JOBS: int = int(os.environ.get("METABO_N_JOBS", "-1"))
 
 _INVALID_FEATURE_TOKENS = {"", "na", "nan", "none", "null"}
 
@@ -103,9 +107,7 @@ def run_random_forest(
         n_estimators=n_trees,
         oob_score=True,
         random_state=random_state,
-        # Single-process execution is more robust in restricted Windows environments
-        # used by tests and packaged GUI sessions.
-        n_jobs=1,
+        n_jobs=_N_JOBS,
     )
     rf.fit(X, y)
     oob_acc = float(rf.oob_score_)
@@ -117,10 +119,10 @@ def run_random_forest(
             shuffle=True,
             random_state=random_state,
         )
-        cv_scores = cross_val_score(rf, X, y, cv=cv, scoring="accuracy")
+        cv_scores = cross_val_score(rf, X, y, cv=cv, scoring="accuracy", n_jobs=_N_JOBS)
         cv_acc = float(cv_scores.mean())
         cv_std = float(cv_scores.std())
-        y_pred = cross_val_predict(rf, X, y, cv=cv)
+        y_pred = cross_val_predict(rf, X, y, cv=cv, n_jobs=_N_JOBS)
         cm = confusion_matrix(y, y_pred)
     else:
         # Not enough samples per class for CV; fall back to in-sample prediction.

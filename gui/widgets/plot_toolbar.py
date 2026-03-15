@@ -26,6 +26,7 @@ class PlotToolbar(QToolBar):
         self.mpl_widget = mpl_widget
         self.theme_manager = theme_manager
         self.zoom_mode_enabled = False
+        self._nav_zoom_active = False
 
         self.theme_label = None
         self.theme_value_label = None
@@ -111,11 +112,12 @@ class PlotToolbar(QToolBar):
         self.export_requested.emit(fmt)
 
     def _toggle_zoom(self, enabled: bool) -> None:
-        self.zoom_mode_enabled = enabled
-        navigation_toolbar = getattr(self.mpl_widget, "navigation_toolbar", None)
-        if navigation_toolbar is not None:
-            navigation_toolbar.zoom()
-        self.zoom_requested.emit(enabled)
+        self.zoom_mode_enabled = enabled                                     # unconditional
+        nav = getattr(self.mpl_widget, "navigation_toolbar", None)
+        if nav is not None and enabled != self._nav_zoom_active:
+            nav.zoom()                                                        # guarded
+        self._nav_zoom_active = enabled                                      # unconditional
+        self.zoom_requested.emit(enabled)                                    # unconditional
 
     def _reset_view(self) -> None:
         navigation_toolbar = getattr(self.mpl_widget, "navigation_toolbar", None)
