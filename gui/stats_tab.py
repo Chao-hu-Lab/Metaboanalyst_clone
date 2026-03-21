@@ -31,10 +31,12 @@ class StatsTab(QWidget):
         self._rf_result = None
         self._outlier_result = None
         self._oplsda_result = None
+        self._clustering_result = None
         self._anova_plot_data = None
         self._anova_plot_labels = None
         self._outlier_labels = None
         self._active_workers: set[PipelineWorker] = set()
+        self._current_worker: PipelineWorker | None = None
         self._busy = False
         self._init_ui()
 
@@ -60,12 +62,21 @@ class StatsTab(QWidget):
         self.sub_tabs.addTab(self._build_rf_panel(), self.tr("Random Forest"))
         self.sub_tabs.addTab(self._build_outlier_panel(), self.tr("Outlier"))
         self.sub_tabs.addTab(self._build_oplsda_panel(), self.tr("OPLS-DA"))
+        self.sub_tabs.addTab(self._build_clustering_panel(), self.tr("Clustering"))
         layout.addWidget(self.sub_tabs)
 
     def retranslateUi(self):
-        current_idx = self.sub_tabs.currentIndex() if hasattr(self, "sub_tabs") else 0
-        self._init_ui()
-        self.sub_tabs.setCurrentIndex(min(current_idx, self.sub_tabs.count() - 1))
+        if not hasattr(self, "sub_tabs"):
+            return
+        tab_titles = [
+            self.tr("PCA"), self.tr("3D PCA"), self.tr("PLS-DA / VIP"),
+            self.tr("Volcano (t-test + FC)"), self.tr("ANOVA"), self.tr("ROC"),
+            self.tr("Correlation"), self.tr("Random Forest"),
+            self.tr("Outlier"), self.tr("OPLS-DA"), self.tr("Clustering"),
+        ]
+        for i, title in enumerate(tab_titles):
+            if i < self.sub_tabs.count():
+                self.sub_tabs.setTabText(i, title)
 
     def _snapshot_data(self):
         data = self.mw.current_data.copy()
@@ -117,6 +128,7 @@ class StatsTab(QWidget):
 
         worker = PipelineWorker(job_fn)
         self._active_workers.add(worker)
+        self._current_worker = worker
 
         def _handle_result(payload):
             try:
@@ -125,10 +137,14 @@ class StatsTab(QWidget):
                 QMessageBox.critical(self, error_title, str(exc))
 
         def _handle_error(error_text: str):
-            QMessageBox.critical(self, error_title, error_text)
+            if error_text == "Cancelled":
+                self.mw.status_bar.showMessage(self.tr("Analysis cancelled."))
+            else:
+                QMessageBox.critical(self, error_title, error_text)
 
         def _handle_finished():
             self._busy = False
+            self._current_worker = None
             self.sub_tabs.setEnabled(True)
             self.mw.show_progress(False)
             self._active_workers.discard(worker)
@@ -137,6 +153,12 @@ class StatsTab(QWidget):
         worker.signals.error.connect(_handle_error)
         worker.signals.finished.connect(_handle_finished)
         QThreadPool.globalInstance().start(worker)
+
+    def cancel_running(self):
+        """Cancel the currently running analysis, if any."""
+        if self._current_worker is not None:
+            self._current_worker.cancel()
+            self.mw.status_bar.showMessage(self.tr("Cancelling..."))
 
     # ?????????????????? PCA 2D ??????????????????
 
@@ -428,36 +450,18 @@ class StatsTab(QWidget):
         if self._plsda_result is None:
             return
         from visualization.vip_plot import plot_vip
-        import matplotlib.cm
 
         fig = self.pls_canvas.figure
         plot_key = self.pls_plot_type.currentData()
 
         if plot_key == "vip":
-            from core.shared_metadata import align_labels_to_data
             _data = self.mw.current_data
             _labels = align_labels_to_data(self.mw.current_data, self.mw.labels)
             plot_vip(self._plsda_result, top_n=self.vip_topn.value(),
                      data=_data, labels=_labels, theme=self._current_theme(), fig=fig)
         elif plot_key == "score":
-            fig.clear()
-            ax = fig.add_subplot(111)
-            scores = self._plsda_result.scores
-            labels = self._plsda_result.labels
-            labels_arr = labels.values if hasattr(labels, "values") else np.array(labels)
-            groups = sorted(set(labels_arr))
-            cmap = matplotlib.cm.Set1
-            for i, g in enumerate(groups):
-                mask = labels_arr == g
-                ax.scatter(scores[mask, 0], scores[mask, 1],
-                           c=[cmap(i / max(len(groups)-1, 1))],
-                           label=str(g), s=50, alpha=0.8)
-            ev = self._plsda_result.explained_variance
-            ax.set_xlabel(f"Comp1 ({ev[0]*100:.1f}%)" if len(ev) > 0 else "Comp1")
-            ax.set_ylabel(f"Comp2 ({ev[1]*100:.1f}%)" if len(ev) > 1 else "Comp2")
-            ax.set_title(self.tr("PLS-DA Score Plot"))
-            ax.legend()
-            fig.tight_layout()
+            from visualization.plsda_plot import plot_plsda_score
+            plot_plsda_score(self._plsda_result, theme=self._current_theme(), fig=fig)
         self.pls_canvas.draw()
         self.mw.show_shared_plot(self.pls_canvas.figure)
 
@@ -1543,6 +1547,116 @@ class StatsTab(QWidget):
             self.mw.status_bar.showMessage(self.tr("Saved: {path}").format(path=path))
 
     # ?????????????????? ?梁撌亙 ??????????????????
+
+    # ────────────────── Clustering ──────────────────
+
+    def _build_clustering_panel(self) -> QWidget:
+        w = QWidget()
+        layout = QVBoxLayout(w)
+
+        ctrl = QHBoxLayout()
+        ctrl.addWidget(QLabel(self.tr("Method:")))
+        self.clust_method = QComboBox()
+        self.clust_method.addItem("Ward", "ward")
+        self.clust_method.addItem("Complete", "complete")
+        self.clust_method.addItem("Average", "average")
+        self.clust_method.addItem("Single", "single")
+        ctrl.addWidget(self.clust_method)
+
+        ctrl.addWidget(QLabel(self.tr("Metric:")))
+        self.clust_metric = QComboBox()
+        self.clust_metric.addItem("Euclidean", "euclidean")
+        self.clust_metric.addItem("Correlation", "correlation")
+        self.clust_metric.addItem("Cosine", "cosine")
+        ctrl.addWidget(self.clust_metric)
+
+        ctrl.addWidget(QLabel(self.tr("Max features:")))
+        self.clust_maxfeat = QSpinBox()
+        self.clust_maxfeat.setRange(50, 10000)
+        self.clust_maxfeat.setValue(2000)
+        self.clust_maxfeat.setSingleStep(100)
+        ctrl.addWidget(self.clust_maxfeat)
+
+        btn_run = QPushButton(self.tr("Run Clustering"))
+        btn_run.clicked.connect(self._run_clustering)
+        ctrl.addWidget(btn_run)
+
+        ctrl.addWidget(QLabel(self.tr("Plot:")))
+        self.clust_plot_type = QComboBox()
+        self.clust_plot_type.addItem(self.tr("Dendrogram"), "dendrogram")
+        self.clust_plot_type.addItem(self.tr("Summary"), "summary")
+        self.clust_plot_type.currentIndexChanged.connect(self._update_clustering_plot)
+        ctrl.addWidget(self.clust_plot_type)
+
+        btn_save = QPushButton(self.tr("Export Figure"))
+        btn_save.clicked.connect(lambda: self._save_figure(self.clust_canvas))
+        ctrl.addWidget(btn_save)
+
+        layout.addLayout(ctrl)
+
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.clust_canvas = MplWidget()
+        splitter.addWidget(self.clust_canvas)
+        self.clust_info = QTextEdit()
+        self.clust_info.setReadOnly(True)
+        self.clust_info.setMaximumWidth(300)
+        splitter.addWidget(self.clust_info)
+        layout.addWidget(splitter, stretch=1)
+        return w
+
+    def _run_clustering(self):
+        if not self.mw.check_data_ready():
+            return
+        from analysis.clustering import run_clustering
+
+        method = self.clust_method.currentData()
+        metric = self.clust_metric.currentData()
+        max_feat = self.clust_maxfeat.value()
+
+        data, labels, qc_meta = self._snapshot_stats_data_or_warn(require_labels=True)
+        if qc_meta is None:
+            return
+
+        def _job():
+            return run_clustering(
+                data, labels,
+                method=method, metric=metric,
+                max_features=max_feat,
+            )
+
+        def _on_success(result):
+            self._clustering_result = result
+            lines = [
+                self.tr("=== Clustering Results ==="),
+                self.tr("Method: {method}").format(method=result.method),
+                self.tr("Metric: {metric}").format(metric=result.metric),
+                self.tr("Samples: {n}").format(n=len(result.sample_names)),
+                self.tr("Features used: {n}").format(n=len(result.feature_names)),
+                self.tr("Clusters: {n}").format(n=result.n_clusters),
+                self.tr("Cophenetic correlation: {val}").format(
+                    val=f"{result.cophenetic_corr:.4f}"),
+                self._qc_scope_text(qc_meta["removed_qc"]),
+            ]
+            self.clust_info.setPlainText("\n".join(lines))
+            self._update_clustering_plot()
+
+        self._run_async(_job, _on_success, self.tr("Clustering Error"))
+
+    def _update_clustering_plot(self):
+        if self._clustering_result is None:
+            return
+        fig = self.clust_canvas.figure
+        plot_key = self.clust_plot_type.currentData()
+        if plot_key == "dendrogram":
+            from visualization.clustering_plot import plot_dendrogram
+            plot_dendrogram(self._clustering_result, theme=self._current_theme(), fig=fig)
+        else:
+            from visualization.clustering_plot import plot_cluster_summary
+            plot_cluster_summary(self._clustering_result, theme=self._current_theme(), fig=fig)
+        self.clust_canvas.draw()
+        self.mw.show_shared_plot(self.clust_canvas.figure)
+
+    # ────────────────── Common ──────────────────
 
     def _save_figure(self, canvas: MplWidget):
         path, _ = QFileDialog.getSaveFileName(

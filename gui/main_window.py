@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QProgressBar,
+    QPushButton,
     QComboBox,
     QSplitter,
     QStackedWidget,
@@ -423,6 +424,12 @@ class MainWindow(QMainWindow):
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
 
+        self.cancel_button = QPushButton(self.tr("Cancel"))
+        self.cancel_button.setMaximumWidth(80)
+        self.cancel_button.setVisible(False)
+        self.cancel_button.clicked.connect(self._on_cancel_clicked)
+        self.status_bar.addPermanentWidget(self.cancel_button)
+
         self.progress_bar = QProgressBar()
         self.progress_bar.setMaximumWidth(240)
         self.progress_bar.setVisible(False)
@@ -762,6 +769,7 @@ class MainWindow(QMainWindow):
 
     def show_progress(self, visible: bool = True):
         self.progress_bar.setVisible(visible)
+        self.cancel_button.setVisible(visible)
         if visible:
             self.progress_bar.setRange(0, 0)
         else:
@@ -771,6 +779,10 @@ class MainWindow(QMainWindow):
     def set_progress(self, value: int, maximum: int = 100):
         self.progress_bar.setRange(0, maximum)
         self.progress_bar.setValue(value)
+
+    def _on_cancel_clicked(self):
+        if hasattr(self.stats_tab, "cancel_running"):
+            self.stats_tab.cancel_running()
 
     # ------------------------------------------------------------------
     # File / dialog actions

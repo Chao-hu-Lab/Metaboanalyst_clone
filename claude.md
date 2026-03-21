@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Build a **desktop Python GUI application** (PyQt6) that fully replicates MetaboAnalyst 6.0's standardization pipeline and statistical visualization. The goal is to open the "black box" — every algorithm must be transparent and documented.
+Build a **desktop Python GUI application** (PySide6) that fully replicates MetaboAnalyst 6.0's standardization pipeline and statistical visualization. The goal is to open the "black box" — every algorithm must be transparent and documented.
 
 **Source of truth:** `xia-lab/MetaboAnalystR` GitHub repo (`general_proc_utils.R`, `general_norm_utils.R`, `stats_univariates.R`, `stats_chemometrics.R`)
 
@@ -13,13 +13,13 @@ Build a **desktop Python GUI application** (PyQt6) that fully replicates MetaboA
 ## Tech Stack
 
 - **Language:** Python 3.10+
-- **GUI:** PyQt6 (with matplotlib embedded via `FigureCanvasQTAgg`)
+- **GUI:** PySide6 (with matplotlib embedded via `FigureCanvasQTAgg`)
 - **Core:** numpy, pandas, scipy, scikit-learn, statsmodels
 - **Visualization:** matplotlib, seaborn, plotly (3D PCA only), adjustText
 - **Specialized:** qnorm (quantile normalization), pyopls (OPLS-DA), fancyimpute (SVD impute), pyppca (PPCA impute)
 
 ```bash
-pip install numpy pandas scipy scikit-learn statsmodels matplotlib seaborn plotly adjustText PyQt6 pyqtgraph fancyimpute pyppca qnorm pyopls
+pip install numpy pandas scipy scikit-learn statsmodels matplotlib seaborn plotly adjustText PySide6 fancyimpute pyppca qnorm pyopls
 ```
 
 ---
@@ -33,7 +33,7 @@ pip install numpy pandas scipy scikit-learn statsmodels matplotlib seaborn plotl
 | [`03-gui.md`](docs/specs/03-gui.md) | GUI layout, tab descriptions, theming, widgets, threading, undo/redo |
 | [`04-i18n.md`](docs/specs/04-i18n.md) | Internationalization: Qt translation system, CJK fonts, translation table |
 | [`05-deployment.md`](docs/specs/05-deployment.md) | PyInstaller, Inno Setup, macOS signing, GitHub Actions CI/CD |
-| [`06-compatibility.md`](docs/specs/06-compatibility.md) | PyQt6 6.6+ breaking changes, style conventions, testing strategy |
+| [`06-compatibility.md`](docs/specs/06-compatibility.md) | PySide6 6.6+ breaking changes, style conventions, testing strategy |
 
 ---
 
@@ -81,7 +81,7 @@ metaboanalyst_clone/
 ├── visualization/             # Returns matplotlib Figure objects
 │   ├── pca_plot.py, volcano_plot.py, heatmap.py
 │   ├── vip_plot.py, boxplot.py, density_plot.py
-├── gui/                       # PyQt6 GUI layer
+├── gui/                       # PySide6 GUI layer
 │   ├── main_window.py, data_import_tab.py, missing_value_tab.py
 │   ├── filter_tab.py, norm_tab.py, stats_tab.py, visual_tab.py
 │   └── widgets/ (mpl_canvas.py, plotly_widget.py)
