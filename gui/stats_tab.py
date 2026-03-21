@@ -2,7 +2,6 @@
 蝯梯????? ??PCA (2D+3D) / PLS-DA / Volcano / ANOVA / ROC / ?賊???/ RF / ?Ｙ黎?菜葫
 """
 
-import numpy as np
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QComboBox, QTextEdit, QSpinBox, QDoubleSpinBox,
