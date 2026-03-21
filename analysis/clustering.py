@@ -108,9 +108,14 @@ def run_clustering(
     -------
     ClusteringResult
     """
+    if data.shape[0] < 2:
+        raise ValueError("At least 2 samples are required for clustering.")
+    if data.shape[1] < 2:
+        raise ValueError("At least 2 features are required for clustering.")
+
     labels_arr = labels.values if hasattr(labels, "values") else np.asarray(labels)
     if n_clusters is None:
-        n_clusters = len(set(labels_arr))
+        n_clusters = max(len(set(labels_arr)), 2)
 
     plot_df = select_top_features(data, max_features=max_features)
 

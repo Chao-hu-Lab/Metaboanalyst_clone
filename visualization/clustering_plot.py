@@ -56,9 +56,10 @@ def plot_dendrogram(
     group_color_map = dict(zip(groups, colors))
 
     n_samples = len(clustering_result.sample_names)
+    show_group_suffix = n_samples <= 80
     sample_labels = [
         f"{clustering_result.sample_names[i]} ({labels_arr[i]})"
-        if n_samples <= 50
+        if show_group_suffix
         else str(clustering_result.sample_names[i])
         for i in range(n_samples)
     ]

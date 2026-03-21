@@ -89,8 +89,8 @@ def plot_plsda_score(
                     )
                 )
 
-    x_label = f"Comp1 ({ev[0] * 100:.1f}%)" if len(ev) > 0 else "Comp1"
-    y_label = f"Comp2 ({ev[1] * 100:.1f}%)" if len(ev) > 1 else "Comp2"
+    x_label = f"Comp{comp_x + 1} ({ev[comp_x] * 100:.1f}%)" if len(ev) > comp_x else f"Comp{comp_x + 1}"
+    y_label = f"Comp{comp_y + 1} ({ev[comp_y] * 100:.1f}%)" if len(ev) > comp_y else f"Comp{comp_y + 1}"
     ax.set_xlabel(x_label)
     ax.set_ylabel(y_label)
     ax.set_title("PLS-DA Score Plot")

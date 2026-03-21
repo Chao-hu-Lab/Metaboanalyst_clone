@@ -1613,6 +1613,12 @@ class StatsTab(QWidget):
         metric = self.clust_metric.currentData()
         max_feat = self.clust_maxfeat.value()
 
+        if method == "ward" and metric != "euclidean":
+            metric = "euclidean"
+            self.clust_metric.setCurrentIndex(0)
+            self.mw.status_bar.showMessage(
+                self.tr("Ward linkage requires Euclidean distance. Metric reset to Euclidean."))
+
         data, labels, qc_meta = self._snapshot_stats_data_or_warn(require_labels=True)
         if qc_meta is None:
             return

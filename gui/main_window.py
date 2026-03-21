@@ -741,7 +741,7 @@ class MainWindow(QMainWindow):
         if step_key in next_tab_map:
             next_idx = next_tab_map[step_key]
             item = self._nav_list.item(next_idx)
-            if item and item.flags() & Qt.ItemIsEnabled:
+            if item and item.flags() & Qt.ItemFlag.ItemIsEnabled:
                 self._nav_list.setCurrentRow(next_idx)
 
         msg = self.tr("[{step}] Current shape: {n_samples} x {n_features}").format(
