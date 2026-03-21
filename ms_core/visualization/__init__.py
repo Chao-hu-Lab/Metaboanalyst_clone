@@ -7,6 +7,7 @@ import sys
 _ALIASES = {
     "anova_plot": "visualization.anova_plot",
     "boxplot": "visualization.boxplot",
+    "clustering_plot": "visualization.clustering_plot",
     "correlation_plot": "visualization.correlation_plot",
     "density_plot": "visualization.density_plot",
     "heatmap": "visualization.heatmap",
@@ -15,6 +16,7 @@ _ALIASES = {
     "outlier_plot": "visualization.outlier_plot",
     "pca_3d": "visualization.pca_3d",
     "pca_plot": "visualization.pca_plot",
+    "plsda_plot": "visualization.plsda_plot",
     "rf_plot": "visualization.rf_plot",
     "roc_plot": "visualization.roc_plot",
     "vip_plot": "visualization.vip_plot",
