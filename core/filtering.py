@@ -97,6 +97,11 @@ def filter_by_qc_rsd(
     QC rows are removed from output.
     """
     qc_data = df[qc_mask]
+    if len(qc_data) < 2:
+        raise ValueError(
+            f"QC-RSD filtering requires at least 2 QC replicates, "
+            f"but only {len(qc_data)} found."
+        )
     means = qc_data.mean().replace(0, np.nan)
     rsd = qc_data.std() / means
     keep = rsd[rsd.abs() <= rsd_threshold].index

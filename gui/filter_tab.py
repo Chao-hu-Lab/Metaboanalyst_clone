@@ -118,14 +118,15 @@ class FilterTab(QWidget):
     def _toggle_auto(self, checked: bool):
         self.cutoff_spin.setEnabled(not checked)
 
-    def _detect_qc(self, labels) -> bool:
+    def _detect_qc(self, labels) -> int:
+        """Return the number of QC samples detected in labels."""
         if labels is None:
-            return False
+            return 0
         if isinstance(labels, pd.Series):
             values = labels.astype(str)
         else:
             values = pd.Series(labels).astype(str)
-        return bool(values.str.contains("qc", case=False, na=False).any())
+        return int(values.str.contains("qc", case=False, na=False).sum())
 
     def on_data_updated(self):
         df = self.mw.current_data
@@ -135,7 +136,10 @@ class FilterTab(QWidget):
         auto_cutoff = get_auto_cutoff(df.shape[1])
         self.cutoff_spin.setValue(auto_cutoff)
 
-        self._has_qc = self._detect_qc(self.mw.raw_labels if hasattr(self.mw, "raw_labels") else self.mw.labels)
+        qc_count = self._detect_qc(
+            self.mw.raw_labels if hasattr(self.mw, "raw_labels") else self.mw.labels
+        )
+        self._has_qc = qc_count >= 2
         self.qc_check.setEnabled(self._has_qc)
         if not self._has_qc:
             self.qc_check.setChecked(False)
@@ -149,7 +153,11 @@ class FilterTab(QWidget):
                 features=df.shape[1],
                 samples=df.shape[0],
                 cutoff=auto_cutoff,
-                qc_detected=self.tr("Yes") if self._has_qc else self.tr("No"),
+                qc_detected=(
+                    self.tr("Yes ({n})").format(n=qc_count)
+                    if qc_count >= 2
+                    else self.tr("No") if qc_count == 0 else self.tr("Only 1 (need ??)")
+                ),
             )
         )
 

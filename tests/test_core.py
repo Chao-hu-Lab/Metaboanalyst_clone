@@ -661,5 +661,39 @@ class TestQCUtils:
         assert list(filtered_labels.values) == ["Case", "Control"]
 
 
+class TestQCRSDEdgeCases:
+
+    def test_single_qc_raises_value_error(self):
+        """Single QC replicate should raise, not silently empty all features."""
+        from core.filtering import filter_by_qc_rsd
+
+        df = pd.DataFrame(
+            {"F1": [100.0, 200.0, 300.0], "F2": [10.0, 20.0, 30.0]},
+            index=["QC_1", "S1", "S2"],
+        )
+        qc_mask = np.array([True, False, False])
+
+        with pytest.raises(ValueError, match="at least 2"):
+            filter_by_qc_rsd(df, qc_mask, rsd_threshold=0.25)
+
+    def test_two_qc_works_normally(self):
+        """Two QC replicates should work fine."""
+        from core.filtering import filter_by_qc_rsd
+
+        df = pd.DataFrame(
+            {
+                "F_keep": [100.0, 110.0, 200.0, 300.0],
+                "F_drop": [10.0, 50.0, 20.0, 30.0],
+            },
+            index=["QC_1", "QC_2", "S1", "S2"],
+        )
+        qc_mask = np.array([True, True, False, False])
+
+        result = filter_by_qc_rsd(df, qc_mask, rsd_threshold=0.25)
+        assert result.shape[0] == 2
+        assert "F_keep" in result.columns
+        assert "F_drop" not in result.columns
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
