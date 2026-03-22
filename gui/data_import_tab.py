@@ -188,18 +188,42 @@ class DataImportTab(QWidget):
         QApplication.processEvents()
 
         try:
-            # Import adapter dynamically from DNP project
-            desktop = Path.home() / "Desktop"
-            dnp_candidates = [
-                desktop / "Data_Normalization_project_v2" / "src",
-                Path(__file__).resolve().parent.parent.parent / "Data_Normalization_project_v2" / "src",
-            ]
-            for dnp_src in dnp_candidates:
-                if dnp_src.exists() and str(dnp_src) not in sys.path:
-                    sys.path.insert(0, str(dnp_src))
-                    break
+            try:
+                from metabolomics.adapters.dnp_to_metaboanalyst import (
+                    convert_dnp_to_metaboanalyst,
+                )
+            except ImportError:
+                desktop = Path.home() / "Desktop"
+                dnp_candidates = [
+                    desktop / "Data_Normalization_project_v2" / "src",
+                    Path(__file__).resolve().parent.parent.parent
+                    / "Data_Normalization_project_v2"
+                    / "src",
+                ]
 
-            from metabolomics.adapters.dnp_to_metaboanalyst import convert_dnp_to_metaboanalyst
+                dnp_src = None
+                for candidate in dnp_candidates:
+                    if candidate.exists():
+                        dnp_src = candidate
+                        break
+
+                if dnp_src is None:
+                    raise ImportError(
+                        "DNP adapter module not found. Searched:\n"
+                        + "\n".join(f"  - {c}" for c in dnp_candidates)
+                    )
+
+                path_str = str(dnp_src)
+                sys.path.insert(0, path_str)
+                try:
+                    from metabolomics.adapters.dnp_to_metaboanalyst import (
+                        convert_dnp_to_metaboanalyst,
+                    )
+                finally:
+                    try:
+                        sys.path.remove(path_str)
+                    except ValueError:
+                        pass
 
             # Convert to temp file in same directory
             input_dir = Path(path).parent
