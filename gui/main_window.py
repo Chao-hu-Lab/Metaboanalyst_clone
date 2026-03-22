@@ -906,11 +906,59 @@ class MainWindow(QMainWindow):
             import yaml
 
             with open(path, "r", encoding="utf-8") as f:
-                yaml.safe_load(f)
+                config = yaml.safe_load(f)
+
+            if not isinstance(config, dict):
+                QMessageBox.warning(
+                    self,
+                    self.tr("Load Error"),
+                    self.tr("Config file is empty or not a valid YAML mapping."),
+                )
+                return
+
+            applied = []
+
+            if "pipeline" in config and isinstance(config["pipeline"], dict):
+                pipe_cfg = config["pipeline"]
+                valid_keys = (
+                    "missing_thresh",
+                    "impute_method",
+                    "filter_method",
+                    "filter_cutoff",
+                    "row_norm",
+                    "transform",
+                    "scaling",
+                    "qc_rsd_enabled",
+                    "qc_rsd_threshold",
+                )
+                for key in valid_keys:
+                    if key in pipe_cfg:
+                        self.pipeline_params[key] = pipe_cfg[key]
+                        applied.append(key)
+
+                if hasattr(self, "norm_tab"):
+                    nt = self.norm_tab
+                    combo_map = {
+                        "row_norm": getattr(nt, "row_combo", None),
+                        "transform": getattr(nt, "trans_combo", None),
+                        "scaling": getattr(nt, "scale_combo", None),
+                    }
+                    for key, combo in combo_map.items():
+                        if combo is not None and key in pipe_cfg:
+                            idx = combo.findData(pipe_cfg[key])
+                            if idx < 0:
+                                idx = combo.findText(pipe_cfg[key])
+                            if idx >= 0:
+                                combo.setCurrentIndex(idx)
+
+            summary = ", ".join(applied) if applied else "no pipeline keys"
             self.status_bar.showMessage(
-                self.tr("Config loaded: {path}").format(path=path)
+                self.tr("Config loaded: {path} ({summary})").format(
+                    path=path,
+                    summary=summary,
+                )
             )
-            logger.info("Loaded config from %s", path)
+            logger.info("Loaded config from %s, applied: %s", path, applied)
         except Exception as exc:
             QMessageBox.warning(
                 self, self.tr("Load Error"), str(exc)
