@@ -4,14 +4,21 @@ input:
 
 groups:
   include: ["Exposure", "Normal", "Control"]
+  pair_id_pattern: "BC\\d+"       # regex to extract subject ID from Sample_Name
   volcano_pairs:
-    - ["Exposure", "Normal"]
-    - ["Exposure", "Control"]
-    - ["Normal", "Control"]
+    - groups: ["Exposure", "Normal"]
+      paired: true                 # same subjects (Tumor vs Normal tissue)
+    - groups: ["Exposure", "Control"]
+      paired: false                # independent subjects
+    - groups: ["Normal", "Control"]
+      paired: false
   oplsda_pairs:
-    - ["Exposure", "Normal"]
-    - ["Exposure", "Control"]
-    - ["Normal", "Control"]
+    - groups: ["Exposure", "Normal"]
+      paired: true
+    - groups: ["Exposure", "Control"]
+      paired: false
+    - groups: ["Normal", "Control"]
+      paired: false
 
 pipeline:
   missing_thresh: 1.0       # 1.0 = keep all features (PPT: do NOT remove NA/0 features)

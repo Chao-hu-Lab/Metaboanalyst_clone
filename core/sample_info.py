@@ -58,6 +58,106 @@ def _extract_bc_number(text: str) -> str:
     return m.group(1) if m else ""
 
 
+def extract_subject_ids(
+    sample_names: pd.Index | pd.Series,
+    pattern: str = r"BC\d+",
+) -> pd.Series:
+    """
+    Extract subject IDs from sample names using a regex pattern.
+
+    Parameters
+    ----------
+    sample_names : Index or Series
+        Sample names (e.g., "Tumor tissue BC2257_DNA").
+    pattern : str
+        Regex pattern to extract the subject ID.  The first match
+        (or first capture group, if present) is used as the subject ID.
+        Default ``r"BC\\d+"`` matches identifiers like BC2257.
+
+    Returns
+    -------
+    Series
+        Subject IDs indexed by the original sample names.
+        Unmatched samples get an empty string ``""``.
+    """
+    compiled = re.compile(pattern, re.IGNORECASE)
+    ids: list[str] = []
+    names = sample_names if isinstance(sample_names, pd.Index) else pd.Index(sample_names)
+    for name in names:
+        m = compiled.search(str(name))
+        if m:
+            ids.append(m.group(1) if m.lastindex else m.group(0))
+        else:
+            ids.append("")
+    return pd.Series(ids, index=names, name="subject_id")
+
+
+def align_paired_samples(
+    df: pd.DataFrame,
+    labels: pd.Series,
+    group1: str,
+    group2: str,
+    subject_ids: pd.Series,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.Index]:
+    """
+    Align two groups into matched pairs by subject ID.
+
+    For each subject that appears in *both* groups, selects the first
+    matching sample from each group.  Subjects found in only one group
+    are silently dropped.
+
+    Parameters
+    ----------
+    df : DataFrame
+        Data matrix (samples × features).
+    labels : Series
+        Group labels aligned to ``df.index``.
+    group1, group2 : str
+        Group names to pair (e.g. "Exposure", "Normal").
+    subject_ids : Series
+        Subject IDs aligned to ``df.index``, as returned by
+        :func:`extract_subject_ids`.
+
+    Returns
+    -------
+    df1 : DataFrame
+        Subset of *df* for *group1*, ordered by subject ID.
+    df2 : DataFrame
+        Subset of *df* for *group2*, ordered by subject ID (same order).
+    matched_subjects : Index
+        Subject IDs that were successfully matched.
+
+    Raises
+    ------
+    ValueError
+        If no subjects can be matched between the two groups.
+    """
+    labels_arr = labels.astype(str)
+    mask1 = labels_arr == group1
+    mask2 = labels_arr == group2
+
+    # Build subject → first sample index mapping per group
+    sid1 = subject_ids[mask1]
+    sid2 = subject_ids[mask2]
+
+    # Drop empty subject IDs and keep first occurrence per subject
+    map1 = sid1[sid1 != ""].groupby(sid1[sid1 != ""]).apply(lambda g: g.index[0])
+    map2 = sid2[sid2 != ""].groupby(sid2[sid2 != ""]).apply(lambda g: g.index[0])
+
+    common = map1.index.intersection(map2.index).sort_values()
+    if common.empty:
+        raise ValueError(
+            f"No matched subjects between '{group1}' and '{group2}'. "
+            f"Group1 subjects: {sorted(map1.index.tolist())[:5]}; "
+            f"Group2 subjects: {sorted(map2.index.tolist())[:5]}"
+        )
+
+    idx1 = [map1[s] for s in common]
+    idx2 = [map2[s] for s in common]
+
+    return df.loc[idx1], df.loc[idx2], common
+
+
 def _extract_qc_number(text: str) -> str:
     t = text.lower().replace(" ", "")
     m = re.search(r"pooled[^a-z0-9]*qc[^0-9]*([0-9]+)", t)

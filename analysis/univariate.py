@@ -1,7 +1,9 @@
 """
 Two-group univariate analysis for volcano plot:
-- Student's / Welch's t-test
-- Wilcoxon rank-sum test
+- Student's / Welch's t-test  (unpaired)
+- Paired t-test               (paired)
+- Wilcoxon rank-sum test       (unpaired, non-parametric)
+- Wilcoxon signed-rank test    (paired, non-parametric)
 - Fold change
 - Optional FDR correction (Benjamini-Hochberg by default)
 """
@@ -10,7 +12,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-from scipy.stats import mannwhitneyu, ttest_ind
+from scipy.stats import mannwhitneyu, ttest_ind, ttest_rel, wilcoxon
 from statsmodels.stats.multitest import multipletests
 
 
@@ -24,6 +26,8 @@ class VolcanoResult:
         p_thresh: float,
         use_fdr: bool,
         fdr_method: str,
+        paired: bool = False,
+        n_pairs: int | None = None,
     ):
         self.result_df = result_df
         self.group1 = group1
@@ -32,6 +36,8 @@ class VolcanoResult:
         self.p_thresh = p_thresh
         self.use_fdr = use_fdr
         self.fdr_method = fdr_method
+        self.paired = paired
+        self.n_pairs = n_pairs
 
     @property
     def significant(self) -> pd.DataFrame:
@@ -81,34 +87,83 @@ def volcano_analysis(
     nonpar: bool = False,
     use_fdr: bool = True,
     fdr_method: str = "fdr_bh",
+    paired: bool = False,
+    pair_ids: pd.Series | None = None,
 ) -> VolcanoResult:
+    """
+    Two-group univariate analysis for volcano plot.
+
+    Parameters
+    ----------
+    paired : bool
+        If True, use paired tests (ttest_rel / wilcoxon signed-rank).
+        Requires *pair_ids* to align samples between groups.
+    pair_ids : Series, optional
+        Subject IDs aligned to ``df.index``.  Required when ``paired=True``.
+        Samples are matched by subject ID across the two groups.
+    """
     if hasattr(labels, "values"):
         labels_arr = labels.values
     else:
         labels_arr = np.array(labels)
 
-    g1 = df[labels_arr == group1]
-    g2 = df[labels_arr == group2]
+    n_pairs = None
 
+    if paired:
+        if pair_ids is None:
+            raise ValueError("pair_ids is required for paired analysis.")
+
+        # Align samples by subject ID
+        from core.sample_info import align_paired_samples
+
+        g1, g2, matched = align_paired_samples(
+            df, pd.Series(labels_arr, index=df.index),
+            group1, group2, pair_ids,
+        )
+        n_pairs = len(matched)
+    else:
+        g1 = df[labels_arr == group1]
+        g2 = df[labels_arr == group2]
+
+    # Fold change uses group means (consistent with MetaboAnalyst)
     mean1 = g1.mean()
     mean2 = g2.mean()
     log2fc = _robust_log2fc(mean1, mean2)
 
     pvals_raw = []
     for col in df.columns:
-        v1 = g1[col].dropna().values
-        v2 = g2[col].dropna().values
-        if len(v1) < 2 or len(v2) < 2:
-            pvals_raw.append(1.0)
-            continue
-        try:
-            if nonpar:
-                _, pvalue = mannwhitneyu(v1, v2, alternative="two-sided")
-            else:
-                _, pvalue = ttest_ind(v1, v2, equal_var=equal_var)
-            pvals_raw.append(float(pvalue))
-        except Exception:
-            pvals_raw.append(1.0)
+        if paired:
+            # Paired: use aligned arrays directly (same order by subject)
+            v1 = g1[col].values
+            v2 = g2[col].values
+            # Drop pairs where either value is NaN
+            valid = ~(np.isnan(v1) | np.isnan(v2))
+            v1, v2 = v1[valid], v2[valid]
+            if len(v1) < 2:
+                pvals_raw.append(1.0)
+                continue
+            try:
+                if nonpar:
+                    _, pvalue = wilcoxon(v1, v2, alternative="two-sided")
+                else:
+                    _, pvalue = ttest_rel(v1, v2)
+                pvals_raw.append(float(pvalue))
+            except Exception:
+                pvals_raw.append(1.0)
+        else:
+            v1 = g1[col].dropna().values
+            v2 = g2[col].dropna().values
+            if len(v1) < 2 or len(v2) < 2:
+                pvals_raw.append(1.0)
+                continue
+            try:
+                if nonpar:
+                    _, pvalue = mannwhitneyu(v1, v2, alternative="two-sided")
+                else:
+                    _, pvalue = ttest_ind(v1, v2, equal_var=equal_var)
+                pvals_raw.append(float(pvalue))
+            except Exception:
+                pvals_raw.append(1.0)
 
     pvals_raw = np.array(pvals_raw, dtype=float)
 
@@ -142,5 +197,7 @@ def volcano_analysis(
         p_thresh=p_thresh,
         use_fdr=use_fdr,
         fdr_method=fdr_method,
+        paired=paired,
+        n_pairs=n_pairs,
     )
 

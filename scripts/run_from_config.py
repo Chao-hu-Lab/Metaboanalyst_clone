@@ -25,7 +25,7 @@ import yaml  # noqa: E402
 
 from core.pipeline import MetaboAnalystPipeline  # noqa: E402
 from core.sample_interface import identify_sample_columns  # noqa: E402
-from core.sample_info import read_sample_info_sheet, build_aligned_factors  # noqa: E402
+from core.sample_info import read_sample_info_sheet, build_aligned_factors, extract_subject_ids  # noqa: E402
 from ms_core.analysis.pca import run_pca  # noqa: E402
 from ms_core.analysis.anova import run_anova  # noqa: E402
 from ms_core.analysis.univariate import volcano_analysis  # noqa: E402
@@ -80,6 +80,27 @@ def load_config(path: str) -> dict:
     hm.setdefault("scale", "row")
 
     return cfg
+
+
+def parse_pair_config(
+    raw_pairs: list,
+) -> list[tuple[str, str, bool]]:
+    """
+    Parse volcano_pairs / oplsda_pairs config supporting both formats:
+      Old: [["Exposure", "Normal"], ...]
+      New: [{"groups": ["Exposure", "Normal"], "paired": true}, ...]
+    Returns list of (group1, group2, paired) tuples.
+    """
+    result = []
+    for entry in raw_pairs:
+        if isinstance(entry, dict):
+            groups = entry["groups"]
+            paired = entry.get("paired", False)
+        else:
+            groups = entry
+            paired = False
+        result.append((groups[0], groups[1], paired))
+    return result
 
 
 # ── Data loaders ──────────────────────────────────────────
@@ -399,7 +420,8 @@ def run_analysis(cfg: dict):
 
     # ── PLS-DA + VIP (pairwise, 2-group) ─────────────────────
     plsda_cfg = analysis_cfg.get("plsda", {})
-    plsda_pairs = cfg["groups"].get("oplsda_pairs", [])  # reuse OPLS-DA pairs
+    raw_plsda_pairs = cfg["groups"].get("oplsda_pairs", [])  # reuse OPLS-DA pairs
+    plsda_pairs = parse_pair_config(raw_plsda_pairs)
     if plsda_cfg and plsda_pairs:
         print("\n" + "=" * 60)
         print("Running pairwise PLS-DA + VIP...")
@@ -413,7 +435,7 @@ def run_analysis(cfg: dict):
         n_comp = plsda_cfg.get("n_components", 2)
         top_vip = plsda_cfg.get("top_vip", 15)
 
-        for g1, g2 in plsda_pairs:
+        for g1, g2, _paired in plsda_pairs:
             print(f"  {g1} vs {g2}...")
             try:
                 pair_mask = final_labels.isin([g1, g2])
@@ -440,8 +462,9 @@ def run_analysis(cfg: dict):
                 print(f"    Error: {e}")
 
     # ── OPLS-DA (pairwise, 2-group only) ──────────────────
-    oplsda_pairs = cfg["groups"].get("oplsda_pairs", [])
-    if oplsda_pairs:
+    raw_oplsda_pairs = cfg["groups"].get("oplsda_pairs", [])
+    oplsda_parsed = parse_pair_config(raw_oplsda_pairs)
+    if oplsda_parsed:
         print("\n" + "=" * 60)
         print("Running pairwise OPLS-DA...")
         try:
@@ -449,9 +472,9 @@ def run_analysis(cfg: dict):
             from ms_core.visualization.oplsda_plot import plot_oplsda_score
         except ImportError as e:
             print(f"  Import error: {e}")
-            oplsda_pairs = []
+            oplsda_parsed = []
 
-        for g1, g2 in oplsda_pairs:
+        for g1, g2, _paired in oplsda_parsed:
             print(f"  {g1} vs {g2}...")
             try:
                 pair_mask = final_labels.isin([g1, g2])
@@ -485,9 +508,22 @@ def run_analysis(cfg: dict):
     from visualization.volcano_plot import plot_volcano
 
     vol_cfg = analysis_cfg["volcano"]
-    pairs = cfg["groups"].get("volcano_pairs", [])
-    for g1, g2 in pairs:
-        print(f"  {g1} vs {g2}...")
+    raw_pairs = cfg["groups"].get("volcano_pairs", [])
+    volcano_pairs = parse_pair_config(raw_pairs)
+
+    # Extract subject IDs if any pair is paired
+    pair_id_pattern = cfg["groups"].get("pair_id_pattern", r"BC\d+")
+    has_any_paired = any(p for _, _, p in volcano_pairs)
+    subject_ids = None
+    if has_any_paired:
+        subject_ids = extract_subject_ids(processed.index, pattern=pair_id_pattern)
+        n_with_id = (subject_ids != "").sum()
+        print(f"  Subject IDs extracted: {n_with_id}/{len(subject_ids)} "
+              f"(pattern: {pair_id_pattern})")
+
+    for g1, g2, is_paired in volcano_pairs:
+        test_label = "paired" if is_paired else "unpaired"
+        print(f"  {g1} vs {g2} ({test_label})...")
         try:
             vresult = volcano_analysis(
                 processed, final_labels,
@@ -495,9 +531,12 @@ def run_analysis(cfg: dict):
                 fc_thresh=vol_cfg["fc_thresh"],
                 p_thresh=vol_cfg["p_thresh"],
                 use_fdr=vol_cfg["use_fdr"],
+                paired=is_paired,
+                pair_ids=subject_ids if is_paired else None,
             )
+            pair_info = f", Pairs: {vresult.n_pairs}" if is_paired else ""
             print(f"    Significant: {vresult.n_significant} "
-                  f"(Up: {vresult.n_up}, Down: {vresult.n_down})")
+                  f"(Up: {vresult.n_up}, Down: {vresult.n_down}{pair_info})")
             vresult.result_df.to_csv(
                 os.path.join(output_dir, f"volcano_{g1}_vs_{g2}.csv"))
 
