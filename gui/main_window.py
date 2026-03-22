@@ -140,6 +140,8 @@ class MainWindow(QMainWindow):
         self.sample_info: pd.DataFrame | None = None
         self.sample_col: str | None = None
         self.group_col: str | None = None
+        self._filtered_data: pd.DataFrame | None = None
+        self._filtered_labels: pd.Series | None = None
 
         # Workflow stage:
         # 0: no data, 1: import done, 2: missing done, 3: filter done, 4: norm done
@@ -709,6 +711,8 @@ class MainWindow(QMainWindow):
 
         self.pipeline_params = self._default_pipeline_params()
         self.undo_stack.clear()
+        self._filtered_data = None
+        self._filtered_labels = None
         self._stage = 1
         self._update_tab_states()
 
@@ -751,7 +755,9 @@ class MainWindow(QMainWindow):
             new_labels = self.labels
 
         stage_map = {"missing": 2, "filter": 3, "norm": 4}
-        new_stage = max(self._stage, stage_map[step_key]) if step_key in stage_map else self._stage
+        new_stage = (
+            max(self._stage, stage_map[step_key]) if step_key in stage_map else self._stage
+        )
 
         cmd = ProcessingStepCommand(
             self,
@@ -766,6 +772,10 @@ class MainWindow(QMainWindow):
         # push() calls cmd.redo() internally, which sets
         # current_data, labels, and _stage on self.
         self.undo_stack.push(cmd)
+
+        if step_key == "filter":
+            self._filtered_data = df.copy()
+            self._filtered_labels = new_labels.copy() if new_labels is not None else None
 
         self._update_tab_states()
 

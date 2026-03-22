@@ -198,8 +198,22 @@ class NormTab(QWidget):
         self._on_row_method_changed()
 
     def _reset(self):
-        if self.mw.current_data is None or self.mw.raw_data is None:
+        """Restore data to the post-filter checkpoint."""
+        if self.mw._filtered_data is None:
+            from PySide6.QtWidgets import QMessageBox
+
+            QMessageBox.information(
+                self,
+                self.tr("Reset"),
+                self.tr("No filtered data checkpoint available. Run filtering first."),
+            )
             return
+        self.mw.update_data(
+            self.mw._filtered_data.copy(),
+            source_tab=self.tr("Reset to filtered"),
+            step_key="filter",
+            labels=self.mw._filtered_labels,
+        )
         self.log_text.clear()
         self.on_data_updated()
 

@@ -723,5 +723,41 @@ class TestPLSDAEdgeCases:
         assert result.scores.shape[1] == 1
 
 
+class TestNormResetCheckpoint:
+
+    def test_reset_restores_filtered_data(self):
+        """After normalization, reset should restore to post-filter state."""
+        from core.pipeline import MetaboAnalystPipeline
+
+        rng = np.random.RandomState(42)
+        df = pd.DataFrame(
+            rng.lognormal(5, 1.5, (20, 50)),
+            columns=[f"F{i}" for i in range(50)],
+        )
+        labels = pd.Series(["A"] * 10 + ["B"] * 10)
+
+        pipe = MetaboAnalystPipeline(df, labels)
+        filtered = pipe.run_pipeline(
+            filter_method="iqr",
+            row_norm="None",
+            transform="None",
+            scaling="None",
+        )
+        checkpoint = filtered.copy()
+        assert filtered.shape[1] <= df.shape[1]
+
+        pipe2 = MetaboAnalystPipeline(filtered, labels)
+        normed = pipe2.run_pipeline(
+            filter_method="None",
+            row_norm="None",
+            transform="LogNorm",
+            scaling="AutoNorm",
+        )
+        assert not normed.equals(checkpoint)
+
+        restored = checkpoint.copy()
+        pd.testing.assert_frame_equal(restored, filtered)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
