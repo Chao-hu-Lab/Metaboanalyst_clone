@@ -156,7 +156,7 @@ class FilterTab(QWidget):
                 qc_detected=(
                     self.tr("Yes ({n})").format(n=qc_count)
                     if qc_count >= 2
-                    else self.tr("No") if qc_count == 0 else self.tr("Only 1 (need ??)")
+                    else self.tr("No") if qc_count == 0 else self.tr("Only 1 (need >=2)")
                 ),
             )
         )

@@ -200,8 +200,6 @@ class NormTab(QWidget):
     def _reset(self):
         """Restore data to the post-filter checkpoint."""
         if self.mw._filtered_data is None:
-            from PySide6.QtWidgets import QMessageBox
-
             QMessageBox.information(
                 self,
                 self.tr("Reset"),
