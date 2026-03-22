@@ -695,5 +695,33 @@ class TestQCRSDEdgeCases:
         assert "F_drop" not in result.columns
 
 
+class TestPLSDAEdgeCases:
+
+    def test_single_feature_raises_value_error(self):
+        """PLS-DA with a single feature should raise a clear error."""
+        from analysis.plsda import run_plsda
+
+        df = pd.DataFrame({"F1": [1.0, 2.0, 3.0, 4.0]})
+        labels = pd.Series(["A", "A", "B", "B"])
+
+        with pytest.raises(ValueError, match="at least 2 features"):
+            run_plsda(df, labels, n_components=2)
+
+    def test_two_features_works(self):
+        """PLS-DA with 2 features should work (n_components clamped to 1)."""
+        from analysis.plsda import run_plsda
+
+        rng = np.random.RandomState(42)
+        df = pd.DataFrame(
+            rng.randn(20, 2),
+            columns=["F1", "F2"],
+            index=[f"S{i}" for i in range(20)],
+        )
+        labels = pd.Series(["A"] * 10 + ["B"] * 10, index=df.index)
+
+        result = run_plsda(df, labels, n_components=3)
+        assert result.scores.shape[1] == 1
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
