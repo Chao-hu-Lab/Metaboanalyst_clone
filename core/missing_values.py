@@ -117,7 +117,7 @@ def impute_missing(df: pd.DataFrame, method: str = "min", **kwargs) -> pd.DataFr
     df : DataFrame
         含有 NaN 的數值資料框
     method : str
-        填補方法: min, mean, median, exclude, knn, ppca, bpca, svd
+        填補方法: none, min, mean, median, exclude, knn, ppca, bpca, svd
     **kwargs
         傳給特定填補方法的額外參數（如 k, n_components, rank）
 
@@ -126,6 +126,8 @@ def impute_missing(df: pd.DataFrame, method: str = "min", **kwargs) -> pd.DataFr
     DataFrame
         填補後的資料框
     """
+    if method in ("none", "None"):
+        return df.copy()
     if method == "min" or method == "lod":
         return _impute_min_lod(df)
     elif method == "mean":

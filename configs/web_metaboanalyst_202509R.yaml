@@ -14,11 +14,11 @@ groups:
     - ["Normal", "Control"]
 
 pipeline:
-  missing_thresh: 0.5       # Remove features with > 50% missing
-  impute_method: "min"      # LoD imputation (min value)
+  missing_thresh: 1.0       # 1.0 = keep all features (PPT: do NOT remove NA/0 features)
+  impute_method: "none"     # Skip imputation (PPT: skip Missing Value step entirely)
   qc_rsd_enabled: false     # No QC RSD filter (input is already PQN-normalized)
-  filter_method: "iqr"      # IQR-based feature filter
-  filter_cutoff: 0.08       # Remove bottom 8% by IQR
+  filter_method: "None"     # No filtering (PPT: set 0% to preserve all signals)
+  filter_cutoff: 0          # Not used when filter_method is None
   row_norm: "None"          # Already PQN-normalized upstream
   transform: "Log10Norm"    # Log10 transformation
   scaling: "ParetoNorm"     # Pareto scaling
