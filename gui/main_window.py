@@ -87,20 +87,37 @@ class ProcessingStepCommand(QUndoCommand):
         step_name: str,
         new_df: pd.DataFrame,
         old_df: pd.DataFrame | None,
+        *,
+        new_labels: pd.Series | None = None,
+        old_labels: pd.Series | None = None,
+        new_stage: int | None = None,
+        old_stage: int | None = None,
     ):
         super().__init__(step_name)
         self._mw = main_window
         self._new_df = new_df.copy()
         self._old_df = old_df.copy() if old_df is not None else None
+        self._new_labels = new_labels.copy() if new_labels is not None else None
+        self._old_labels = old_labels.copy() if old_labels is not None else None
+        self._new_stage = new_stage
+        self._old_stage = old_stage
 
     def redo(self):
         self._mw.current_data = self._new_df.copy()
+        if self._new_labels is not None:
+            self._mw.labels = self._new_labels.copy()
+        if self._new_stage is not None:
+            self._mw._stage = self._new_stage
         self._mw._on_data_state_changed()
 
     def undo(self):
         if self._old_df is None:
             return
         self._mw.current_data = self._old_df.copy()
+        if self._old_labels is not None:
+            self._mw.labels = self._old_labels.copy()
+        if self._old_stage is not None:
+            self._mw._stage = self._old_stage
         self._mw._on_data_state_changed()
 
 
@@ -123,6 +140,8 @@ class MainWindow(QMainWindow):
         self.sample_info: pd.DataFrame | None = None
         self.sample_col: str | None = None
         self.group_col: str | None = None
+        self._filtered_data: pd.DataFrame | None = None
+        self._filtered_labels: pd.Series | None = None
 
         # Workflow stage:
         # 0: no data, 1: import done, 2: missing done, 3: filter done, 4: norm done
@@ -692,6 +711,8 @@ class MainWindow(QMainWindow):
 
         self.pipeline_params = self._default_pipeline_params()
         self.undo_stack.clear()
+        self._filtered_data = None
+        self._filtered_labels = None
         self._stage = 1
         self._update_tab_states()
 
@@ -722,22 +743,43 @@ class MainWindow(QMainWindow):
         labels=None,
     ):
         old_df = self.current_data.copy() if self.current_data is not None else None
-        cmd = ProcessingStepCommand(self, source_tab, df, old_df)
-        self.undo_stack.push(cmd)
+        old_labels = self.labels.copy() if self.labels is not None else None
+        old_stage = self._stage
 
         if labels is not None:
             if isinstance(labels, pd.Series):
-                self.labels = labels.copy()
+                new_labels = labels.copy()
             else:
-                self.labels = pd.Series(labels, index=df.index)
+                new_labels = pd.Series(labels, index=df.index)
+        else:
+            new_labels = self.labels
 
         stage_map = {"missing": 2, "filter": 3, "norm": 4}
-        next_tab_map = {"missing": 2, "filter": 3, "norm": 4}
-        if step_key in stage_map:
-            self._stage = max(self._stage, stage_map[step_key])
+        new_stage = (
+            max(self._stage, stage_map[step_key]) if step_key in stage_map else self._stage
+        )
+
+        cmd = ProcessingStepCommand(
+            self,
+            source_tab,
+            df,
+            old_df,
+            new_labels=new_labels,
+            old_labels=old_labels,
+            new_stage=new_stage,
+            old_stage=old_stage,
+        )
+        # push() calls cmd.redo() internally, which sets
+        # current_data, labels, and _stage on self.
+        self.undo_stack.push(cmd)
+
+        if step_key == "filter":
+            self._filtered_data = df.copy()
+            self._filtered_labels = new_labels.copy() if new_labels is not None else None
 
         self._update_tab_states()
 
+        next_tab_map = {"missing": 2, "filter": 3, "norm": 4}
         if step_key in next_tab_map:
             next_idx = next_tab_map[step_key]
             item = self._nav_list.item(next_idx)
@@ -864,11 +906,59 @@ class MainWindow(QMainWindow):
             import yaml
 
             with open(path, "r", encoding="utf-8") as f:
-                yaml.safe_load(f)
+                config = yaml.safe_load(f)
+
+            if not isinstance(config, dict):
+                QMessageBox.warning(
+                    self,
+                    self.tr("Load Error"),
+                    self.tr("Config file is empty or not a valid YAML mapping."),
+                )
+                return
+
+            applied = []
+
+            if "pipeline" in config and isinstance(config["pipeline"], dict):
+                pipe_cfg = config["pipeline"]
+                valid_keys = (
+                    "missing_thresh",
+                    "impute_method",
+                    "filter_method",
+                    "filter_cutoff",
+                    "row_norm",
+                    "transform",
+                    "scaling",
+                    "qc_rsd_enabled",
+                    "qc_rsd_threshold",
+                )
+                for key in valid_keys:
+                    if key in pipe_cfg:
+                        self.pipeline_params[key] = pipe_cfg[key]
+                        applied.append(key)
+
+                if hasattr(self, "norm_tab"):
+                    nt = self.norm_tab
+                    combo_map = {
+                        "row_norm": getattr(nt, "row_combo", None),
+                        "transform": getattr(nt, "trans_combo", None),
+                        "scaling": getattr(nt, "scale_combo", None),
+                    }
+                    for key, combo in combo_map.items():
+                        if combo is not None and key in pipe_cfg:
+                            idx = combo.findData(pipe_cfg[key])
+                            if idx < 0:
+                                idx = combo.findText(pipe_cfg[key])
+                            if idx >= 0:
+                                combo.setCurrentIndex(idx)
+
+            summary = ", ".join(applied) if applied else "no pipeline keys"
             self.status_bar.showMessage(
-                self.tr("Config loaded: {path}").format(path=path)
+                self.tr("Config loaded: {path} ({summary})").format(
+                    path=path,
+                    summary=summary,
+                )
             )
-            logger.info("Loaded config from %s", path)
+            logger.info("Loaded config from %s, applied: %s", path, applied)
         except Exception as exc:
             QMessageBox.warning(
                 self, self.tr("Load Error"), str(exc)

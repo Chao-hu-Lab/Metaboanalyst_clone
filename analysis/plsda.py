@@ -96,6 +96,11 @@ def run_plsda(
     X = data.values
 
     n_components = min(n_components, min(X.shape) - 1, len(np.unique(y)))
+    if n_components < 1:
+        raise ValueError(
+            f"PLS-DA requires at least 2 features and 2 samples per group. "
+            f"Got {X.shape[1]} feature(s), {X.shape[0]} sample(s)."
+        )
 
     # 建立 PLS 模型
     pls = PLSRegression(n_components=n_components, scale=False)

@@ -661,5 +661,103 @@ class TestQCUtils:
         assert list(filtered_labels.values) == ["Case", "Control"]
 
 
+class TestQCRSDEdgeCases:
+
+    def test_single_qc_raises_value_error(self):
+        """Single QC replicate should raise, not silently empty all features."""
+        from core.filtering import filter_by_qc_rsd
+
+        df = pd.DataFrame(
+            {"F1": [100.0, 200.0, 300.0], "F2": [10.0, 20.0, 30.0]},
+            index=["QC_1", "S1", "S2"],
+        )
+        qc_mask = np.array([True, False, False])
+
+        with pytest.raises(ValueError, match="at least 2"):
+            filter_by_qc_rsd(df, qc_mask, rsd_threshold=0.25)
+
+    def test_two_qc_works_normally(self):
+        """Two QC replicates should work fine."""
+        from core.filtering import filter_by_qc_rsd
+
+        df = pd.DataFrame(
+            {
+                "F_keep": [100.0, 110.0, 200.0, 300.0],
+                "F_drop": [10.0, 50.0, 20.0, 30.0],
+            },
+            index=["QC_1", "QC_2", "S1", "S2"],
+        )
+        qc_mask = np.array([True, True, False, False])
+
+        result = filter_by_qc_rsd(df, qc_mask, rsd_threshold=0.25)
+        assert result.shape[0] == 2
+        assert "F_keep" in result.columns
+        assert "F_drop" not in result.columns
+
+
+class TestPLSDAEdgeCases:
+
+    def test_single_feature_raises_value_error(self):
+        """PLS-DA with a single feature should raise a clear error."""
+        from analysis.plsda import run_plsda
+
+        df = pd.DataFrame({"F1": [1.0, 2.0, 3.0, 4.0]})
+        labels = pd.Series(["A", "A", "B", "B"])
+
+        with pytest.raises(ValueError, match="at least 2 features"):
+            run_plsda(df, labels, n_components=2)
+
+    def test_two_features_works(self):
+        """PLS-DA with 2 features should work (n_components clamped to 1)."""
+        from analysis.plsda import run_plsda
+
+        rng = np.random.RandomState(42)
+        df = pd.DataFrame(
+            rng.randn(20, 2),
+            columns=["F1", "F2"],
+            index=[f"S{i}" for i in range(20)],
+        )
+        labels = pd.Series(["A"] * 10 + ["B"] * 10, index=df.index)
+
+        result = run_plsda(df, labels, n_components=3)
+        assert result.scores.shape[1] == 1
+
+
+class TestNormResetCheckpoint:
+
+    def test_reset_restores_filtered_data(self):
+        """After normalization, reset should restore to post-filter state."""
+        from core.pipeline import MetaboAnalystPipeline
+
+        rng = np.random.RandomState(42)
+        df = pd.DataFrame(
+            rng.lognormal(5, 1.5, (20, 50)),
+            columns=[f"F{i}" for i in range(50)],
+        )
+        labels = pd.Series(["A"] * 10 + ["B"] * 10)
+
+        pipe = MetaboAnalystPipeline(df, labels)
+        filtered = pipe.run_pipeline(
+            filter_method="iqr",
+            row_norm="None",
+            transform="None",
+            scaling="None",
+        )
+        checkpoint = filtered.copy()
+        assert filtered.shape[1] <= df.shape[1]
+
+        pipe2 = MetaboAnalystPipeline(filtered, labels)
+        normed = pipe2.run_pipeline(
+            filter_method="None",
+            row_norm="None",
+            transform="LogNorm",
+            scaling="AutoNorm",
+        )
+        assert not normed.equals(checkpoint)
+
+        restored = checkpoint.copy()
+        pd.testing.assert_frame_equal(restored, filtered)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
