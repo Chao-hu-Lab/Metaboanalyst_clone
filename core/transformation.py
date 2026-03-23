@@ -42,19 +42,22 @@ class DataTransformer:
     def glog2(df: pd.DataFrame) -> pd.DataFrame:
         """廣義 log2 轉換（MetaboAnalyst 預設）"""
         lam = DataTransformer._get_lambda(df)
-        return np.log2((df + np.sqrt(df**2 + lam**2)) / 2)
+        x = df.astype(float)   # prevent int64 overflow when squaring large values
+        return np.log2((x + np.sqrt(x**2 + lam**2)) / 2)
 
     @staticmethod
     def glog10(df: pd.DataFrame) -> pd.DataFrame:
         """廣義 log10 轉換"""
         lam = DataTransformer._get_lambda(df)
-        return np.log10((df + np.sqrt(df**2 + lam**2)) / 2)
+        x = df.astype(float)   # prevent int64 overflow when squaring large values
+        return np.log10((x + np.sqrt(x**2 + lam**2)) / 2)
 
     @staticmethod
     def gsqrt(df: pd.DataFrame) -> pd.DataFrame:
         """廣義平方根轉換"""
         lam = DataTransformer._get_lambda(df)
-        return np.sqrt((df + np.sqrt(df**2 + lam**2)) / 2)
+        x = df.astype(float)   # prevent int64 overflow when squaring large values
+        return np.sqrt((x + np.sqrt(x**2 + lam**2)) / 2)
 
     @staticmethod
     def cube_root(df: pd.DataFrame) -> pd.DataFrame:

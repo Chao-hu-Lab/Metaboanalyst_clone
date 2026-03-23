@@ -338,6 +338,13 @@ def run_analysis(cfg: dict):
             processed = processed.loc[group_mask]
             final_labels = final_labels.loc[group_mask]
 
+    # Drop zero-variance features (std=0 after QC removal causes Pareto NaN)
+    feat_std = processed.std()
+    zero_var_feats = feat_std[feat_std == 0].index.tolist()
+    if zero_var_feats:
+        print(f"  Dropping {len(zero_var_feats)} zero-variance features (constant after QC removal)")
+        processed = processed.drop(columns=zero_var_feats)
+
     print(f"  Final: {processed.shape[0]} samples x {processed.shape[1]} features")
     print(f"  Groups: {dict(final_labels.value_counts())}")
 
@@ -608,6 +615,11 @@ def main():
         help="Override the input file path from config (e.g., path/to/data.xlsx)",
         default=None,
     )
+    parser.add_argument(
+        "--suffix", "-s",
+        help="Append a suffix to the output folder name (e.g., _control, _strict)",
+        default=None,
+    )
     args = parser.parse_args()
 
     if not os.path.isfile(args.config):
@@ -618,6 +630,8 @@ def main():
     if args.input:
         cfg["input"]["file"] = args.input
         print(f"Input overridden: {args.input}")
+    if args.suffix:
+        cfg["output"]["suffix"] = args.suffix
     print(f"Loaded config: {args.config}")
     run_analysis(cfg)
 
