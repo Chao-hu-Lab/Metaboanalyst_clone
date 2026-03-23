@@ -100,6 +100,10 @@ def run_anova(
     pvals = np.array(pvals)
     fvals = np.array(fvals)
 
+    # Replace NaN p-values (constant features return nan from f_oneway) with 1.0
+    # so multipletests doesn't corrupt the entire output array.
+    pvals = np.where(np.isnan(pvals), 1.0, pvals)
+
     # FDR
     if use_fdr:
         _, pvals_adj, _, _ = multipletests(pvals, method="fdr_bh")

@@ -166,6 +166,8 @@ def volcano_analysis(
                 pvals_raw.append(1.0)
 
     pvals_raw = np.array(pvals_raw, dtype=float)
+    # Guard: NaN p-values (e.g. from constant features) break multipletests entirely
+    pvals_raw = np.where(np.isnan(pvals_raw), 1.0, pvals_raw)
 
     if use_fdr:
         _, pvals_adj, _, _ = multipletests(pvals_raw, method=fdr_method)
