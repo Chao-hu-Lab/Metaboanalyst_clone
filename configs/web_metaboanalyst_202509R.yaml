@@ -22,9 +22,10 @@ groups:
 
 pipeline:
   missing_thresh: 1.0       # 1.0 = keep all features (PPT: do NOT remove NA/0 features)
-  impute_method: "none"     # Skip imputation (PPT: skip Missing Value step entirely)
-  qc_rsd_enabled: false     # No QC RSD filter (input is already PQN-normalized)
-  filter_method: "None"     # No filtering (PPT: set 0% to preserve all signals)
+  impute_method: "min"      # LoD (min/5) — MetaboAnalyst applies this by default even when "skipping" the Missing Value page
+  qc_rsd_enabled: true      # Remove QC samples + filter unstable features after DNP calibration
+  qc_rsd_threshold: 0.50    # 50% RSD — retains ~74% features; within-batch precision metric
+  filter_method: "None"     # Toolkit GUI Step4 already performed IQR filtering
   filter_cutoff: 0          # Not used when filter_method is None
   row_norm: "None"          # Already PQN-normalized upstream
   transform: "Log10Norm"    # Log10 transformation
