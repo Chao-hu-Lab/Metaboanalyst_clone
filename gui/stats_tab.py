@@ -763,7 +763,7 @@ class StatsTab(QWidget):
             for i in range(n_show):
                 row = result_sorted.iloc[i]
                 self.anova_table.setItem(i, 0, QTableWidgetItem(str(row["Feature"])))
-                self.anova_table.setItem(i, 1, QTableWidgetItem(f'{row["F_statistic"]:.3f}'))
+                self.anova_table.setItem(i, 1, QTableWidgetItem(f'{row["statistic"]:.3f}'))
                 self.anova_table.setItem(i, 2, QTableWidgetItem(f'{row["pvalue_adj"]:.2e}'))
             self.anova_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
 

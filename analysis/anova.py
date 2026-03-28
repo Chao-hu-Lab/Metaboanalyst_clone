@@ -115,7 +115,7 @@ def run_anova(
 
     result_df = pd.DataFrame({
         "Feature": df.columns,
-        "F_statistic": fvals,
+        "statistic": fvals,
         "pvalue": pvals,
         "pvalue_adj": pvals_adj,
         "neg_log10p": neg_log10p,
@@ -129,8 +129,13 @@ def run_anova(
         sig_features = result_df[result_df["significant"]]["Feature"].values
         for feat in sig_features[:50]:  # 限制數量
             vals = df[feat].values
+            valid_mask = ~np.isnan(vals)
+            vals = vals[valid_mask]
+            feat_labels = labels_arr[valid_mask]
+            if len(vals) < 3 or len(set(feat_labels)) < 2:
+                continue
             try:
-                tukey = pairwise_tukeyhsd(vals, labels_arr, alpha=p_thresh)
+                tukey = pairwise_tukeyhsd(vals, feat_labels, alpha=p_thresh)
                 for row in tukey.summary().data[1:]:
                     posthoc_records.append({
                         "Feature": feat,
