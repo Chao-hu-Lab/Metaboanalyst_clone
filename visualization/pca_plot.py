@@ -184,15 +184,18 @@ def plot_pca_loading(
 
     loading_df = pca_result.get_loading_df()
     col = loading_df.columns[pc]
-    vals = loading_df[col].abs().nlargest(top_n).sort_values(ascending=True)
+    component = loading_df[col]
+    top_count = min(top_n, len(component))
+    top_positions = np.argsort(np.abs(component.to_numpy()))[-top_count:]
+    top_loadings = component.iloc[top_positions].sort_values(ascending=True)
     palette = get_group_colors(theme, 2)
 
-    colors = [palette[0] if loading_df.loc[feature, col] > 0 else palette[1] for feature in vals.index]
-    actual_vals = [loading_df.loc[feature, col] for feature in vals.index]
+    colors = [palette[0] if value > 0 else palette[1] for value in top_loadings]
+    actual_vals = top_loadings.tolist()
 
-    ax.barh(range(len(vals)), actual_vals, color=colors)
-    ax.set_yticks(range(len(vals)))
-    ax.set_yticklabels([_format_mzrt_label(str(feature)) for feature in vals.index], fontsize=8)
+    ax.barh(range(len(top_loadings)), actual_vals, color=colors)
+    ax.set_yticks(range(len(top_loadings)))
+    ax.set_yticklabels([_format_mzrt_label(str(feature)) for feature in top_loadings.index], fontsize=8)
     ax.set_xlabel(f"Loading ({col})")
     ax.set_title(f"PCA Loading Plot - Top {top_n} Features")
     ax.axvline(0, color="grey", linewidth=0.5)

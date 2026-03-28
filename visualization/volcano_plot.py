@@ -68,12 +68,21 @@ def plot_volcano(
 
     config = COLORS.get(theme, COLORS["light"])
     palette = get_group_colors(theme, 3)
-    sig_label = "Significant (FDR)" if use_fdr else "Significant"
-    ax.scatter(log2fc[~significant], neg_log10p[~significant], c=config["grid"], alpha=0.5, s=20, label="Not significant")
-    ax.scatter(log2fc[significant], neg_log10p[significant], c=palette[0], alpha=0.75, s=30, label=sig_label)
+
+    # Separate significant features into up/down regulated
+    log2_thresh = np.log2(fc_thresh)
+    up_mask = significant & (log2fc >= log2_thresh)
+    down_mask = significant & (log2fc <= -log2_thresh)
+    nonsig_mask = ~significant
+
+    ax.scatter(log2fc[nonsig_mask], neg_log10p[nonsig_mask],
+               c=config["grid"], alpha=0.5, s=20, label="Not significant")
+    ax.scatter(log2fc[up_mask], neg_log10p[up_mask],
+               c=palette[0], alpha=0.75, s=30, label="Up-regulated")
+    ax.scatter(log2fc[down_mask], neg_log10p[down_mask],
+               c="#4393C3", alpha=0.75, s=30, label="Down-regulated")
 
     threshold_color = palette[1]
-    log2_thresh = np.log2(fc_thresh)
     ax.axhline(-np.log10(p_thresh), ls="--", c=threshold_color, alpha=0.7, linewidth=0.9)
     ax.axvline(log2_thresh, ls="--", c=threshold_color, alpha=0.7, linewidth=0.9)
     ax.axvline(-log2_thresh, ls="--", c=threshold_color, alpha=0.7, linewidth=0.9)

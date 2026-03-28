@@ -123,14 +123,27 @@ def plot_sample_boxplot(
         patch.set_facecolor(color)
         patch.set_alpha(0.7)
 
-    ax.set_xticklabels([str(sample)[:12] for sample in df.index], rotation=90, fontsize=7)
+    n_samples = len(df)
+    if n_samples > 60:
+        trunc_len, font_size, rotation = 8, 5.5, 90
+    elif n_samples > 40:
+        trunc_len, font_size, rotation = 10, 6, 90
+    elif n_samples > 20:
+        trunc_len, font_size, rotation = 12, 7, 90
+    else:
+        trunc_len, font_size, rotation = 16, 8, 45
+
+    ax.set_xticklabels(
+        [str(sample)[:trunc_len] for sample in df.index],
+        rotation=rotation, fontsize=font_size, ha="right" if rotation < 90 else "center",
+    )
     ax.set_ylabel("Intensity")
     ax.set_title(title)
 
     from matplotlib.patches import Patch
 
     legend_elements = [Patch(facecolor=palette[group], label=str(group)) for group in groups]
-    ax.legend(handles=legend_elements, loc="best", fontsize=8)
+    ax.legend(handles=legend_elements, loc="upper left", fontsize=8)
 
     fig.tight_layout()
     return fig

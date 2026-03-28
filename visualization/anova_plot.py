@@ -185,7 +185,10 @@ def plot_feature_boxplot(
         ax = fig.add_subplot(111)
 
     labels_arr = labels.values if hasattr(labels, "values") else np.asarray(labels)
-    plot_data = pd.DataFrame({"Group": labels_arr, "Value": df[feature_name].values})
+    feature_values = df[feature_name]
+    if isinstance(feature_values, pd.DataFrame):
+        feature_values = feature_values.iloc[:, 0]
+    plot_data = pd.DataFrame({"Group": labels_arr, "Value": feature_values.to_numpy()})
 
     groups = sorted(plot_data["Group"].unique())
     data_by_group = [
@@ -202,12 +205,13 @@ def plot_feature_boxplot(
     ax.set_ylabel("Value", fontsize=10)
 
     stat_text = _build_stat_annotation(plot_data)
+    fig.tight_layout()
     if stat_text:
-        fig.subplots_adjust(top=0.82)
-        fig.text(
+        ax.text(
             0.02,
-            0.97,
+            0.98,
             stat_text,
+            transform=ax.transAxes,
             va="top",
             ha="left",
             fontsize=9,
@@ -217,8 +221,7 @@ def plot_feature_boxplot(
                 "alpha": 0.95,
                 "edgecolor": config["grid"],
             },
+            zorder=5,
         )
-    else:
-        fig.tight_layout()
 
     return fig
