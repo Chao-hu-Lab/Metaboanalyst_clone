@@ -33,7 +33,7 @@ class OPLSDAResult:
     q2: float = 0.0
     feature_names: list = field(default_factory=list)
     loadings_predictive: np.ndarray | None = None
-    vip_scores: np.ndarray | None = None
+    loading_importance: np.ndarray | None = None
     class_names: list = field(default_factory=list)
     sample_names: list = field(default_factory=list)
     backend: str = "pyopls"
@@ -127,8 +127,9 @@ def run_oplsda(data, labels, n_components=1, cv_method="loo") -> OPLSDAResult:
         z_data = opls.fit_transform(x_data, y_data)
         x_for_pls = z_data
         orth_scores = _to_single_component(opls.T_ortho_)
-        if np.var(x_data) > 0:
-            r2x = float(1.0 - (np.var(z_data) / np.var(x_data)))
+        total_var_x = np.var(x_data, axis=0).sum()
+        if total_var_x > 0:
+            r2x = float(1.0 - (np.var(z_data, axis=0).sum() / total_var_x))
     else:
         x_for_pls = x_data
         orth_scores = np.zeros((x_data.shape[0], 1), dtype=float)
@@ -142,7 +143,7 @@ def run_oplsda(data, labels, n_components=1, cv_method="loo") -> OPLSDAResult:
     r2y = float(pls.score(x_for_pls, y_data))
 
     loadings_pred = _to_single_component(pls.x_loadings_)
-    vip_scores = np.abs(loadings_pred[:, 0])
+    loading_importance = np.abs(loadings_pred[:, 0])
 
     return OPLSDAResult(
         scores_predictive=pred_scores,
@@ -153,7 +154,7 @@ def run_oplsda(data, labels, n_components=1, cv_method="loo") -> OPLSDAResult:
         q2=q2,
         feature_names=feature_names,
         loadings_predictive=loadings_pred,
-        vip_scores=vip_scores,
+        loading_importance=loading_importance,
         class_names=class_names,
         sample_names=list(data.index),
         backend=backend,
