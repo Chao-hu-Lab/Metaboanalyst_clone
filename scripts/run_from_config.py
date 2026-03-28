@@ -131,10 +131,11 @@ def get_feature_id_column(raw: pd.DataFrame) -> str:
 
 def load_data(cfg: dict) -> tuple[pd.DataFrame, pd.Series]:
     """Load Excel data and return (samples x features DataFrame, labels Series)."""
-    input_file = cfg["input"]["file"]
+    input_cfg = cfg["input"]
+    input_file = input_cfg["file"]
     if not input_file:
         raise ValueError("No input file specified. Use --input <path> on the command line.")
-    fmt = cfg["input"].get("format", "sample_type_row")
+    fmt = input_cfg.get("format", "sample_type_row")
 
     print("=" * 60)
     print(f"Loading data from: {os.path.basename(input_file)}")
@@ -163,10 +164,13 @@ def load_data(cfg: dict) -> tuple[pd.DataFrame, pd.Series]:
         data = raw.loc[:, sample_columns].values.T
         data = pd.DataFrame(data, columns=feature_names, index=sample_names)
         data = data.apply(pd.to_numeric, errors="coerce")
-        labels = pd.Series(
-            [assign_group_from_name(n) for n in sample_names],
-            index=sample_names, name="Group",
-        )
+        if input_cfg.get("plain_label_mode") == "column_names":
+            labels = pd.Series(sample_names, index=sample_names, name="Group")
+        else:
+            labels = pd.Series(
+                [assign_group_from_name(n) for n in sample_names],
+                index=sample_names, name="Group",
+            )
 
         # Drop excluded samples
         exclude_mask = labels == "__EXCLUDE__"

@@ -85,3 +85,30 @@ def test_load_data_plain_excludes_summary_columns():
 
     assert list(data.index) == ["Tumor_A", "Normal_B"]
     assert labels.to_dict() == {"Tumor_A": "Tumor", "Normal_B": "Normal"}
+
+
+def test_load_data_plain_can_use_column_names_as_groups():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        xlsx_path = os.path.join(tmpdir, "test_plain_column_name_groups.xlsx")
+        df = pd.DataFrame(
+            {
+                "FeatureID": ["100.1/1.1", "200.2/2.2"],
+                "control": [1.0, 3.0],
+                "SBO_pre": [2.0, 4.0],
+                "Original_CV%": [10.0, 20.0],
+            }
+        )
+        df.to_excel(xlsx_path, index=False)
+
+        data, labels = load_data(
+            {
+                "input": {
+                    "file": xlsx_path,
+                    "format": "plain",
+                    "plain_label_mode": "column_names",
+                }
+            }
+        )
+
+    assert list(data.index) == ["control", "SBO_pre"]
+    assert labels.to_dict() == {"control": "control", "SBO_pre": "SBO_pre"}
