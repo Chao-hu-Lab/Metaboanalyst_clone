@@ -41,6 +41,7 @@ def _make_volcano_result():
         group1="Case",
         group2="Control",
         fc_thresh=2.0,
+        log2_fc_thresh=1.0,
         p_thresh=0.05,
         use_fdr=True,
         fdr_method="fdr_bh",

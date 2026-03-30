@@ -11,6 +11,7 @@ import argparse
 import os
 import sys
 import warnings
+from datetime import datetime
 
 # Ensure project root on path (scripts/ lives one level below project root)
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -53,6 +54,7 @@ def load_config(path: str) -> dict:
     cfg.setdefault("spec_norm", None)
     cfg.setdefault("output", {})
     cfg["output"].setdefault("suffix", "")
+    cfg["output"].setdefault("auto_timestamp", True)
 
     # Defaults for analysis sub-sections
     analysis = cfg["analysis"]
@@ -69,7 +71,12 @@ def load_config(path: str) -> dict:
     plsda.setdefault("n_components", 2)
     plsda.setdefault("top_vip", 15)
     volcano = analysis.setdefault("volcano", {})
-    volcano.setdefault("fc_thresh", 2.0)
+    if "log2_fc_thresh" in volcano:
+        volcano["log2_fc_thresh"] = float(volcano["log2_fc_thresh"])
+        volcano["fc_thresh"] = float(2 ** volcano["log2_fc_thresh"])
+    else:
+        volcano.setdefault("fc_thresh", 2.0)
+        volcano["log2_fc_thresh"] = float(np.log2(volcano["fc_thresh"]))
     volcano.setdefault("p_thresh", 0.05)
     volcano.setdefault("use_fdr", True)
     hm = analysis.setdefault("heatmap", {})
@@ -190,6 +197,48 @@ def load_data(cfg: dict) -> tuple[pd.DataFrame, pd.Series]:
     return data, labels
 
 
+def _finalize_analysis_matrix(
+    df: pd.DataFrame,
+    labels: pd.Series,
+    included_groups: list[str],
+) -> tuple[pd.DataFrame, pd.Series]:
+    """Apply the same sample/feature filtering used before downstream analyses."""
+    qc_mask = labels.astype(str).str.contains("QC", case=False, na=False)
+    if qc_mask.any():
+        df = df.loc[~qc_mask]
+        labels = labels.loc[~qc_mask]
+
+    if included_groups:
+        group_mask = labels.isin(included_groups)
+        df = df.loc[group_mask]
+        labels = labels.loc[group_mask]
+
+    feat_std = df.std()
+    zero_var_feats = feat_std[feat_std == 0].index.tolist()
+    if zero_var_feats:
+        df = df.drop(columns=zero_var_feats)
+
+    return df, labels
+
+
+def compose_output_suffix(
+    base_suffix: str = "",
+    *,
+    include_timestamp: bool = True,
+    timestamp: str | None = None,
+) -> str:
+    """Build the final output suffix, appending a timestamp by default."""
+    base = (base_suffix or "").strip()
+    if base and not base.startswith("_"):
+        base = f"_{base}"
+
+    if not include_timestamp:
+        return base
+
+    ts = timestamp or datetime.now().strftime("%Y%m%d_%H%M%S")
+    return f"{base}_{ts}" if base else f"_{ts}"
+
+
 # ── Significant features Excel export ────────────────────
 
 def _export_significant_features_excel(
@@ -272,8 +321,12 @@ def run_analysis(cfg: dict):
     # ── Resolve output directory ──────────────────────────
     results_root = os.path.join(_PROJECT_ROOT, "results")
     input_stem = os.path.splitext(os.path.basename(cfg["input"]["file"]))[0]
-    suffix = cfg["output"].get("suffix", "")
-    output_dir = os.path.join(results_root, input_stem + suffix)
+    base_suffix = cfg["output"].get("suffix", "")
+    auto_timestamp = bool(cfg["output"].get("auto_timestamp", True))
+    resolved_suffix = compose_output_suffix(base_suffix, include_timestamp=auto_timestamp)
+    cfg["output"]["base_suffix"] = base_suffix
+    cfg["output"]["suffix"] = resolved_suffix
+    output_dir = os.path.join(results_root, input_stem + resolved_suffix)
     os.makedirs(output_dir, exist_ok=True)
 
     # ── Build SpecNorm factors if needed ──────────────────
@@ -324,30 +377,36 @@ def run_analysis(cfg: dict):
         print(f"  {line}")
     print(f"\nProcessed data: {processed.shape[0]} samples x {processed.shape[1]} features")
 
-    # Remove QC samples
+    included_groups = cfg["groups"].get("include", [])
     final_labels = pipeline.processed_labels if pipeline.processed_labels is not None else labels
+
     qc_mask = final_labels.astype(str).str.contains("QC", case=False, na=False)
     if qc_mask.any():
         print(f"  Removing {qc_mask.sum()} remaining QC samples...")
-        processed = processed.loc[~qc_mask]
-        final_labels = final_labels.loc[~qc_mask]
 
-    # Filter to included groups only
-    included_groups = cfg["groups"].get("include", [])
     if included_groups:
         group_mask = final_labels.isin(included_groups)
         if not group_mask.all():
-            excluded_count = (~group_mask).sum()
+            excluded_count = int((~group_mask).sum())
             print(f"  Removing {excluded_count} samples not in {included_groups}")
-            processed = processed.loc[group_mask]
-            final_labels = final_labels.loc[group_mask]
 
-    # Drop zero-variance features (std=0 after QC removal causes Pareto NaN)
     feat_std = processed.std()
     zero_var_feats = feat_std[feat_std == 0].index.tolist()
     if zero_var_feats:
         print(f"  Dropping {len(zero_var_feats)} zero-variance features (constant after QC removal)")
-        processed = processed.drop(columns=zero_var_feats)
+
+    processed, final_labels = _finalize_analysis_matrix(processed, final_labels, included_groups)
+    volcano_matrix, _ = _finalize_analysis_matrix(
+        pipeline.steps["transformed"].copy(),
+        (pipeline.processed_labels if pipeline.processed_labels is not None else labels).copy(),
+        included_groups,
+    )
+    anova_matrix = volcano_matrix.copy()
+    volcano_fc_matrix, _ = _finalize_analysis_matrix(
+        pipeline.steps["row_normed"].copy(),
+        (pipeline.processed_labels if pipeline.processed_labels is not None else labels).copy(),
+        included_groups,
+    )
 
     print(f"  Final: {processed.shape[0]} samples x {processed.shape[1]} features")
     print(f"  Groups: {dict(final_labels.value_counts())}")
@@ -396,7 +455,7 @@ def run_analysis(cfg: dict):
     group_list = sorted(final_labels.unique())
     print(f"Running ANOVA ({' vs '.join(group_list)})...")
     anova_result = run_anova(
-        processed, final_labels,
+        anova_matrix, final_labels,
         p_thresh=anova_cfg["p_thresh"],
         nonpar=anova_cfg["nonpar"],
         use_fdr=anova_cfg["use_fdr"],
@@ -423,7 +482,7 @@ def run_analysis(cfg: dict):
     top_features = anova_result.result_df.sort_values("pvalue_adj").head(6)["Feature"].tolist()
     for i, feat in enumerate(top_features):
         fig = plt.figure(figsize=(7, 5))
-        plot_feature_boxplot(processed, final_labels, feat, fig=fig)
+        plot_feature_boxplot(anova_matrix, final_labels, feat, fig=fig)
         fig.savefig(os.path.join(output_dir, f"anova_boxplot_top{i+1}.png"),
                     dpi=150, bbox_inches="tight")
         plt.close(fig)
@@ -537,13 +596,15 @@ def run_analysis(cfg: dict):
         print(f"  {g1} vs {g2} ({test_label})...")
         try:
             vresult = volcano_analysis(
-                processed, final_labels,
+                volcano_matrix, final_labels,
                 group1=g1, group2=g2,
                 fc_thresh=vol_cfg["fc_thresh"],
+                log2_fc_thresh=vol_cfg.get("log2_fc_thresh"),
                 p_thresh=vol_cfg["p_thresh"],
                 use_fdr=vol_cfg["use_fdr"],
                 paired=is_paired,
                 pair_ids=subject_ids if is_paired else None,
+                fc_df=volcano_fc_matrix,
             )
             pair_info = f", Pairs: {vresult.n_pairs}" if is_paired else ""
             print(f"    Significant: {vresult.n_significant} "

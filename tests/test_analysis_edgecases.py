@@ -106,6 +106,54 @@ def test_volcano_log2fc_is_finite_for_nonpositive_means():
     assert np.isfinite(res.result_df["log2FC"].values).all()
 
 
+def test_volcano_accepts_log2_threshold_and_separate_fc_matrix():
+    from analysis.univariate import volcano_analysis
+
+    stats_df = pd.DataFrame(
+        {
+            "F1": [1.0, 1.1, 1.2, 2.0, 2.1, 2.2],
+            "F2": [1.5, 1.6, 1.4, 1.6, 1.5, 1.4],
+        }
+    )
+    fc_df = pd.DataFrame(
+        {
+            "F1": [10.0, 11.0, 9.5, 40.0, 42.0, 38.0],
+            "F2": [20.0, 21.0, 19.0, 22.0, 21.0, 20.0],
+        }
+    )
+    labels = pd.Series(["A"] * 3 + ["B"] * 3)
+
+    res = volcano_analysis(
+        stats_df,
+        labels,
+        "B",
+        "A",
+        log2_fc_thresh=1.0,
+        p_thresh=0.2,
+        fc_df=fc_df,
+    )
+
+    f1 = res.result_df.set_index("Feature").loc["F1"]
+    assert res.log2_fc_thresh == pytest.approx(1.0)
+    assert res.fc_thresh == pytest.approx(2.0)
+    assert f1["log2FC"] > 1.0
+    assert bool(f1["significant"]) is True
+
+
+def test_compose_output_suffix_appends_timestamp_to_short_suffix():
+    from scripts.run_from_config import compose_output_suffix
+
+    suffix = compose_output_suffix("_vfc2p0", timestamp="20260330_120000")
+    assert suffix == "_vfc2p0_20260330_120000"
+
+
+def test_compose_output_suffix_uses_timestamp_even_without_base_suffix():
+    from scripts.run_from_config import compose_output_suffix
+
+    suffix = compose_output_suffix("", timestamp="20260330_120000")
+    assert suffix == "_20260330_120000"
+
+
 def test_volcano_fdr_mode_marks_metadata_and_columns():
     from analysis.univariate import volcano_analysis
 

@@ -23,6 +23,7 @@ class VolcanoResult:
         group1: str,
         group2: str,
         fc_thresh: float,
+        log2_fc_thresh: float,
         p_thresh: float,
         use_fdr: bool,
         fdr_method: str,
@@ -33,6 +34,7 @@ class VolcanoResult:
         self.group1 = group1
         self.group2 = group2
         self.fc_thresh = fc_thresh
+        self.log2_fc_thresh = log2_fc_thresh
         self.p_thresh = p_thresh
         self.use_fdr = use_fdr
         self.fdr_method = fdr_method
@@ -76,12 +78,21 @@ def _robust_log2fc(mean1: pd.Series, mean2: pd.Series) -> pd.Series:
     return np.log2(ratio) * direction
 
 
+def _ratio_log2fc(mean1: pd.Series, mean2: pd.Series) -> pd.Series:
+    """Standard log2 fold change for strictly-positive means with a small offset."""
+    combined = pd.concat([mean1, mean2], axis=0)
+    positive = combined[combined > 0]
+    offset = (positive.min() / 10) if len(positive) else 1e-12
+    return np.log2((mean1 + offset) / (mean2 + offset))
+
+
 def volcano_analysis(
     df: pd.DataFrame,
     labels,
     group1: str,
     group2: str,
     fc_thresh: float = 2.0,
+    log2_fc_thresh: float | None = None,
     p_thresh: float = 0.05,
     equal_var: bool = True,
     nonpar: bool = False,
@@ -89,6 +100,7 @@ def volcano_analysis(
     fdr_method: str = "fdr_bh",
     paired: bool = False,
     pair_ids: pd.Series | None = None,
+    fc_df: pd.DataFrame | None = None,
 ) -> VolcanoResult:
     """
     Two-group univariate analysis for volcano plot.
@@ -125,10 +137,35 @@ def volcano_analysis(
         g1 = df[labels_arr == group1]
         g2 = df[labels_arr == group2]
 
+    if fc_df is None:
+        fc_df = df
+
+    if not fc_df.columns.equals(df.columns):
+        fc_df = fc_df.reindex(columns=df.columns)
+
+    if not fc_df.index.equals(df.index):
+        fc_df = fc_df.reindex(df.index)
+
+    if paired:
+        fc_g1 = fc_df.loc[g1.index]
+        fc_g2 = fc_df.loc[g2.index]
+    else:
+        fc_g1 = fc_df[labels_arr == group1]
+        fc_g2 = fc_df[labels_arr == group2]
+
     # Fold change uses group means (consistent with MetaboAnalyst)
-    mean1 = g1.mean()
-    mean2 = g2.mean()
-    log2fc = _robust_log2fc(mean1, mean2)
+    mean1 = fc_g1.mean()
+    mean2 = fc_g2.mean()
+    if (mean1 > 0).all() and (mean2 > 0).all():
+        log2fc = _ratio_log2fc(mean1, mean2)
+    else:
+        log2fc = _robust_log2fc(mean1, mean2)
+
+    if log2_fc_thresh is None:
+        log2_fc_thresh = float(np.log2(fc_thresh))
+    else:
+        log2_fc_thresh = float(log2_fc_thresh)
+        fc_thresh = float(2 ** log2_fc_thresh)
 
     pvals_raw = []
     for col in df.columns:
@@ -176,7 +213,7 @@ def volcano_analysis(
 
     significance_p = pvals_adj if use_fdr else pvals_raw
     neg_log10p = -np.log10(np.clip(significance_p, 1e-300, 1.0))
-    sig_mask = (np.abs(log2fc) >= np.log2(fc_thresh)) & (significance_p < p_thresh)
+    sig_mask = (np.abs(log2fc) >= log2_fc_thresh) & (significance_p < p_thresh)
 
     result_df = pd.DataFrame(
         {
@@ -196,6 +233,7 @@ def volcano_analysis(
         group1=group1,
         group2=group2,
         fc_thresh=fc_thresh,
+        log2_fc_thresh=log2_fc_thresh,
         p_thresh=p_thresh,
         use_fdr=use_fdr,
         fdr_method=fdr_method,
