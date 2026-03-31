@@ -415,8 +415,9 @@ def _export_significant_features_excel(
                 return f"loading={float(row['Loading']):.4f}"
         return "Pass"
 
-    # Build cross-reference summary using significance thresholds, not raw appearance count.
+    # Build cross-reference summary with complete feature coverage.
     feature_counts = {}  # feature -> {sheet_name: score_text}
+    all_features: set[str] = set()
     prepared_sheets = {
         sheet_name: prepare_export_sheet(sheet_name, df)
         for sheet_name, df in sheets.items()
@@ -430,6 +431,7 @@ def _export_significant_features_excel(
         sheet_df = df if top_n in (None, 0) else df.head(top_n)
         for idx, row in sheet_df.iterrows():
             feat = row["Feature"]
+            all_features.add(feat)
             if feat not in feature_tags and "is_Presence_Absence_Marker" in row.index:
                 feature_tags[feat] = bool(row.get("is_Presence_Absence_Marker", False))
             if not passes_threshold(sheet_name, row):
@@ -443,7 +445,8 @@ def _export_significant_features_excel(
         s for s in summary_sheet_filter.keys() if "Feature" in summary_sheet_filter[s].columns
     ]
     summary_rows = []
-    for feat, appearances in feature_counts.items():
+    for feat in sorted(all_features):
+        appearances = feature_counts.get(feat, {})
         row = {
             "Feature": feat,
             "is_Presence_Absence_Marker": feature_tags.get(feat, False),
@@ -491,7 +494,7 @@ def _export_significant_features_excel(
         print(f"  Saved {summary_csv_path}")
     print(f"  Sheets: {', '.join(['Summary'] + list(sheets.keys()))}")
     scope_text = "all rows" if top_n in (None, 0) else f"top {top_n} each"
-    print(f"  Summary: {len(feature_counts)} unique features across "
+    print(f"  Summary: {len(summary_df)} unique features across "
           f"{len(all_sheet_names)} analyses ({scope_text})")
 
 

@@ -3,7 +3,7 @@ import tempfile
 
 import pandas as pd
 
-from scripts.run_from_config import load_data
+from scripts.run_from_config import _export_significant_features_excel, load_data
 
 
 def test_load_data_accepts_featureid_column_for_sample_type_row():
@@ -149,3 +149,34 @@ def test_load_data_plain_extracts_presence_absence_marker_metadata():
     assert labels.to_dict() == {"Tumor_A": "Tumor", "Normal_B": "Normal"}
     assert feature_metadata.index.tolist() == ["100.1/1.1", "200.2/2.2", "300.3/3.3"]
     assert feature_metadata["is_Presence_Absence_Marker"].tolist() == [False, True, False]
+
+
+def test_summary_export_keeps_features_with_zero_significant_hits():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        sheets = {
+            "ANOVA_All": pd.DataFrame(
+                {
+                    "Feature": ["F_keep", "F_zero"],
+                    "pvalue_adj": [0.01, 0.50],
+                    "pvalue": [0.01, 0.50],
+                    "neg_log10p": [2.0, 0.3],
+                    "is_Presence_Absence_Marker": [False, True],
+                }
+            ),
+            "VIP_Tumor_vs_Normal": pd.DataFrame(
+                {
+                    "Rank": [1, 2],
+                    "Feature": ["F_keep", "F_zero"],
+                    "VIP": [1.4, 0.2],
+                    "is_Presence_Absence_Marker": [False, True],
+                }
+            ),
+        }
+
+        _export_significant_features_excel(sheets, tmpdir, top_n=None)
+
+        summary_df = pd.read_csv(os.path.join(tmpdir, "Summary.csv"))
+
+    assert summary_df["Feature"].tolist() == ["F_keep", "F_zero"]
+    assert summary_df["Passed_in_N_analyses"].tolist() == [2, 0]
+    assert summary_df["is_Presence_Absence_Marker"].tolist() == [False, True]
