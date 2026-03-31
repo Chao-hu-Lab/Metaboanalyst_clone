@@ -19,7 +19,7 @@ def test_load_data_accepts_featureid_column_for_sample_type_row():
         )
         df.to_excel(xlsx_path, index=False)
 
-        data, labels = load_data(
+        data, labels, feature_metadata = load_data(
             {
                 "input": {
                     "file": xlsx_path,
@@ -31,6 +31,7 @@ def test_load_data_accepts_featureid_column_for_sample_type_row():
     assert list(data.index) == ["Sample_A", "Sample_B"]
     assert list(data.columns) == ["100.1/1.1", "200.2/2.2"]
     assert labels.to_dict() == {"Sample_A": "Exposure", "Sample_B": "Normal"}
+    assert feature_metadata["is_Presence_Absence_Marker"].tolist() == [False, False]
 
 
 def test_load_data_sample_type_row_excludes_non_sample_columns_even_if_labeled():
@@ -47,7 +48,7 @@ def test_load_data_sample_type_row_excludes_non_sample_columns_even_if_labeled()
         )
         df.to_excel(xlsx_path, index=False)
 
-        data, labels = load_data(
+        data, labels, feature_metadata = load_data(
             {
                 "input": {
                     "file": xlsx_path,
@@ -58,6 +59,7 @@ def test_load_data_sample_type_row_excludes_non_sample_columns_even_if_labeled()
 
     assert list(data.index) == ["Sample_A", "Sample_B"]
     assert labels.to_dict() == {"Sample_A": "Exposure", "Sample_B": "Normal"}
+    assert feature_metadata["is_Presence_Absence_Marker"].tolist() == [False, False]
 
 
 def test_load_data_plain_excludes_summary_columns():
@@ -74,7 +76,7 @@ def test_load_data_plain_excludes_summary_columns():
         )
         df.to_excel(xlsx_path, index=False)
 
-        data, labels = load_data(
+        data, labels, feature_metadata = load_data(
             {
                 "input": {
                     "file": xlsx_path,
@@ -85,6 +87,7 @@ def test_load_data_plain_excludes_summary_columns():
 
     assert list(data.index) == ["Tumor_A", "Normal_B"]
     assert labels.to_dict() == {"Tumor_A": "Tumor", "Normal_B": "Normal"}
+    assert feature_metadata["is_Presence_Absence_Marker"].tolist() == [False, False]
 
 
 def test_load_data_plain_can_use_column_names_as_groups():
@@ -100,7 +103,7 @@ def test_load_data_plain_can_use_column_names_as_groups():
         )
         df.to_excel(xlsx_path, index=False)
 
-        data, labels = load_data(
+        data, labels, feature_metadata = load_data(
             {
                 "input": {
                     "file": xlsx_path,
@@ -112,3 +115,37 @@ def test_load_data_plain_can_use_column_names_as_groups():
 
     assert list(data.index) == ["control", "SBO_pre"]
     assert labels.to_dict() == {"control": "control", "SBO_pre": "SBO_pre"}
+    assert feature_metadata["is_Presence_Absence_Marker"].tolist() == [False, False]
+
+
+def test_load_data_plain_extracts_presence_absence_marker_metadata():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        xlsx_path = os.path.join(tmpdir, "test_plain_marker_metadata.xlsx")
+        df = pd.DataFrame(
+            {
+                "FeatureID": ["100.1/1.1", "200.2/2.2", "300.3/3.3"],
+                "Tumor_A": [1.0, 3.0, 0.0],
+                "Normal_B": [2.0, 4.0, 0.0],
+                "is_Presence_Absence_Marker": [
+                    "is_Presence_Absence_Marker",
+                    True,
+                    False,
+                ],
+                "Original_CV%": [10.0, 20.0, 30.0],
+            }
+        )
+        df.to_excel(xlsx_path, index=False)
+
+        data, labels, feature_metadata = load_data(
+            {
+                "input": {
+                    "file": xlsx_path,
+                    "format": "plain",
+                }
+            }
+        )
+
+    assert list(data.index) == ["Tumor_A", "Normal_B"]
+    assert labels.to_dict() == {"Tumor_A": "Tumor", "Normal_B": "Normal"}
+    assert feature_metadata.index.tolist() == ["100.1/1.1", "200.2/2.2", "300.3/3.3"]
+    assert feature_metadata["is_Presence_Absence_Marker"].tolist() == [False, True, False]
