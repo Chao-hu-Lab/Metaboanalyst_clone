@@ -104,6 +104,41 @@ class TestMissingValues:
         with pytest.raises(ValueError, match="未知"):
             impute_missing(df, method="invalid_method")
 
+    def test_impute_knn_preserves_all_nan_columns(self):
+        from core.missing_values import impute_missing
+
+        df = pd.DataFrame(
+            {
+                "F_knn": [1.0, np.nan, 3.0, 4.0],
+                "F_all_nan": [np.nan, np.nan, np.nan, np.nan],
+            }
+        )
+
+        result = impute_missing(df, method="knn")
+        assert result["F_knn"].isna().sum() == 0
+        assert result["F_all_nan"].isna().all()
+
+    def test_impute_missing_by_feature_supports_marker_aware_mix(self):
+        from core.missing_values import impute_missing_by_feature
+
+        df = pd.DataFrame(
+            {
+                "F_marker": [10.0, np.nan, 5.0, np.nan],
+                "F_regular": [1.0, np.nan, 3.0, 4.0],
+            }
+        )
+
+        result, resolved = impute_missing_by_feature(
+            df,
+            feature_methods={"F_marker": "min", "F_regular": "knn"},
+            default_method="knn",
+        )
+
+        assert result.loc[1, "F_marker"] == 1.0
+        assert result.loc[3, "F_marker"] == 1.0
+        assert result["F_regular"].isna().sum() == 0
+        assert resolved.to_dict() == {"F_marker": "min", "F_regular": "knn"}
+
 
 # ═══════════════════════════════════════
 # 2. Filtering 模組
@@ -171,6 +206,33 @@ class TestFiltering:
         qc_mask = np.array([True]*5 + [False]*15)
         result = filter_by_qc_rsd(df, qc_mask, rsd_threshold=0.5)
         assert result.shape[0] == 15  # QC 樣本被移除
+
+    def test_filter_qc_rsd_exempts_marker_features(self):
+        from core.filtering import filter_by_qc_rsd
+
+        df = pd.DataFrame(
+            {
+                "F_marker": [np.nan, np.nan, 10.0, 12.0],
+                "F_drop": [10.0, 50.0, 20.0, 30.0],
+                "F_keep": [100.0, 110.0, 200.0, 300.0],
+            },
+            index=["QC_1", "QC_2", "S1", "S2"],
+        )
+        qc_mask = np.array([True, True, False, False])
+
+        result, stats = filter_by_qc_rsd(
+            df,
+            qc_mask,
+            rsd_threshold=0.25,
+            exempt_columns=pd.Series(
+                {"F_marker": True, "F_drop": False, "F_keep": False}
+            ),
+            return_stats=True,
+        )
+
+        assert list(result.columns) == ["F_marker", "F_keep"]
+        assert bool(stats.loc["F_marker", "qc_rsd_exempted"]) is True
+        assert pd.isna(stats.loc["F_marker", "qc_rsd"])
 
 
 # ═══════════════════════════════════════
@@ -478,6 +540,47 @@ class TestPipeline:
         assert len(pipe.processed_labels) == 4
         assert not pipe.processed_labels.astype(str).str.contains("qc", case=False).any()
         assert any("Step 3a: QC-RSD filtering" in line for line in pipe.log)
+
+    def test_pipeline_marker_aware_imputation_and_qc_rsd_exemption(self):
+        from core.pipeline import MetaboAnalystPipeline
+
+        df = pd.DataFrame(
+            {
+                "F_marker": [0.0, 0.0, 10.0, 0.0],
+                "F_regular": [1.0, 1.1, 3.0, 4.0],
+                "F_drop": [10.0, 50.0, 20.0, 30.0],
+            },
+            index=["QC_1", "QC_2", "S1", "S2"],
+        )
+        labels = pd.Series(["QC", "QC", "A", "B"], index=df.index)
+        feature_metadata = pd.DataFrame(
+            {"is_Presence_Absence_Marker": [True, False, False]},
+            index=["F_marker", "F_regular", "F_drop"],
+        )
+
+        pipe = MetaboAnalystPipeline(df, labels, feature_metadata=feature_metadata)
+        result = pipe.run_pipeline(
+            missing_thresh=1.0,
+            impute_method="knn",
+            filter_method="None",
+            row_norm="None",
+            transform="None",
+            scaling="None",
+            qc_rsd_enabled=True,
+            qc_rsd_threshold=0.25,
+        )
+
+        assert list(result.index) == ["S1", "S2"]
+        assert "F_marker" in result.columns
+        assert "F_regular" in result.columns
+        assert "F_drop" not in result.columns
+        assert result.loc["S2", "F_marker"] == 2.0
+        assert pipe.processed_feature_metadata is not None
+        assert bool(pipe.processed_feature_metadata.loc["F_marker", "qc_rsd_exempted"]) is True
+        assert pipe.processed_feature_metadata.loc["F_marker", "qc_detect_ratio"] == 0
+        assert pd.isna(pipe.processed_feature_metadata.loc["F_marker", "qc_rsd"])
+        assert pipe.processed_feature_metadata.loc["F_marker", "imputation_method"] == "min"
+        assert pipe.processed_feature_metadata.loc["F_regular", "imputation_method"] == "knn"
 
 
 class TestSampleInfoFactors:
