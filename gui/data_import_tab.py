@@ -32,6 +32,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from core.feature_metadata import default_feature_metadata, extract_feature_metadata
+from core.sample_interface import identify_sample_columns
 from core.sample_info import read_sample_info_sheet
 from gui.widgets.pandas_model import create_sortable_model
 
@@ -434,9 +436,9 @@ class DataImportTab(QWidget):
         try:
             mode = self.orientation_combo.currentData()
             if mode == "cols":
-                matrix, labels, sample_col, group_col = self._parse_samples_as_columns()
+                matrix, labels, feature_metadata, sample_col, group_col = self._parse_samples_as_columns()
             else:
-                matrix, labels, sample_col, group_col = self._parse_samples_as_rows()
+                matrix, labels, feature_metadata, sample_col, group_col = self._parse_samples_as_rows()
         except Exception as exc:
             QMessageBox.critical(self, self.tr("Import Error"), str(exc))
             return
@@ -444,6 +446,7 @@ class DataImportTab(QWidget):
         self.mw.set_data(
             matrix,
             labels,
+            feature_metadata=feature_metadata,
             sample_col=sample_col,
             group_col=group_col,
             sample_info=self._sample_info_df,
@@ -490,10 +493,12 @@ class DataImportTab(QWidget):
             raise ValueError(self.tr("No numeric feature columns found."))
 
         matrix.index = pd.Index(sample_ids.values, name=str(sample_col))
-        matrix.columns = self._make_unique(matrix.columns)
+        feature_index = pd.Index(self._make_unique(matrix.columns), name="Feature")
+        matrix.columns = feature_index
+        feature_metadata = default_feature_metadata(feature_index)
 
         labels = pd.Series(df[group_col].astype(str).values, index=matrix.index, name=str(group_col))
-        return matrix, labels, str(sample_col), str(group_col)
+        return matrix, labels, feature_metadata, str(sample_col), str(group_col)
 
     def _parse_samples_as_columns(self):
         df = self._raw_df.copy()
@@ -505,7 +510,7 @@ class DataImportTab(QWidget):
         if group_key is None:
             raise ValueError(self.tr("Please select a group row key."))
 
-        sample_columns = [c for c in df.columns if c != id_col]
+        sample_columns = [col for col in identify_sample_columns(df) if col != id_col]
         if not sample_columns:
             raise ValueError(self.tr("No sample columns found."))
 
@@ -521,20 +526,27 @@ class DataImportTab(QWidget):
         if feature_rows.empty:
             raise ValueError(self.tr("No feature rows remain after removing group row."))
 
-        feature_names = self._make_unique(feature_rows[id_col].astype(str).tolist())
+        feature_index = pd.Index(
+            self._make_unique(feature_rows[id_col].astype(str).tolist()),
+            name="Feature",
+        )
         matrix = feature_rows.loc[:, sample_columns].apply(pd.to_numeric, errors="coerce").T
         matrix.index = pd.Index([str(col) for col in sample_columns], name=self.tr("Sample"))
-        matrix.columns = feature_names
+        matrix.columns = feature_index
         matrix = matrix.dropna(axis=1, how="all")
         if matrix.empty:
             raise ValueError(self.tr("No numeric feature columns found after transpose."))
+        feature_metadata = extract_feature_metadata(
+            feature_rows.reset_index(drop=True),
+            feature_index,
+        )
 
         labels = pd.Series(
             group_row.loc[sample_columns].astype(str).values,
             index=matrix.index,
             name=str(group_key),
         )
-        return matrix, labels, str(id_col), str(group_key)
+        return matrix, labels, feature_metadata, str(id_col), str(group_key)
 
     @staticmethod
     def _make_unique(values) -> list[str]:

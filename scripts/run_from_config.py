@@ -25,6 +25,7 @@ import pandas as pd  # noqa: E402
 from openpyxl.styles import PatternFill  # noqa: E402
 
 from core.app_config import apply_cli_overrides, dump_yaml, load_yaml_config  # noqa: E402
+from core.feature_metadata import FEATURE_MARKER_COLUMN, extract_feature_metadata  # noqa: E402
 from core.pipeline import MetaboAnalystPipeline  # noqa: E402
 from core.sample_interface import identify_sample_columns  # noqa: E402
 from core.sample_info import read_sample_info_sheet, build_aligned_factors, extract_subject_ids  # noqa: E402
@@ -38,7 +39,6 @@ from ms_core.visualization.anova_plot import plot_anova_importance, plot_feature
 
 warnings.filterwarnings("ignore")
 
-FEATURE_MARKER_COLUMN = "is_Presence_Absence_Marker"
 TRUE_FILL = PatternFill(fill_type="solid", start_color="C6EFCE", end_color="C6EFCE")
 FALSE_FILL = PatternFill(fill_type="solid", start_color="FCE4D6", end_color="FCE4D6")
 REDUNDANT_EXPORT_COLUMNS = {
@@ -105,35 +105,6 @@ def get_feature_id_column(raw: pd.DataFrame) -> str:
     return raw.columns[0]
 
 
-def _normalize_presence_absence_marker(values: pd.Series, feature_names: pd.Index) -> pd.Series:
-    normalized = pd.Series(False, index=feature_names, dtype=bool)
-    for feature_name, value in zip(feature_names, values, strict=False):
-        if isinstance(value, (bool, np.bool_)):
-            normalized.loc[feature_name] = bool(value)
-            continue
-        text = str(value).strip().lower()
-        if text in {"true", "1", "yes", "y"}:
-            normalized.loc[feature_name] = True
-    return normalized
-
-
-def _extract_feature_metadata(
-    raw: pd.DataFrame,
-    feature_col: str,
-    feature_names: pd.Index,
-    *,
-    start_row: int,
-) -> pd.DataFrame:
-    metadata = pd.DataFrame(index=feature_names.copy())
-    metadata.index.name = "Feature"
-    if FEATURE_MARKER_COLUMN in raw.columns:
-        marker_values = raw[FEATURE_MARKER_COLUMN].iloc[start_row:].reset_index(drop=True)
-        metadata[FEATURE_MARKER_COLUMN] = _normalize_presence_absence_marker(marker_values, metadata.index)
-    else:
-        metadata[FEATURE_MARKER_COLUMN] = False
-    return metadata
-
-
 def _annotate_feature_table(
     df: pd.DataFrame,
     feature_metadata: pd.DataFrame | None,
@@ -177,12 +148,7 @@ def load_data(cfg: dict) -> tuple[pd.DataFrame, pd.Series, pd.DataFrame]:
         data = pd.DataFrame(data, columns=feature_names, index=sample_names)
         data = data.apply(pd.to_numeric, errors="coerce")
         labels = pd.Series(sample_types, index=sample_names, name="Group")
-        feature_metadata = _extract_feature_metadata(
-            raw,
-            feature_col,
-            feature_names,
-            start_row=1,
-        )
+        feature_metadata = extract_feature_metadata(raw.iloc[1:].reset_index(drop=True), feature_names)
 
     elif fmt == "plain":
         # All rows are features; groups inferred from column names
@@ -192,12 +158,7 @@ def load_data(cfg: dict) -> tuple[pd.DataFrame, pd.Series, pd.DataFrame]:
         data = raw.loc[:, sample_columns].values.T
         data = pd.DataFrame(data, columns=feature_names, index=sample_names)
         data = data.apply(pd.to_numeric, errors="coerce")
-        feature_metadata = _extract_feature_metadata(
-            raw,
-            feature_col,
-            feature_names,
-            start_row=0,
-        )
+        feature_metadata = extract_feature_metadata(raw.reset_index(drop=True), feature_names)
         if input_cfg.get("plain_label_mode") == "column_names":
             labels = pd.Series(sample_names, index=sample_names, name="Group")
         else:

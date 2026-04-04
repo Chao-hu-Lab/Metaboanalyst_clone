@@ -700,3 +700,36 @@ pipeline kwargs  GUI state  analysis recipe state
 ### Verification command
 
 `uv run pytest tests\test_app_config.py tests\test_gui_config_integration.py tests\test_config_load.py tests\test_gui_layout.py::test_main_window_initialization tests\test_gui_layout.py::test_theme_combo_box_exists -q`
+
+---
+
+## 25. Phase 2 Implementation Status (2026-04-04)
+
+### Completed in this iteration
+
+- [x] GUI import path now extracts and stores shared `feature_metadata`
+- [x] GUI `samples as columns` import now excludes non-sample metadata columns through shared sample-column detection
+- [x] GUI runtime now passes `feature_metadata` into `MetaboAnalystPipeline`
+- [x] GUI-imported matrices now preserve the `Feature` axis name for runtime parity with CLI
+- [x] GUI `SpecNorm` runtime reuses loaded `SampleInfo` context for factor resolution
+- [x] GUI config apply can preselect `spec_norm.factor_column` when the corresponding SampleInfo field is already available
+- [x] Added integration tests for GUI import -> runtime `feature_metadata` retention and GUI/CLI marker-aware QC-RSD parity
+
+### Remaining after this iteration
+
+- [ ] GUI preset manager UI / preset bar (Phase 3)
+- [ ] Tab-level `read_state()` / `apply_state()` binding layer (Phase 4)
+- [ ] Built-in preset repository migration to `resources/presets/` (Phase 5)
+
+---
+
+## 26. Milestone 2 Sign-off (Phase 2)
+
+- [x] `feature_metadata` is no longer CLI-only at runtime
+- [x] GUI / CLI no longer diverge on marker-aware preprocessing for the same spreadsheet-style input
+- [x] GUI runtime retains `SampleInfo`-based SpecNorm factor alignment context
+- [x] Milestone 2 verification passed on 2026-04-04 via focused pytest suite
+
+### Verification command
+
+`uv run pytest tests\test_gui_runtime_feature_metadata.py tests\test_gui_config_integration.py tests\test_run_from_config_input_formats.py tests\test_core.py -q`

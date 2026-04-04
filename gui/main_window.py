@@ -138,6 +138,7 @@ class MainWindow(QMainWindow):
         self.current_data: pd.DataFrame | None = None
         self.raw_labels: pd.Series | None = None
         self.labels = None
+        self.raw_feature_metadata: pd.DataFrame | None = None
         self.sample_info: pd.DataFrame | None = None
         self.sample_col: str | None = None
         self.group_col: str | None = None
@@ -671,6 +672,10 @@ class MainWindow(QMainWindow):
     def _apply_loaded_config(self, config: AppConfig, path: str) -> list[str]:
         self.pipeline_params = config.to_pipeline_params()
         self._apply_pipeline_params_to_widgets()
+        factor_column = config.spec_norm.get("factor_column")
+        factor_column_applied = False
+        if factor_column is not None and hasattr(self, "norm_tab"):
+            factor_column_applied = self._set_combo_value(self.norm_tab.factor_combo, factor_column)
 
         applied_sections = ["pipeline"]
         if "groups" in config.source_sections:
@@ -680,7 +685,10 @@ class MainWindow(QMainWindow):
         if "output" in config.source_sections:
             applied_sections.append("output (stored for later phases)")
         if "spec_norm" in config.source_sections:
-            applied_sections.append("spec_norm (stored for later phases)")
+            if factor_column_applied:
+                applied_sections.append("spec_norm")
+            else:
+                applied_sections.append("spec_norm (stored for later phases)")
 
         summary = ", ".join(applied_sections)
         self.status_bar.showMessage(
@@ -713,11 +721,20 @@ class MainWindow(QMainWindow):
             raise ValueError(f"Unknown pipeline stage: {stage}")
 
         source_labels = self.raw_labels if self.raw_labels is not None else self.labels
-        pipeline = MetaboAnalystPipeline(self.raw_data, source_labels)
+        pipeline = MetaboAnalystPipeline(
+            self.raw_data,
+            source_labels,
+            feature_metadata=self.raw_feature_metadata,
+        )
         result = pipeline.run_pipeline(**params)
         return {
             "data": result,
             "labels": pipeline.processed_labels,
+            "feature_metadata": (
+                pipeline.processed_feature_metadata.copy()
+                if pipeline.processed_feature_metadata is not None
+                else None
+            ),
             "log": pipeline.log,
         }
 
@@ -756,6 +773,7 @@ class MainWindow(QMainWindow):
         labels,
         sample_col: str,
         group_col: str,
+        feature_metadata: pd.DataFrame | None = None,
         sample_info: pd.DataFrame | None = None,
     ):
         self.raw_data = df.copy()
@@ -769,6 +787,11 @@ class MainWindow(QMainWindow):
 
         self.raw_labels = labels_series.copy()
         self.labels = labels_series.copy()
+        self.raw_feature_metadata = (
+            feature_metadata.reindex(df.columns).copy()
+            if feature_metadata is not None
+            else None
+        )
         self.sample_info = sample_info.copy() if sample_info is not None else None
         self.sample_col = sample_col
         self.group_col = group_col
