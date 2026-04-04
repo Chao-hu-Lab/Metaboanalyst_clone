@@ -2,6 +2,9 @@
 蝯梯????? ??PCA (2D+3D) / PLS-DA / Volcano / ANOVA / ROC / ?賊???/ RF / ?Ｙ黎?菜葫
 """
 
+import math
+from typing import Any, Callable, Mapping
+
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QComboBox, QTextEdit, QSpinBox, QDoubleSpinBox,
@@ -12,6 +15,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QThreadPool
 
 from core.qc import align_labels_to_data, exclude_qc_samples
+from gui.state_binding import ApplyStateResult, apply_checked, apply_combo_data, apply_spin_value
 from gui.widgets.mpl_canvas import MplWidget
 from gui.widgets.plotly_widget import PlotlyWidget
 from gui.widgets.worker import PipelineWorker
@@ -76,6 +80,92 @@ class StatsTab(QWidget):
         for i, title in enumerate(tab_titles):
             if i < self.sub_tabs.count():
                 self.sub_tabs.setTabText(i, title)
+
+    def connect_state_changed(self, callback: Callable[..., None]) -> None:
+        self.pca_ncomp.valueChanged.connect(callback)
+        self.pls_ncomp.valueChanged.connect(callback)
+        self.vip_topn.valueChanged.connect(callback)
+        self.vol_fc.valueChanged.connect(callback)
+        self.vol_p.valueChanged.connect(callback)
+        self.vol_fdr.toggled.connect(callback)
+        self.anova_p.valueChanged.connect(callback)
+        self.anova_test.currentIndexChanged.connect(callback)
+        self.anova_fdr.toggled.connect(callback)
+
+    def read_state(self) -> dict[str, Any]:
+        return {
+            "analysis": {
+                "pca": {"n_components": int(self.pca_ncomp.value())},
+                "plsda": {
+                    "n_components": int(self.pls_ncomp.value()),
+                    "top_vip": int(self.vip_topn.value()),
+                },
+                "volcano": {
+                    "fc_thresh": float(self.vol_fc.value()),
+                    "log2_fc_thresh": float(math.log2(self.vol_fc.value())),
+                    "p_thresh": float(self.vol_p.value()),
+                    "use_fdr": bool(self.vol_fdr.isChecked()),
+                },
+                "anova": {
+                    "p_thresh": float(self.anova_p.value()),
+                    "nonpar": self.anova_test.currentData() == "kruskal",
+                    "use_fdr": bool(self.anova_fdr.isChecked()),
+                },
+            }
+        }
+
+    def validate_state(self, state: Mapping[str, Any]) -> ApplyStateResult:
+        result = ApplyStateResult()
+        analysis = state.get("analysis", {})
+        if not isinstance(analysis, Mapping):
+            return result
+
+        anova = analysis.get("anova", {})
+        if isinstance(anova, Mapping):
+            nonpar = anova.get("nonpar")
+            if nonpar is not None and not isinstance(nonpar, bool):
+                result.unsupported_paths.append("analysis.anova.nonpar")
+        return result
+
+    def apply_state(self, state: Mapping[str, Any]) -> ApplyStateResult:
+        result = self.validate_state(state)
+        analysis = state.get("analysis", {})
+        if not isinstance(analysis, Mapping):
+            return result
+
+        pca = analysis.get("pca", {})
+        if isinstance(pca, Mapping) and "n_components" in pca:
+            apply_spin_value(self.pca_ncomp, int(pca["n_components"]))
+
+        plsda = analysis.get("plsda", {})
+        if isinstance(plsda, Mapping):
+            if "n_components" in plsda:
+                apply_spin_value(self.pls_ncomp, int(plsda["n_components"]))
+            if "top_vip" in plsda:
+                apply_spin_value(self.vip_topn, int(plsda["top_vip"]))
+
+        volcano = analysis.get("volcano", {})
+        if isinstance(volcano, Mapping):
+            if "fc_thresh" in volcano:
+                apply_spin_value(self.vol_fc, float(volcano["fc_thresh"]))
+            if "p_thresh" in volcano:
+                apply_spin_value(self.vol_p, float(volcano["p_thresh"]))
+            if "use_fdr" in volcano:
+                apply_checked(self.vol_fdr, bool(volcano["use_fdr"]))
+
+        anova = analysis.get("anova", {})
+        if isinstance(anova, Mapping):
+            if "p_thresh" in anova:
+                apply_spin_value(self.anova_p, float(anova["p_thresh"]))
+            if isinstance(anova.get("nonpar"), bool):
+                target = "kruskal" if anova["nonpar"] else "anova"
+                result.extend(
+                    apply_combo_data(self.anova_test, target, "analysis.anova.nonpar")
+                )
+            if "use_fdr" in anova:
+                apply_checked(self.anova_fdr, bool(anova["use_fdr"]))
+
+        return result
 
     def _snapshot_data(self):
         data = self.mw.current_data.copy()

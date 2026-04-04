@@ -5,6 +5,8 @@ Row normalization -> transformation -> scaling
 
 from __future__ import annotations
 
+from typing import Any, Callable, Mapping
+
 from PySide6.QtCore import QSignalBlocker, Qt
 from PySide6.QtWidgets import (
     QComboBox,
@@ -23,6 +25,7 @@ from ms_core.processing.normalization import ROW_NORM_METHODS
 from core.sample_info import build_aligned_factors, detect_factor_columns
 from ms_core.processing.scaling import SCALING_METHODS
 from ms_core.processing.transformation import TRANSFORM_METHODS
+from gui.state_binding import ApplyStateResult, apply_combo_data
 from gui.widgets.mpl_canvas import MplWidget
 
 
@@ -138,6 +141,63 @@ class NormTab(QWidget):
         self.btn_reset.setText(self.tr("Reset to Filtered Data"))
         self._refresh_factor_controls()
         self._on_row_method_changed()
+
+    def connect_state_changed(self, callback: Callable[..., None]) -> None:
+        self.row_combo.currentIndexChanged.connect(callback)
+        self.trans_combo.currentIndexChanged.connect(callback)
+        self.scale_combo.currentIndexChanged.connect(callback)
+        self.factor_combo.currentIndexChanged.connect(callback)
+
+    def read_state(self) -> dict[str, Any]:
+        state: dict[str, Any] = {
+            "pipeline": {
+                "row_norm": self.row_combo.currentData(),
+                "transform": self.trans_combo.currentData(),
+                "scaling": self.scale_combo.currentData(),
+            }
+        }
+        factor_column = self.factor_combo.currentData()
+        if self.row_combo.currentData() == "SpecNorm" and factor_column is not None:
+            state["spec_norm"] = {"factor_column": str(factor_column)}
+        return state
+
+    def validate_state(self, state: Mapping[str, Any]) -> ApplyStateResult:
+        result = ApplyStateResult()
+        pipeline = state.get("pipeline", {})
+        if isinstance(pipeline, Mapping):
+            result.extend(
+                apply_combo_data(self.row_combo, pipeline.get("row_norm"), "pipeline.row_norm")
+            )
+            result.extend(
+                apply_combo_data(
+                    self.trans_combo,
+                    pipeline.get("transform"),
+                    "pipeline.transform",
+                )
+            )
+            result.extend(
+                apply_combo_data(
+                    self.scale_combo,
+                    pipeline.get("scaling"),
+                    "pipeline.scaling",
+                )
+            )
+        return result
+
+    def apply_state(self, state: Mapping[str, Any]) -> ApplyStateResult:
+        result = self.validate_state(state)
+        spec_norm = state.get("spec_norm", {})
+        if isinstance(spec_norm, Mapping):
+            factor_column = spec_norm.get("factor_column")
+            if factor_column is not None:
+                if not apply_combo_data(
+                    self.factor_combo,
+                    factor_column,
+                    "spec_norm.factor_column",
+                ).unsupported_paths:
+                    self._on_row_method_changed()
+        self._on_row_method_changed()
+        return result
 
     def _refresh_factor_controls(self):
         blocker = QSignalBlocker(self.factor_combo)

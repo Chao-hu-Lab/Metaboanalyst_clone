@@ -5,6 +5,7 @@ Variable filtering tab (+ optional QC-RSD filtering).
 from __future__ import annotations
 
 import pandas as pd
+from typing import Any, Callable, Mapping
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -20,6 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from ms_core.processing.feature_filter import FILTER_METHODS, get_auto_cutoff
+from gui.state_binding import ApplyStateResult, apply_checked, apply_combo_data, apply_spin_value
 
 
 class FilterTab(QWidget):
@@ -114,6 +116,66 @@ class FilterTab(QWidget):
         self.qc_check.setText(self.tr("Enable QC-RSD pre-filter"))
         self.qc_thresh_label.setText(self.tr("QC-RSD threshold:"))
         self.btn_run.setText(self.tr("Apply Filtering Step"))
+
+    def connect_state_changed(self, callback: Callable[..., None]) -> None:
+        self.method_combo.currentIndexChanged.connect(callback)
+        self.auto_check.toggled.connect(callback)
+        self.cutoff_spin.valueChanged.connect(callback)
+        self.qc_check.toggled.connect(callback)
+        self.qc_thresh_spin.valueChanged.connect(callback)
+
+    def read_state(self) -> dict[str, Any]:
+        return {
+            "pipeline": {
+                "filter_method": self.method_combo.currentData(),
+                "filter_cutoff": (
+                    None if self.auto_check.isChecked() else float(self.cutoff_spin.value())
+                ),
+                "qc_rsd_enabled": bool(
+                    self.qc_check.isChecked() and self.qc_check.isEnabled()
+                ),
+                "qc_rsd_threshold": float(self.qc_thresh_spin.value()),
+            }
+        }
+
+    def validate_state(self, state: Mapping[str, Any]) -> ApplyStateResult:
+        pipeline = state.get("pipeline", {})
+        result = ApplyStateResult()
+        if not isinstance(pipeline, Mapping):
+            return result
+        result.extend(
+            apply_combo_data(
+                self.method_combo,
+                pipeline.get("filter_method"),
+                "pipeline.filter_method",
+            )
+        )
+        return result
+
+    def apply_state(self, state: Mapping[str, Any]) -> ApplyStateResult:
+        pipeline = state.get("pipeline", {})
+        if not isinstance(pipeline, Mapping):
+            return ApplyStateResult()
+
+        if "filter_cutoff" in pipeline:
+            auto_cutoff = pipeline["filter_cutoff"] is None
+            apply_checked(self.auto_check, bool(auto_cutoff))
+            self._toggle_auto(auto_cutoff)
+            if pipeline["filter_cutoff"] is not None:
+                apply_spin_value(self.cutoff_spin, float(pipeline["filter_cutoff"]))
+
+        if "qc_rsd_enabled" in pipeline:
+            if not self.qc_check.isEnabled() and bool(pipeline["qc_rsd_enabled"]):
+                self.qc_check.setEnabled(True)
+            apply_checked(self.qc_check, bool(pipeline["qc_rsd_enabled"]))
+        if "qc_rsd_threshold" in pipeline:
+            apply_spin_value(self.qc_thresh_spin, float(pipeline["qc_rsd_threshold"]))
+        self.qc_thresh_spin.setEnabled(
+            bool(self.qc_check.isChecked() and self.qc_check.isEnabled())
+        )
+
+        result = self.validate_state(state)
+        return result
 
     def _toggle_auto(self, checked: bool):
         self.cutoff_spin.setEnabled(not checked)

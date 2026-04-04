@@ -153,6 +153,7 @@ class MainWindow(QMainWindow):
         self._active_preset_path: str | None = None
         self._active_preset_kind: str | None = None
         self._last_preset_apply_sections: list[str] = []
+        self._last_preset_unsupported_paths: list[str] = []
 
         # Workflow stage:
         # 0: no data, 1: import done, 2: missing done, 3: filter done, 4: norm done
@@ -464,18 +465,15 @@ class MainWindow(QMainWindow):
         self.preset_bar.apply_button.clicked.connect(self._apply_current_preset)
         self.preset_bar.save_button.clicked.connect(self._save_preset_yaml)
         self.preset_bar.reset_button.clicked.connect(self._reset_preset_to_defaults)
-
-        self.mv_tab.thresh_spin.valueChanged.connect(self._on_preset_controls_changed)
-        self.mv_tab.method_combo.currentIndexChanged.connect(self._on_preset_controls_changed)
-        self.filter_tab.method_combo.currentIndexChanged.connect(self._on_preset_controls_changed)
-        self.filter_tab.auto_check.toggled.connect(self._on_preset_controls_changed)
-        self.filter_tab.cutoff_spin.valueChanged.connect(self._on_preset_controls_changed)
-        self.filter_tab.qc_check.toggled.connect(self._on_preset_controls_changed)
-        self.filter_tab.qc_thresh_spin.valueChanged.connect(self._on_preset_controls_changed)
-        self.norm_tab.row_combo.currentIndexChanged.connect(self._on_preset_controls_changed)
-        self.norm_tab.trans_combo.currentIndexChanged.connect(self._on_preset_controls_changed)
-        self.norm_tab.scale_combo.currentIndexChanged.connect(self._on_preset_controls_changed)
-        self.norm_tab.factor_combo.currentIndexChanged.connect(self._on_preset_controls_changed)
+        for tab in (
+            self.mv_tab,
+            self.filter_tab,
+            self.norm_tab,
+            self.stats_tab,
+            self.visual_tab,
+        ):
+            if hasattr(tab, "connect_state_changed"):
+                tab.connect_state_changed(self._on_preset_controls_changed)
 
     @contextmanager
     def _suspend_preset_tracking(self):
@@ -488,7 +486,7 @@ class MainWindow(QMainWindow):
     def _on_preset_controls_changed(self, *_args) -> None:
         if self._preset_tracking_depth > 0:
             return
-        self.pipeline_params = self._build_current_pipeline_params_from_widgets()
+        self.pipeline_params = self._read_pipeline_state_from_tabs()
         self._refresh_preset_bar()
 
     @staticmethod
@@ -510,33 +508,36 @@ class MainWindow(QMainWindow):
             return None
         return "Built-in Preset" if self._is_builtin_preset_path(path) else "Local Preset"
 
-    def _build_current_pipeline_params_from_widgets(self) -> dict:
-        filter_cutoff = None if self.filter_tab.auto_check.isChecked() else float(
-            self.filter_tab.cutoff_spin.value()
-        )
-        return {
-            "missing_thresh": float(self.mv_tab.thresh_spin.value()),
-            "impute_method": self.mv_tab.method_combo.currentData(),
-            "filter_method": self.filter_tab.method_combo.currentData(),
-            "filter_cutoff": filter_cutoff,
-            "qc_rsd_enabled": bool(
-                self.filter_tab.qc_check.isChecked() and self.filter_tab.qc_check.isEnabled()
-            ),
-            "qc_rsd_threshold": float(self.filter_tab.qc_thresh_spin.value()),
-            "row_norm": self.norm_tab.row_combo.currentData(),
-            "transform": self.norm_tab.trans_combo.currentData(),
-            "scaling": self.norm_tab.scale_combo.currentData(),
-            "factors": None,
-            "factor_source": None,
-        }
+    @staticmethod
+    def _merge_config_fragment(target: dict, fragment: dict) -> None:
+        for key, value in fragment.items():
+            if isinstance(value, dict) and isinstance(target.get(key), dict):
+                MainWindow._merge_config_fragment(target[key], value)
+            else:
+                target[key] = value
 
-    def _build_current_spec_norm_section(self) -> dict[str, str]:
-        if self.norm_tab.row_combo.currentData() != "SpecNorm":
-            return {}
-        factor_column = self.norm_tab.factor_combo.currentData()
-        if factor_column is None:
-            return {}
-        return {"factor_column": str(factor_column)}
+    def _collect_tab_state_fragments(self) -> list[dict[str, object]]:
+        fragments: list[dict[str, object]] = []
+        for tab in (
+            self.mv_tab,
+            self.filter_tab,
+            self.norm_tab,
+            self.stats_tab,
+            self.visual_tab,
+        ):
+            if hasattr(tab, "read_state"):
+                fragment = tab.read_state()
+                if fragment:
+                    fragments.append(fragment)
+        return fragments
+
+    def _read_pipeline_state_from_tabs(self) -> dict:
+        merged = self._default_pipeline_params()
+        for fragment in self._collect_tab_state_fragments():
+            pipeline_fragment = fragment.get("pipeline")
+            if isinstance(pipeline_fragment, dict):
+                merged.update(pipeline_fragment)
+        return merged
 
     def _build_current_gui_preset_config(self) -> AppConfig:
         if self._active_preset_config is not None:
@@ -544,8 +545,8 @@ class MainWindow(QMainWindow):
         else:
             raw_config = build_default_config(include_runtime=False)
 
-        raw_config["pipeline"] = self._build_current_pipeline_params_from_widgets()
-        raw_config["spec_norm"] = self._build_current_spec_norm_section()
+        for fragment in self._collect_tab_state_fragments():
+            self._merge_config_fragment(raw_config, fragment)
         return AppConfig.from_mapping(raw_config, require_required_sections=False)
 
     def _collect_pending_preset_paths(self, config: AppConfig | None) -> list[str]:
@@ -561,9 +562,10 @@ class MainWindow(QMainWindow):
         return pending
 
     def _collect_ignored_preset_fields(self, config: AppConfig | None) -> list[str]:
-        if config is None or not config.extras:
-            return []
-        return sorted(config.extras.keys())
+        ignored: set[str] = set(self._last_preset_unsupported_paths)
+        if config is not None and config.extras:
+            ignored.update(config.extras.keys())
+        return sorted(ignored)
 
     @staticmethod
     def _remove_dotted_path(mapping: dict, path: str) -> None:
@@ -594,6 +596,9 @@ class MainWindow(QMainWindow):
         for pending_path in pending_paths:
             self._remove_dotted_path(current_state, pending_path)
             self._remove_dotted_path(baseline_state, pending_path)
+        for unsupported_path in self._last_preset_unsupported_paths:
+            self._remove_dotted_path(current_state, unsupported_path)
+            self._remove_dotted_path(baseline_state, unsupported_path)
         is_dirty = current_state != baseline_state
 
         if self._active_preset_config is not None:
@@ -860,15 +865,29 @@ class MainWindow(QMainWindow):
             self.norm_tab._on_row_method_changed()
 
     def _apply_config_to_widgets(self, config: AppConfig) -> bool:
+        state = config.to_dict(include_runtime=False)
+        unsupported_paths: list[str] = []
         with self._suspend_preset_tracking():
             self.pipeline_params = config.to_pipeline_params()
             self._apply_pipeline_params_to_widgets()
+            for tab in (
+                self.mv_tab,
+                self.filter_tab,
+                self.norm_tab,
+                self.stats_tab,
+                self.visual_tab,
+            ):
+                if hasattr(tab, "apply_state"):
+                    result = tab.apply_state(state)
+                    unsupported_paths.extend(result.unsupported_paths)
             factor_column = config.spec_norm.get("factor_column")
             factor_column_applied = False
             if factor_column is not None and hasattr(self, "norm_tab"):
-                factor_column_applied = self._set_combo_value(
-                    self.norm_tab.factor_combo, factor_column
+                factor_column_applied = (
+                    self.norm_tab.factor_combo.findData(str(factor_column)) >= 0
+                    or self.norm_tab.factor_combo.findText(str(factor_column)) >= 0
                 )
+        self._last_preset_unsupported_paths = sorted(set(unsupported_paths))
         return factor_column_applied
 
     def _describe_applied_sections(
@@ -936,6 +955,7 @@ class MainWindow(QMainWindow):
         self._active_preset_config = saved_config
         self._active_preset_path = str(target_path)
         self._active_preset_kind = self._infer_preset_kind(str(target_path))
+        self._last_preset_unsupported_paths = []
         self._last_preset_apply_sections = self._describe_applied_sections(
             saved_config,
             factor_column_applied=bool(

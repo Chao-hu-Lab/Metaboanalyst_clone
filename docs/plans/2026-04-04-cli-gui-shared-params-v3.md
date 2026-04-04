@@ -790,3 +790,60 @@ pipeline kwargs  GUI state  analysis recipe state
 ### Verification command
 
 `uv run pytest tests\test_gui_preset_manager.py tests\test_gui_config_integration.py tests\test_gui_runtime_feature_metadata.py tests\test_gui_layout.py::test_main_window_initialization tests\test_gui_layout.py::test_theme_combo_box_exists -q`
+
+---
+
+## 29. Phase 4 Implementation Status (2026-04-05)
+
+### Completed in this iteration
+
+- Added tab-level state binding entry points:
+  - `read_state()`
+  - `apply_state()`
+  - `validate_state()`
+  - `connect_state_changed()`
+- Bound preprocessing tabs to shared preset state:
+  - `MissingValueTab`
+  - `FilterTab`
+  - `NormTab`
+- Bound selected analysis / visualization controls to shared config-backed sections:
+  - `StatsTab` -> `analysis.pca`, `analysis.plsda`, `analysis.volcano`, `analysis.anova`
+  - `VisualTab` -> `analysis.heatmap`
+- Added shared widget binding helpers in `gui/state_binding.py` for:
+  - `QSignalBlocker` wrapping
+  - combo fallback application
+  - unsupported path collection
+- Refactored `MainWindow` preset flow to aggregate config fragments from tabs instead of manually re-reading specific widgets
+- Unsupported combo values now surface in preset ignored summary and no longer appear as false `Modified` state after load
+
+### Explicitly preserved
+
+- `output.*` remains stored in the shared config but is still not editable from GUI in Phase 4
+- `groups.*` recipe state remains preserved / summarized rather than edited directly in GUI
+- Visual chart-type / preview-only controls are still GUI-local and are not written into `AppConfig`
+
+### Tests added
+
+- New: `tests/test_gui_state_binding.py`
+  - round-trip test across preprocessing / stats / visual config-backed widgets
+  - invalid combo fallback test with unsupported-path reporting
+
+### Remaining after this iteration
+
+- [ ] Built-in preset repository migration to `resources/presets/` (Phase 5)
+- [ ] Layout / UX hardening for preset bar and tab controls under tighter desktop sizes (Phase 6)
+- [ ] Broader smoke / geometry coverage for preset-related UI states (Phase 7)
+
+---
+
+## 30. Milestone 4 Sign-off (Phase 4)
+
+- [x] Tab-level state binding exists for config-backed GUI controls
+- [x] `MainWindow` no longer depends on hand-written per-widget preset extraction for bound sections
+- [x] GUI state -> AppConfig -> GUI state round-trip is covered by focused tests
+- [x] Invalid combo values fall back safely and are reported as unsupported
+- [x] Focused Phase 4 GUI verification passed on 2026-04-05
+
+### Verification command
+
+`uv run pytest tests\test_gui_state_binding.py tests\test_gui_preset_manager.py tests\test_gui_config_integration.py tests\test_gui_runtime_feature_metadata.py tests\test_gui_layout.py::test_main_window_initialization tests\test_gui_layout.py::test_theme_combo_box_exists -q`

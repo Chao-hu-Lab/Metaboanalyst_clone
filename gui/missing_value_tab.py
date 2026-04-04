@@ -4,6 +4,8 @@ Missing-value handling tab.
 
 from __future__ import annotations
 
+from typing import Any, Callable, Mapping
+
 from PySide6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
@@ -18,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from ms_core.processing.missing_values import IMPUTE_METHODS
+from gui.state_binding import ApplyStateResult, apply_combo_data, apply_spin_value
 
 
 class MissingValueTab(QWidget):
@@ -79,6 +82,43 @@ class MissingValueTab(QWidget):
         self.thresh_spin.setToolTip(self.tr("Remove features with missing ratio >= threshold"))
         self.impute_label.setText(self.tr("Imputation:"))
         self.btn_run.setText(self.tr("Apply Missing-Value Step"))
+
+    def connect_state_changed(self, callback: Callable[..., None]) -> None:
+        self.thresh_spin.valueChanged.connect(callback)
+        self.method_combo.currentIndexChanged.connect(callback)
+
+    def read_state(self) -> dict[str, Any]:
+        return {
+            "pipeline": {
+                "missing_thresh": float(self.thresh_spin.value()),
+                "impute_method": self.method_combo.currentData(),
+            }
+        }
+
+    def validate_state(self, state: Mapping[str, Any]) -> ApplyStateResult:
+        pipeline = state.get("pipeline", {})
+        result = ApplyStateResult()
+        if not isinstance(pipeline, Mapping):
+            return result
+        result.extend(
+            apply_combo_data(
+                self.method_combo,
+                pipeline.get("impute_method"),
+                "pipeline.impute_method",
+            )
+        )
+        return result
+
+    def apply_state(self, state: Mapping[str, Any]) -> ApplyStateResult:
+        pipeline = state.get("pipeline", {})
+        if not isinstance(pipeline, Mapping):
+            return ApplyStateResult()
+
+        if "missing_thresh" in pipeline:
+            apply_spin_value(self.thresh_spin, float(pipeline["missing_thresh"]))
+
+        result = self.validate_state(state)
+        return result
 
     def on_data_loaded(self):
         df = self.mw.current_data
