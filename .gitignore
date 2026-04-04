@@ -33,3 +33,7 @@ NUL
 .worktrees/
 .tmp/
 tmp*/
+
+# Local config presets
+configs/*.yaml
+!configs/Tissue_knn_rsd050_marker_verify.yaml
