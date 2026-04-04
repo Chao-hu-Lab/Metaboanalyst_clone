@@ -733,3 +733,60 @@ pipeline kwargs  GUI state  analysis recipe state
 ### Verification command
 
 `uv run pytest tests\test_gui_runtime_feature_metadata.py tests\test_gui_config_integration.py tests\test_run_from_config_input_formats.py tests\test_core.py -q`
+
+---
+
+## 27. Phase 3 Implementation Status (2026-04-04)
+
+### Completed in this iteration
+
+- Added a dedicated GUI preset manager bar below the pipeline navigation via `gui/widgets/preset_bar.py`
+- Added explicit preset actions in `MainWindow`:
+  - `Load Preset`
+  - `Apply Preset`
+  - `Save As Preset`
+  - `Reset To Defaults`
+- Added preset session state tracking in `MainWindow` for:
+  - active preset config
+  - preset source path
+  - preset source kind (`Built-in Preset` vs `Local Preset`, path-derived for now)
+  - last applied summary
+- Added lifecycle state rendering in the preset bar for:
+  - `Local Preset`
+  - `Built-in Preset` (path classification only; repository migration is still Phase 5)
+  - `Modified`
+  - `Unsaved`
+  - `Pending Data Mapping`
+- Implemented pending-data semantics so unresolved `spec_norm.factor_column` is treated as pending instead of dirty
+- Updated `set_data()` so GUI data import no longer wipes a preloaded preset; pending SpecNorm mapping is re-applied after `SampleInfo` becomes available
+- Added ignored-field summary for preserved top-level extra config sections
+
+### Tests added
+
+- New: `tests/test_gui_preset_manager.py`
+  - preset load before data -> `Pending Data Mapping`
+  - pending SpecNorm mapping resolves after GUI data import
+  - dirty state is raised after widget edits
+  - `Apply Preset` restores loaded values
+  - `Reset To Defaults` diverges from loaded preset as `Modified`
+  - `Save As Preset` round-trips current GUI state and preserves stored sections
+
+### Remaining after this iteration
+
+- [ ] Tab-level `read_state()` / `apply_state()` binding layer (Phase 4)
+- [ ] Built-in preset repository migration to `resources/presets/` (Phase 5)
+- [ ] Layout / UX hardening for preset bar under larger fonts and tighter widths (Phase 6)
+
+---
+
+## 28. Milestone 3 Sign-off (Phase 3)
+
+- [x] GUI preset manager UI / preset bar exists and is wired into `MainWindow`
+- [x] GUI can load a preset before data import without losing pending SpecNorm mapping
+- [x] GUI exposes preset lifecycle feedback for source / dirty / pending states
+- [x] GUI supports apply / save-as / reset preset actions
+- [x] Focused Phase 3 GUI verification passed on 2026-04-04
+
+### Verification command
+
+`uv run pytest tests\test_gui_preset_manager.py tests\test_gui_config_integration.py tests\test_gui_runtime_feature_metadata.py tests\test_gui_layout.py::test_main_window_initialization tests\test_gui_layout.py::test_theme_combo_box_exists -q`

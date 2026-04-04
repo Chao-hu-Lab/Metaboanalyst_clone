@@ -5,7 +5,7 @@ Row normalization -> transformation -> scaling
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSignalBlocker, Qt
 from PySide6.QtWidgets import (
     QComboBox,
     QGroupBox,
@@ -140,12 +140,14 @@ class NormTab(QWidget):
         self._on_row_method_changed()
 
     def _refresh_factor_controls(self):
+        blocker = QSignalBlocker(self.factor_combo)
         self.factor_combo.clear()
         sample_info = getattr(self.mw, "sample_info", None)
         if sample_info is None or sample_info.empty:
             self.factor_status.setText(
                 self.tr("SampleInfo sheet not found. SpecNorm from SampleInfo is unavailable.")
             )
+            del blocker
             return
 
         columns, default_col = detect_factor_columns(sample_info)
@@ -173,6 +175,7 @@ class NormTab(QWidget):
                     default_col=default_col if default_col is not None else "-",
                 )
             )
+        del blocker
 
     def _on_row_method_changed(self):
         is_specnorm = self.row_combo.currentData() == "SpecNorm"
