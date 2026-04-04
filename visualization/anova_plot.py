@@ -207,11 +207,10 @@ def plot_feature_boxplot(
     stat_text = _build_stat_annotation(plot_data)
     fig.tight_layout()
     if stat_text:
-        ax.text(
+        fig.text(
             0.02,
             0.98,
             stat_text,
-            transform=ax.transAxes,
             va="top",
             ha="left",
             fontsize=9,

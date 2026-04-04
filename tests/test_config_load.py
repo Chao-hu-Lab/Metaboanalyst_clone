@@ -1,12 +1,12 @@
 """Tests for YAML config loading and application."""
 
-import tempfile
+from pathlib import Path
 
 import yaml
 
 
 class TestConfigParsing:
-    def test_pipeline_params_are_extracted(self):
+    def test_pipeline_params_are_extracted(self, tmp_path: Path):
         """Config YAML pipeline section should produce correct dict."""
         config = {
             "pipeline": {
@@ -18,13 +18,10 @@ class TestConfigParsing:
                 "scaling": "AutoNorm",
             }
         }
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False, encoding="utf-8"
-        ) as f:
-            yaml.dump(config, f)
-            path = f.name
+        path = tmp_path / "pipeline_config.yaml"
+        path.write_text(yaml.dump(config), encoding="utf-8")
 
-        with open(path, "r", encoding="utf-8") as f:
+        with path.open("r", encoding="utf-8") as f:
             loaded = yaml.safe_load(f)
 
         assert isinstance(loaded, dict)
@@ -53,29 +50,23 @@ class TestConfigParsing:
         assert pipeline_params["scaling"] == "AutoNorm"
         assert "filter_cutoff" not in pipeline_params
 
-    def test_empty_config_returns_none(self):
+    def test_empty_config_returns_none(self, tmp_path: Path):
         """Empty YAML should not crash; yaml.safe_load returns None."""
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False, encoding="utf-8"
-        ) as f:
-            f.write("")
-            path = f.name
+        path = tmp_path / "empty_config.yaml"
+        path.write_text("", encoding="utf-8")
 
-        with open(path, "r", encoding="utf-8") as f:
+        with path.open("r", encoding="utf-8") as f:
             loaded = yaml.safe_load(f)
 
         assert loaded is None
 
-    def test_config_without_pipeline_section(self):
+    def test_config_without_pipeline_section(self, tmp_path: Path):
         """Config with no pipeline section should apply nothing."""
         config = {"analysis": {"pca": {"n_components": 5}}}
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False, encoding="utf-8"
-        ) as f:
-            yaml.dump(config, f)
-            path = f.name
+        path = tmp_path / "analysis_only_config.yaml"
+        path.write_text(yaml.dump(config), encoding="utf-8")
 
-        with open(path, "r", encoding="utf-8") as f:
+        with path.open("r", encoding="utf-8") as f:
             loaded = yaml.safe_load(f)
 
         assert isinstance(loaded, dict)
