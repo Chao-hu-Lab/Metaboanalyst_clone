@@ -46,6 +46,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from core.app_config import AppConfig, default_pipeline_params, load_yaml_config
 from core.pipeline import MetaboAnalystPipeline
 from core.utils import get_resource_path
 from gui.data_import_tab import DataImportTab
@@ -181,19 +182,7 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _default_pipeline_params() -> dict:
-        return {
-            "missing_thresh": 0.5,
-            "impute_method": "min",
-            "filter_method": "iqr",
-            "filter_cutoff": None,
-            "qc_rsd_enabled": False,
-            "qc_rsd_threshold": 0.2,
-            "row_norm": "None",
-            "transform": "None",
-            "scaling": "None",
-            "factors": None,
-            "factor_source": None,
-        }
+        return default_pipeline_params()
 
     # ------------------------------------------------------------------
     # UI
@@ -625,6 +614,81 @@ class MainWindow(QMainWindow):
     def set_pipeline_params(self, **kwargs):
         self.pipeline_params.update(kwargs)
 
+    @staticmethod
+    def _set_combo_value(combo: QComboBox, value: object) -> bool:
+        if value is None:
+            return False
+        index = combo.findData(value)
+        if index < 0:
+            index = combo.findData(str(value))
+        if index < 0:
+            index = combo.findText(str(value))
+        if index < 0:
+            return False
+
+        blocker = QSignalBlocker(combo)
+        combo.setCurrentIndex(index)
+        del blocker
+        return True
+
+    def _apply_pipeline_params_to_widgets(self):
+        params = dict(self.pipeline_params)
+
+        if hasattr(self, "mv_tab"):
+            blocker = QSignalBlocker(self.mv_tab.thresh_spin)
+            self.mv_tab.thresh_spin.setValue(float(params["missing_thresh"]))
+            del blocker
+            self._set_combo_value(self.mv_tab.method_combo, params["impute_method"])
+
+        if hasattr(self, "filter_tab"):
+            self._set_combo_value(self.filter_tab.method_combo, params["filter_method"])
+            auto_cutoff = params["filter_cutoff"] is None
+            blocker = QSignalBlocker(self.filter_tab.auto_check)
+            self.filter_tab.auto_check.setChecked(auto_cutoff)
+            del blocker
+            self.filter_tab._toggle_auto(auto_cutoff)
+            if params["filter_cutoff"] is not None:
+                blocker = QSignalBlocker(self.filter_tab.cutoff_spin)
+                self.filter_tab.cutoff_spin.setValue(float(params["filter_cutoff"]))
+                del blocker
+            blocker = QSignalBlocker(self.filter_tab.qc_check)
+            self.filter_tab.qc_check.setChecked(bool(params["qc_rsd_enabled"]))
+            del blocker
+            blocker = QSignalBlocker(self.filter_tab.qc_thresh_spin)
+            self.filter_tab.qc_thresh_spin.setValue(float(params["qc_rsd_threshold"]))
+            del blocker
+            self.filter_tab.qc_thresh_spin.setEnabled(bool(self.filter_tab.qc_check.isChecked() and self.filter_tab.qc_check.isEnabled()))
+
+        if hasattr(self, "norm_tab"):
+            self._set_combo_value(self.norm_tab.row_combo, params["row_norm"])
+            self._set_combo_value(self.norm_tab.trans_combo, params["transform"])
+            self._set_combo_value(self.norm_tab.scale_combo, params["scaling"])
+            factor_source = params.get("factor_source")
+            if factor_source is not None:
+                self._set_combo_value(self.norm_tab.factor_combo, factor_source)
+            self.norm_tab._on_row_method_changed()
+
+    def _apply_loaded_config(self, config: AppConfig, path: str) -> list[str]:
+        self.pipeline_params = config.to_pipeline_params()
+        self._apply_pipeline_params_to_widgets()
+
+        applied_sections = ["pipeline"]
+        if "groups" in config.source_sections:
+            applied_sections.append("groups (stored for later phases)")
+        if "analysis" in config.source_sections:
+            applied_sections.append("analysis (stored for later phases)")
+        if "output" in config.source_sections:
+            applied_sections.append("output (stored for later phases)")
+        if "spec_norm" in config.source_sections:
+            applied_sections.append("spec_norm (stored for later phases)")
+
+        summary = ", ".join(applied_sections)
+        self.status_bar.showMessage(
+            self.tr("Config loaded: {path} ({summary})").format(path=path, summary=summary)
+        )
+        logger.info("Loaded shared config from %s, sections: %s", path, applied_sections)
+        return applied_sections
+
     def run_pipeline_until(self, stage: str):
         if self.raw_data is None:
             raise ValueError("No data loaded.")
@@ -710,6 +774,7 @@ class MainWindow(QMainWindow):
         self.group_col = group_col
 
         self.pipeline_params = self._default_pipeline_params()
+        self._apply_pipeline_params_to_widgets()
         self.undo_stack.clear()
         self._filtered_data = None
         self._filtered_labels = None
@@ -892,8 +957,6 @@ class MainWindow(QMainWindow):
         self.switch_language(locale)
 
     def _load_config_yaml(self):
-        from PySide6.QtWidgets import QFileDialog
-
         path, _ = QFileDialog.getOpenFileName(
             self,
             self.tr("Load Config (YAML)"),
@@ -903,62 +966,8 @@ class MainWindow(QMainWindow):
         if not path:
             return
         try:
-            import yaml
-
-            with open(path, "r", encoding="utf-8") as f:
-                config = yaml.safe_load(f)
-
-            if not isinstance(config, dict):
-                QMessageBox.warning(
-                    self,
-                    self.tr("Load Error"),
-                    self.tr("Config file is empty or not a valid YAML mapping."),
-                )
-                return
-
-            applied = []
-
-            if "pipeline" in config and isinstance(config["pipeline"], dict):
-                pipe_cfg = config["pipeline"]
-                valid_keys = (
-                    "missing_thresh",
-                    "impute_method",
-                    "filter_method",
-                    "filter_cutoff",
-                    "row_norm",
-                    "transform",
-                    "scaling",
-                    "qc_rsd_enabled",
-                    "qc_rsd_threshold",
-                )
-                for key in valid_keys:
-                    if key in pipe_cfg:
-                        self.pipeline_params[key] = pipe_cfg[key]
-                        applied.append(key)
-
-                if hasattr(self, "norm_tab"):
-                    nt = self.norm_tab
-                    combo_map = {
-                        "row_norm": getattr(nt, "row_combo", None),
-                        "transform": getattr(nt, "trans_combo", None),
-                        "scaling": getattr(nt, "scale_combo", None),
-                    }
-                    for key, combo in combo_map.items():
-                        if combo is not None and key in pipe_cfg:
-                            idx = combo.findData(pipe_cfg[key])
-                            if idx < 0:
-                                idx = combo.findText(pipe_cfg[key])
-                            if idx >= 0:
-                                combo.setCurrentIndex(idx)
-
-            summary = ", ".join(applied) if applied else "no pipeline keys"
-            self.status_bar.showMessage(
-                self.tr("Config loaded: {path} ({summary})").format(
-                    path=path,
-                    summary=summary,
-                )
-            )
-            logger.info("Loaded config from %s, applied: %s", path, applied)
+            config = load_yaml_config(path, require_required_sections=False)
+            self._apply_loaded_config(config, path)
         except Exception as exc:
             QMessageBox.warning(
                 self, self.tr("Load Error"), str(exc)

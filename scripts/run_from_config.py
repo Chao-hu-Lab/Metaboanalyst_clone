@@ -22,9 +22,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
-import yaml  # noqa: E402
 from openpyxl.styles import PatternFill  # noqa: E402
 
+from core.app_config import apply_cli_overrides, dump_yaml, load_yaml_config  # noqa: E402
 from core.pipeline import MetaboAnalystPipeline  # noqa: E402
 from core.sample_interface import identify_sample_columns  # noqa: E402
 from core.sample_info import read_sample_info_sheet, build_aligned_factors, extract_subject_ids  # noqa: E402
@@ -55,51 +55,7 @@ REDUNDANT_EXPORT_COLUMNS = {
 
 def load_config(path: str) -> dict:
     """Load and validate a YAML configuration file."""
-    with open(path, "r", encoding="utf-8") as f:
-        cfg = yaml.safe_load(f)
-
-    # Validate required top-level keys
-    for key in ("input", "pipeline", "groups", "analysis"):
-        if key not in cfg:
-            raise ValueError(f"Config missing required section: '{key}'")
-
-    # Defaults for optional fields
-    cfg.setdefault("spec_norm", None)
-    cfg.setdefault("output", {})
-    cfg["output"].setdefault("suffix", "")
-    cfg["output"].setdefault("auto_timestamp", True)
-
-    # Defaults for analysis sub-sections
-    analysis = cfg["analysis"]
-    pca = analysis.setdefault("pca", {})
-    if "n_components" not in pca and "Old_Statistics_PM" in pca:
-        pca["n_components"] = pca["Old_Statistics_PM"]
-    pca.setdefault("n_components", 5)
-    anova = analysis.setdefault("anova", {})
-    anova.setdefault("p_thresh", 0.05)
-    anova.setdefault("nonpar", False)
-    anova.setdefault("use_fdr", True)
-    anova.setdefault("posthoc", True)
-    plsda = analysis.setdefault("plsda", {})
-    plsda.setdefault("n_components", 2)
-    plsda.setdefault("top_vip", 15)
-    volcano = analysis.setdefault("volcano", {})
-    if "log2_fc_thresh" in volcano:
-        volcano["log2_fc_thresh"] = float(volcano["log2_fc_thresh"])
-        volcano["fc_thresh"] = float(2 ** volcano["log2_fc_thresh"])
-    else:
-        volcano.setdefault("fc_thresh", 2.0)
-        volcano["log2_fc_thresh"] = float(np.log2(volcano["fc_thresh"]))
-    volcano.setdefault("p_thresh", 0.05)
-    volcano.setdefault("use_fdr", True)
-    hm = analysis.setdefault("heatmap", {})
-    hm.setdefault("max_features", 50)
-    hm.setdefault("top_by", "var")
-    hm.setdefault("method", "ward")
-    hm.setdefault("metric", "euclidean")
-    hm.setdefault("scale", "row")
-
-    return cfg
+    return load_yaml_config(path, require_required_sections=True).to_dict(include_runtime=True)
 
 
 def parse_pair_config(
@@ -626,7 +582,7 @@ def run_analysis(cfg: dict):
     # Save a copy of the config used
     config_copy_path = os.path.join(output_dir, "config_used.yaml")
     with open(config_copy_path, "w", encoding="utf-8") as f:
-        yaml.dump(cfg, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+        f.write(dump_yaml(cfg, include_runtime=False))
     print(f"  Saved to {output_dir}")
 
     # ── PCA ───────────────────────────────────────────────
@@ -953,12 +909,15 @@ def main():
         print(f"Error: Config file not found: {args.config}")
         sys.exit(1)
 
-    cfg = load_config(args.config)
+    app_config = load_yaml_config(args.config, require_required_sections=True)
+    app_config = apply_cli_overrides(
+        app_config,
+        input_file=args.input,
+        suffix=args.suffix,
+    )
+    cfg = app_config.to_dict(include_runtime=True)
     if args.input:
-        cfg["input"]["file"] = args.input
         print(f"Input overridden: {args.input}")
-    if args.suffix:
-        cfg["output"]["suffix"] = args.suffix
     print(f"Loaded config: {args.config}")
     run_analysis(cfg)
 

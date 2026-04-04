@@ -1,0 +1,144 @@
+"""Tests for shared CLI/GUI config normalization."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import yaml
+
+from core.app_config import (
+    apply_cli_overrides,
+    default_pipeline_params,
+    dump_yaml,
+    load_yaml_config,
+    normalize_config,
+)
+from scripts.run_from_config import load_config
+
+
+def test_normalize_config_merges_shared_defaults() -> None:
+    normalized = normalize_config(
+        {
+            "input": {"file": "demo.xlsx"},
+            "pipeline": {"impute_method": "knn"},
+            "groups": {},
+            "analysis": {"pca": {"Old_Statistics_PM": 3}},
+        }
+    )
+
+    assert normalized["pipeline"]["missing_thresh"] == 0.5
+    assert normalized["pipeline"]["impute_method"] == "knn"
+    assert normalized["groups"]["pair_id_pattern"] == r"BC\d+"
+    assert normalized["analysis"]["pca"]["n_components"] == 3
+    assert normalized["analysis"]["anova"]["p_thresh"] == 0.05
+    assert normalized["analysis"]["volcano"]["fc_thresh"] == 2.0
+    assert normalized["analysis"]["volcano"]["log2_fc_thresh"] == 1.0
+    assert normalized["output"]["auto_timestamp"] is True
+
+
+def test_load_yaml_config_allows_partial_gui_preset(tmp_path: Path) -> None:
+    path = tmp_path / "preset.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "pipeline": {
+                    "missing_thresh": 0.25,
+                    "qc_rsd_enabled": True,
+                },
+                "groups": {"include": ["Tumor", "Normal"]},
+                "output": {"suffix": "gui_preset"},
+            },
+            allow_unicode=True,
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_yaml_config(path, require_required_sections=False)
+
+    assert config.input["file"] is None
+    assert config.groups["include"] == ["Tumor", "Normal"]
+    assert config.analysis["pca"]["n_components"] == 5
+    assert config.output.suffix == "gui_preset"
+    assert config.spec_norm == {}
+    assert config.source_sections == frozenset({"pipeline", "groups", "output"})
+    assert config.to_pipeline_params()["qc_rsd_enabled"] is True
+
+
+def test_apply_cli_overrides_take_precedence() -> None:
+    config = load_yaml_config(
+        {
+            "input": {"file": "from-config.xlsx"},
+            "pipeline": {},
+            "groups": {},
+            "analysis": {},
+            "output": {"suffix": "baseline"},
+        }
+    )
+
+    overridden = apply_cli_overrides(
+        config,
+        input_file="from-cli.xlsx",
+        suffix="from-cli",
+    )
+
+    assert overridden.input["file"] == "from-cli.xlsx"
+    assert overridden.output.suffix == "from-cli"
+
+
+def test_default_pipeline_params_match_normalized_pipeline_defaults() -> None:
+    normalized = normalize_config(
+        {
+            "input": {"file": "demo.xlsx"},
+            "pipeline": {},
+            "groups": {},
+            "analysis": {},
+        }
+    )
+
+    assert default_pipeline_params() == normalized["pipeline"]
+
+
+def test_cli_load_config_uses_shared_normalization(tmp_path: Path) -> None:
+    path = tmp_path / "cli_config.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "input": {"file": "demo.xlsx"},
+                "pipeline": {"filter_method": "mad"},
+                "groups": {"volcano_pairs": [["Tumor", "Normal"]]},
+                "analysis": {"volcano": {"fc_thresh": 4}},
+            },
+            allow_unicode=True,
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_config(str(path))
+
+    assert loaded["pipeline"]["filter_method"] == "mad"
+    assert loaded["analysis"]["volcano"]["log2_fc_thresh"] == 2.0
+    assert loaded["output"]["auto_timestamp"] is True
+    assert loaded["groups"]["pair_id_pattern"] == r"BC\d+"
+
+
+def test_dump_and_reload_round_trip_keeps_normalized_state() -> None:
+    config = load_yaml_config(
+        {
+            "input": {"file": "demo.xlsx"},
+            "pipeline": {
+                "missing_thresh": 0.4,
+                "filter_method": "mad",
+                "qc_rsd_enabled": True,
+            },
+            "groups": {"include": ["Tumor", "Normal"]},
+            "analysis": {"volcano": {"fc_thresh": 4}},
+            "output": {"suffix": "roundtrip"},
+        }
+    )
+
+    dumped = dump_yaml(config, include_runtime=False)
+    reloaded = load_yaml_config(yaml.safe_load(dumped))
+
+    assert reloaded.to_dict(include_runtime=False) == config.to_dict(include_runtime=False)
