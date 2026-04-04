@@ -92,6 +92,7 @@ def filter_by_qc_rsd(
     qc_mask: np.ndarray,
     rsd_threshold: float = 0.25,
     exempt_columns: pd.Series | np.ndarray | list[str] | None = None,
+    ddof: int = 0,
     return_stats: bool = False,
 ) -> pd.DataFrame | tuple[pd.DataFrame, pd.DataFrame]:
     """
@@ -105,7 +106,9 @@ def filter_by_qc_rsd(
             f"but only {len(qc_data)} found."
         )
     means = qc_data.mean().replace(0, np.nan)
-    rsd = qc_data.std() / means
+    # Use population std so the threshold matches upstream QC_CV% columns exported
+    # from the workbook and boundary cases do not flip unexpectedly.
+    rsd = qc_data.std(ddof=ddof) / means
     exempt_mask = pd.Series(False, index=df.columns)
     if exempt_columns is not None:
         if isinstance(exempt_columns, pd.Series):

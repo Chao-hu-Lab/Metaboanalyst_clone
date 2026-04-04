@@ -166,6 +166,7 @@ class MetaboAnalystPipeline:
                 zero_detect_mask = qc_stats["qc_detect_ratio"].fillna(0).eq(0)
                 qc_stats.loc[zero_detect_mask, "qc_rsd"] = pd.NA
                 feature_metadata = feature_metadata.join(qc_stats, how="left")
+                self.step_feature_metadata["qc_rsd"] = feature_metadata.copy()
                 feature_metadata = feature_metadata.reindex(df.columns)
                 labels = labels.loc[~qc_mask].copy()
                 self.log.append(
@@ -182,6 +183,7 @@ class MetaboAnalystPipeline:
                 feature_metadata["qc_rsd_pass"] = False
                 feature_metadata["qc_rsd_exempted"] = marker_mask.reindex(df.columns).fillna(False)
                 feature_metadata["kept_after_qc_rsd"] = True
+                self.step_feature_metadata["qc_rsd"] = feature_metadata.copy()
                 self.log.append("Step 3a: QC-RSD enabled but no QC samples detected")
         else:
             feature_metadata["qc_rsd"] = pd.NA
@@ -190,6 +192,7 @@ class MetaboAnalystPipeline:
             feature_metadata["qc_rsd_pass"] = False
             feature_metadata["qc_rsd_exempted"] = False
             feature_metadata["kept_after_qc_rsd"] = True
+            self.step_feature_metadata["qc_rsd"] = feature_metadata.copy()
 
         # Step 3b: variable filtering
         if filter_method in (None, "None"):

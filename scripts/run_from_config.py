@@ -616,6 +616,12 @@ def run_analysis(cfg: dict):
         os.path.join(output_dir, "feature_metadata.csv"),
         index_label="Feature",
     )
+    qc_rsd_audit = pipeline.step_feature_metadata.get("qc_rsd")
+    if qc_rsd_audit is not None and not qc_rsd_audit.empty:
+        qc_rsd_audit.to_csv(
+            os.path.join(output_dir, "qc_rsd_audit.csv"),
+            index_label="Feature",
+        )
 
     # Save a copy of the config used
     config_copy_path = os.path.join(output_dir, "config_used.yaml")

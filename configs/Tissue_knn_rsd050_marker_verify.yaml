@@ -1,0 +1,58 @@
+input:
+  file: ""
+  format: "plain"
+
+groups:
+  include: ["Tumor", "Normal", "Benignfat"]
+  pair_id_pattern: "BC\\d+"
+  volcano_pairs:
+    - groups: ["Tumor", "Normal"]
+      paired: true
+    - groups: ["Tumor", "Benignfat"]
+      paired: false
+    - groups: ["Normal", "Benignfat"]
+      paired: false
+  oplsda_pairs:
+    - groups: ["Tumor", "Normal"]
+      paired: true
+    - groups: ["Tumor", "Benignfat"]
+      paired: false
+    - groups: ["Normal", "Benignfat"]
+      paired: false
+
+pipeline:
+  missing_thresh: 1.0
+  impute_method: "knn"
+  qc_rsd_enabled: true
+  qc_rsd_threshold: 0.50
+  filter_method: "None"
+  filter_cutoff: 0
+  row_norm: "None"
+  transform: "Log10Norm"
+  scaling: "ParetoNorm"
+
+analysis:
+  pca:
+    n_components: 3
+  plsda:
+    n_components: 2
+    top_vip: 15
+  anova:
+    p_thresh: 0.05
+    nonpar: false
+    use_fdr: true
+    posthoc: true
+  volcano:
+    log2_fc_thresh: 1.0
+    p_thresh: 0.05
+    use_fdr: true
+  heatmap:
+    max_features: 50
+    top_by: "var"
+    method: "ward"
+    metric: "euclidean"
+    scale: "row"
+
+output:
+  suffix: "_tissue_knn_rsd050_marker_verify"
+  auto_timestamp: true

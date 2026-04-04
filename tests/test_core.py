@@ -234,6 +234,33 @@ class TestFiltering:
         assert bool(stats.loc["F_marker", "qc_rsd_exempted"]) is True
         assert pd.isna(stats.loc["F_marker", "qc_rsd"])
 
+    def test_filter_qc_rsd_matches_population_qc_cv_boundary(self):
+        from core.filtering import filter_by_qc_rsd
+
+        df = pd.DataFrame(
+            {
+                "F_boundary": [
+                    720679.9877340215,
+                    74499149.40340534,
+                    42048672.26438606,
+                    67314448.69160342,
+                    35049137.23416223,
+                    40906353.69822981,
+                    57104871.31959073,
+                    1.0,
+                    2.0,
+                ],
+            },
+            index=["QC_1", "QC_2", "QC_3", "QC_4", "QC_5", "QC_6", "QC_7", "S1", "S2"],
+        )
+        qc_mask = np.array([True, True, True, True, True, True, True, False, False])
+
+        result, stats = filter_by_qc_rsd(df, qc_mask, rsd_threshold=0.5, return_stats=True)
+
+        assert "F_boundary" in result.columns
+        assert stats.loc["F_boundary", "qc_rsd"] == pytest.approx(0.4996763353582288)
+        assert bool(stats.loc["F_boundary", "qc_rsd_pass"]) is True
+
 
 # ═══════════════════════════════════════
 # 3. Normalization 模組
@@ -539,6 +566,8 @@ class TestPipeline:
         assert pipe.processed_labels is not None
         assert len(pipe.processed_labels) == 4
         assert not pipe.processed_labels.astype(str).str.contains("qc", case=False).any()
+        assert "qc_rsd" in pipe.step_feature_metadata
+        assert bool(pipe.step_feature_metadata["qc_rsd"].loc["F_drop", "kept_after_qc_rsd"]) is False
         assert any("Step 3a: QC-RSD filtering" in line for line in pipe.log)
 
     def test_pipeline_marker_aware_imputation_and_qc_rsd_exemption(self):
