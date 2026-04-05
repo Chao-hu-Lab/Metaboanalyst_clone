@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from PySide6.QtWidgets import QPushButton
 
 from gui.widgets.mpl_canvas import MatplotlibCanvas
 from gui.widgets.plot_toolbar import PlotToolbar
 from visualization.theme_manager import ThemeManager
+
+pytestmark = pytest.mark.gui
 
 
 def _seed_plot(mpl_widget):

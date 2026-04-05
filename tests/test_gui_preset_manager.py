@@ -6,10 +6,13 @@ from pathlib import Path
 from typing import Iterable
 
 import pandas as pd
+import pytest
 import yaml
 
 from core.app_config import load_yaml_config
 from gui.main_window import MainWindow
+
+pytestmark = [pytest.mark.gui, pytest.mark.integration]
 
 
 def _sample_matrix() -> pd.DataFrame:

@@ -12,6 +12,8 @@ from PySide6.QtWidgets import QPushButton, QScrollArea
 from core.app_config import load_yaml_config
 from gui.main_window import MainWindow
 
+pytestmark = [pytest.mark.gui, pytest.mark.integration]
+
 
 def test_main_window_initialization(qapp):
     window = MainWindow()
@@ -284,6 +286,7 @@ def test_phase6_high_risk_tabs_wrap_content_in_scroll_areas(qapp):
         ),
     ],
 )
+@pytest.mark.slow
 def test_phase7_preset_bar_smoke_matrix(
     case_name: str,
     locale: str,
@@ -334,6 +337,7 @@ def test_phase7_preset_bar_smoke_matrix(
         window.close()
 
 
+@pytest.mark.slow
 def test_phase7_scroll_areas_reach_critical_controls(gui_artifact_recorder, qapp):
     window = MainWindow()
     gui_artifact_recorder.watch(window, "scroll_matrix_window")
@@ -376,6 +380,7 @@ def test_phase7_scroll_areas_reach_critical_controls(gui_artifact_recorder, qapp
         window.close()
 
 
+@pytest.mark.slow
 def test_phase7_preset_apply_keeps_norm_controls_visible_after_data_mapping(
     gui_artifact_recorder,
     qapp,

@@ -90,7 +90,7 @@ class GuiArtifactRecorder:
 
 
 @pytest.fixture(scope="session")
-def tmp_path_factory() -> RepoTmpPathFactory:
+def repo_tmp_path_factory() -> RepoTmpPathFactory:
     """Provide repo-local tmp dirs on Windows without relying on pytest internals."""
     session_name = datetime.now().strftime("session_%Y%m%d_%H%M%S")
     session_dir = _TMP_FIXTURE_ROOT / f"{session_name}_{os.getpid()}"
@@ -99,11 +99,23 @@ def tmp_path_factory() -> RepoTmpPathFactory:
 
 
 @pytest.fixture
-def tmp_path(
-    request: pytest.FixtureRequest, tmp_path_factory: RepoTmpPathFactory
+def repo_tmp_path(
+    request: pytest.FixtureRequest, repo_tmp_path_factory: RepoTmpPathFactory
 ) -> Path:
     """Return a unique repo-local temp directory for each test."""
-    return tmp_path_factory.mktemp(request.node.name)
+    return repo_tmp_path_factory.mktemp(request.node.name)
+
+
+@pytest.fixture(scope="session")
+def tmp_path_factory(repo_tmp_path_factory: RepoTmpPathFactory) -> RepoTmpPathFactory:
+    """Backward-compatible alias for tests that still request tmp_path_factory."""
+    return repo_tmp_path_factory
+
+
+@pytest.fixture
+def tmp_path(repo_tmp_path: Path) -> Path:
+    """Backward-compatible alias for tests that still request tmp_path."""
+    return repo_tmp_path
 
 
 @pytest.fixture(scope="session")

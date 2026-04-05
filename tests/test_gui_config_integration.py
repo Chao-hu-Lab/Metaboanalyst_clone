@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import pytest
+
 from core.app_config import default_pipeline_params, load_yaml_config
 from gui.main_window import MainWindow
+
+pytestmark = [pytest.mark.gui, pytest.mark.integration]
 
 
 def test_main_window_uses_shared_default_pipeline_params(qapp) -> None:

@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import pytest
+
 from core.app_config import load_yaml_config
 from gui.main_window import MainWindow
+
+pytestmark = [pytest.mark.gui, pytest.mark.integration]
 
 
 def _set_combo_to_data(combo, value: object) -> None:

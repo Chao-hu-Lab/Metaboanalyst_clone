@@ -7,6 +7,9 @@ __pycache__/
 # Test/cache artifacts
 .pytest_cache/
 .mypy_cache/
+.uv-cache/
+pytest-cache-files-*/
+.pytest_cache_local/
 
 # Virtual environments
 .venv/

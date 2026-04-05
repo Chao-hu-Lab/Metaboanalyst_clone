@@ -5,11 +5,14 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from core.feature_metadata import FEATURE_MARKER_COLUMN
 from core.pipeline import MetaboAnalystPipeline
 from gui.main_window import MainWindow
 from scripts.run_from_config import load_data
+
+pytestmark = [pytest.mark.gui, pytest.mark.integration]
 
 
 def _make_column_oriented_raw_df() -> pd.DataFrame:
