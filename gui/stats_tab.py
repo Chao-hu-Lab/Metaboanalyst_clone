@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QComboBox, QTextEdit, QSpinBox, QDoubleSpinBox,
     QCheckBox, QTabWidget, QTableWidget,
     QTableWidgetItem, QHeaderView, QMessageBox, QSplitter,
-    QFileDialog,
+    QFileDialog, QScrollArea, QFrame,
 )
 from PySide6.QtCore import Qt, QThreadPool
 
@@ -55,18 +55,43 @@ class StatsTab(QWidget):
                     widget.deleteLater()
 
         self.sub_tabs = QTabWidget()
-        self.sub_tabs.addTab(self._build_pca_panel(), self.tr("PCA"))
-        self.sub_tabs.addTab(self._build_pca3d_panel(), self.tr("3D PCA"))
-        self.sub_tabs.addTab(self._build_plsda_panel(), self.tr("PLS-DA / VIP"))
-        self.sub_tabs.addTab(self._build_volcano_panel(), self.tr("Volcano (t-test + FC)"))
-        self.sub_tabs.addTab(self._build_anova_panel(), self.tr("ANOVA"))
-        self.sub_tabs.addTab(self._build_roc_panel(), self.tr("ROC"))
-        self.sub_tabs.addTab(self._build_corr_panel(), self.tr("Correlation"))
-        self.sub_tabs.addTab(self._build_rf_panel(), self.tr("Random Forest"))
-        self.sub_tabs.addTab(self._build_outlier_panel(), self.tr("Outlier"))
-        self.sub_tabs.addTab(self._build_oplsda_panel(), self.tr("OPLS-DA"))
-        self.sub_tabs.addTab(self._build_clustering_panel(), self.tr("Clustering"))
+        self.sub_tabs.addTab(self._wrap_subtab_panel(self._build_pca_panel()), self.tr("PCA"))
+        self.sub_tabs.addTab(self._wrap_subtab_panel(self._build_pca3d_panel()), self.tr("3D PCA"))
+        self.sub_tabs.addTab(self._wrap_subtab_panel(self._build_plsda_panel()), self.tr("PLS-DA / VIP"))
+        self.sub_tabs.addTab(
+            self._wrap_subtab_panel(self._build_volcano_panel()),
+            self.tr("Volcano (t-test + FC)"),
+        )
+        self.sub_tabs.addTab(self._wrap_subtab_panel(self._build_anova_panel()), self.tr("ANOVA"))
+        self.sub_tabs.addTab(self._wrap_subtab_panel(self._build_roc_panel()), self.tr("ROC"))
+        self.sub_tabs.addTab(
+            self._wrap_subtab_panel(self._build_corr_panel()),
+            self.tr("Correlation"),
+        )
+        self.sub_tabs.addTab(
+            self._wrap_subtab_panel(self._build_rf_panel()),
+            self.tr("Random Forest"),
+        )
+        self.sub_tabs.addTab(
+            self._wrap_subtab_panel(self._build_outlier_panel()),
+            self.tr("Outlier"),
+        )
+        self.sub_tabs.addTab(
+            self._wrap_subtab_panel(self._build_oplsda_panel()),
+            self.tr("OPLS-DA"),
+        )
+        self.sub_tabs.addTab(
+            self._wrap_subtab_panel(self._build_clustering_panel()),
+            self.tr("Clustering"),
+        )
         layout.addWidget(self.sub_tabs)
+
+    def _wrap_subtab_panel(self, panel: QWidget) -> QScrollArea:
+        scroll = QScrollArea(self)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(panel)
+        return scroll
 
     def retranslateUi(self):
         if not hasattr(self, "sub_tabs"):

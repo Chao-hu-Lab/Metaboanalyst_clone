@@ -9,11 +9,12 @@ from typing import Any, Callable, Mapping
 from PySide6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
+    QGridLayout,
     QGroupBox,
-    QHBoxLayout,
     QLabel,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -30,37 +31,57 @@ class MissingValueTab(QWidget):
         self._init_ui()
 
     def _init_ui(self):
-        layout = QVBoxLayout(self)
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.scroll_area = QScrollArea(self)
+        self.scroll_area.setWidgetResizable(True)
+        root_layout.addWidget(self.scroll_area)
+
+        content = QWidget()
+        self.scroll_area.setWidget(content)
+
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(12)
 
         self.info_group = QGroupBox(self.tr("Missing Value Summary"))
         info_layout = QVBoxLayout()
         self.info_label = QLabel(self.tr("Please import data first."))
+        self.info_label.setWordWrap(True)
         info_layout.addWidget(self.info_label)
         self.info_group.setLayout(info_layout)
         layout.addWidget(self.info_group)
 
         self.param_group = QGroupBox(self.tr("Parameters"))
-        param_layout = QHBoxLayout()
+        param_layout = QGridLayout()
+        param_layout.setHorizontalSpacing(12)
+        param_layout.setVerticalSpacing(8)
 
         self.thresh_label = QLabel(self.tr("Missing threshold:"))
-        param_layout.addWidget(self.thresh_label)
+        self.thresh_label.setWordWrap(True)
+        param_layout.addWidget(self.thresh_label, 0, 0)
         self.thresh_spin = QDoubleSpinBox()
         self.thresh_spin.setRange(0.1, 1.0)
         self.thresh_spin.setSingleStep(0.05)
         self.thresh_spin.setValue(0.5)
+        self.thresh_spin.setMinimumWidth(160)
         self.thresh_spin.setToolTip(self.tr("Remove features with missing ratio >= threshold"))
-        param_layout.addWidget(self.thresh_spin)
+        param_layout.addWidget(self.thresh_spin, 0, 1)
 
         self.impute_label = QLabel(self.tr("Imputation:"))
-        param_layout.addWidget(self.impute_label)
+        self.impute_label.setWordWrap(True)
+        param_layout.addWidget(self.impute_label, 1, 0)
         self.method_combo = QComboBox()
         for key, label in IMPUTE_METHODS.items():
             self.method_combo.addItem(label, key)
-        param_layout.addWidget(self.method_combo)
+        self.method_combo.setMinimumWidth(200)
+        param_layout.addWidget(self.method_combo, 1, 1)
 
         self.btn_run = QPushButton(self.tr("Apply Missing-Value Step"))
+        self.btn_run.setMinimumWidth(220)
         self.btn_run.clicked.connect(self._run)
-        param_layout.addWidget(self.btn_run)
+        param_layout.addWidget(self.btn_run, 2, 0, 1, 2)
 
         self.param_group.setLayout(param_layout)
         layout.addWidget(self.param_group)
@@ -73,6 +94,7 @@ class MissingValueTab(QWidget):
         log_layout.addWidget(self.log_text)
         self.log_group.setLayout(log_layout)
         layout.addWidget(self.log_group, stretch=1)
+        layout.addStretch()
 
     def retranslateUi(self):
         self.info_group.setTitle(self.tr("Missing Value Summary"))

@@ -1,10 +1,12 @@
-"""Integration tests for the Phase 2 visualization workspace."""
+"""Integration and layout smoke tests for the desktop GUI."""
 
 from __future__ import annotations
 
 from types import SimpleNamespace
 
 import pandas as pd
+from PySide6.QtCore import QPoint
+from PySide6.QtWidgets import QScrollArea
 
 from gui.main_window import MainWindow
 
@@ -25,6 +27,10 @@ def test_theme_combo_box_exists(qapp):
     assert "dark" in items
     assert "colorblind" in items
     window.close()
+
+
+def _widget_center_in_ancestor(widget, ancestor) -> QPoint:
+    return widget.mapTo(ancestor, widget.rect().center())
 
 
 def test_visual_tab_initialization(qapp):
@@ -60,6 +66,60 @@ def test_theme_change_updates_plot(qapp):
     assert visual_tab.theme_manager.current_theme == "dark"
     assert visual_tab.mpl_canvas.plot_toolbar.theme_value_label.text() == "Dark"
     window.close()
+
+
+def test_phase6_preset_bar_buttons_stay_inside_visible_bar(qapp):
+    window = MainWindow()
+    original_font = qapp.font()
+    larger_font = qapp.font()
+    larger_font.setPointSize(original_font.pointSize() + 1)
+    qapp.setFont(larger_font)
+    try:
+        window.resize(1024, 680)
+        window.show()
+        qapp.processEvents()
+
+        for button in (
+            window.preset_bar.load_button,
+            window.preset_bar.apply_button,
+            window.preset_bar.save_button,
+            window.preset_bar.reset_button,
+        ):
+            center = _widget_center_in_ancestor(button, window.preset_bar)
+            assert window.preset_bar.rect().contains(center), button.text()
+    finally:
+        qapp.setFont(original_font)
+        window.close()
+
+
+def test_phase6_norm_tab_action_buttons_keep_clickable_height(qapp):
+    window = MainWindow()
+    original_font = qapp.font()
+    larger_font = qapp.font()
+    larger_font.setPointSize(original_font.pointSize() + 1)
+    qapp.setFont(larger_font)
+    try:
+        window.resize(1024, 680)
+        window.show()
+        window._nav_list.setCurrentRow(3)
+        qapp.processEvents()
+
+        assert window.norm_tab.btn_run.height() >= window.norm_tab.btn_run.sizeHint().height() - 4
+        assert window.norm_tab.btn_reset.height() >= window.norm_tab.btn_reset.sizeHint().height() - 4
+    finally:
+        qapp.setFont(original_font)
+        window.close()
+
+
+def test_phase6_high_risk_tabs_wrap_content_in_scroll_areas(qapp):
+    window = MainWindow()
+    try:
+        for tab in (window.mv_tab, window.filter_tab, window.norm_tab, window.stats_tab):
+            scroll_areas = tab.findChildren(QScrollArea)
+            assert scroll_areas, type(tab).__name__
+            assert any(scroll.widgetResizable() for scroll in scroll_areas), type(tab).__name__
+    finally:
+        window.close()
 
 
 def test_reset_button_resets_parameters(qapp):

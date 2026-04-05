@@ -914,3 +914,65 @@ pipeline kwargs  GUI state  analysis recipe state
 `$env:UV_CACHE_DIR='.uv-cache'; uv run pytest tests\test_gui_state_binding.py -q`
 
 `$env:UV_CACHE_DIR='.uv-cache'; uv run pytest tests\test_gui_runtime_feature_metadata.py -q`
+
+---
+
+## 33. Phase 6 Implementation Status (2026-04-05)
+
+### Completed in this iteration
+
+- Hardened the highest-risk preprocessing tabs for tighter desktop sizes:
+  - `gui/missing_value_tab.py`
+  - `gui/filter_tab.py`
+  - `gui/norm_tab.py`
+- Wrapped those high-risk tabs in `QScrollArea` so controls and logs remain reachable when the window is shorter or fonts are larger
+- Replaced the most fragile single-row parameter strips in the preprocessing tabs with grid-based layouts
+- Added `wordWrap` to long status/info labels that are likely to expand under `zh_TW` or larger fonts
+- Added minimum widths to key combo boxes, spin boxes, and action buttons so primary controls keep a usable click target
+- Refined `gui/widgets/preset_bar.py` to use grid-based rows instead of long single-line button strips
+- Kept preset summary / ignored summary visible on dedicated rows so they are less likely to be pushed out by action buttons
+- Hardened `gui/stats_tab.py` without a full redesign by wrapping each analysis subtab panel in its own scroll container
+
+### Explicitly preserved
+
+- Phase 3 preset lifecycle semantics remain unchanged:
+  - `Built-in Preset`
+  - `Local Preset`
+  - `Modified`
+  - `Pending Data Mapping`
+- Phase 4 tab-level `read_state()` / `apply_state()` bindings still own config extraction and restore logic
+- Stats analysis internals were not restructured; Phase 6 only adds layout resilience around the existing panels
+
+### Tests added
+
+- `tests/test_gui_layout.py`
+  - preset bar action buttons stay within the visible preset bar under compact desktop sizing
+  - `NormTab` action buttons keep a clickable rendered height under a larger application font
+  - high-risk tabs expose scrollable containers so controls can remain reachable
+
+### Remaining after this iteration
+
+- [ ] Broader smoke / geometry coverage for preset-related and scroll-reachability states (Phase 7)
+
+---
+
+## 34. Milestone 6 Sign-off (Phase 6)
+
+- [x] High-risk preprocessing tabs no longer rely on fragile single-row layouts alone
+- [x] High-risk preprocessing tabs expose scrollable content for tighter desktop sizes
+- [x] `NormTab` primary action buttons remain clickable under a larger application font
+- [x] Preset bar summary / ignored sections remain on stable dedicated rows
+- [x] `StatsTab` subtab panels are scrollable without a large one-shot UI rewrite
+- [x] Focused Phase 6 GUI verification passed on 2026-04-05
+
+### Verification commands
+
+`$env:UV_CACHE_DIR='.uv-cache'; uv run pytest tests\test_gui_layout.py -q`
+
+`$env:UV_CACHE_DIR='.uv-cache'; uv run pytest tests\test_gui_preset_manager.py -q`
+
+`$env:UV_CACHE_DIR='.uv-cache'; uv run pytest tests\test_gui_state_binding.py -q`
+
+`$env:UV_CACHE_DIR='.uv-cache'; uv run pytest tests\test_gui_config_integration.py -q`
+
+`$env:UV_CACHE_DIR='.uv-cache'; uv run pytest tests\test_gui_runtime_feature_metadata.py -q`
