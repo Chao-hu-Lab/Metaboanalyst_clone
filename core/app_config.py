@@ -6,7 +6,7 @@ import copy
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Literal, Mapping
 
 import yaml
 
@@ -17,8 +17,111 @@ from core.param_specs import (
     build_section_defaults,
     pipeline_param_defaults,
 )
+from core.utils import get_app_data_dir, get_resource_path
 
 REQUIRED_TOP_LEVEL_SECTIONS: tuple[str, ...] = ("input", "pipeline", "groups", "analysis")
+PresetKind = Literal["builtin", "local"]
+
+
+@dataclass(frozen=True, slots=True)
+class PresetReference:
+    """Describe a preset source from the shared repository layer."""
+
+    preset_id: str
+    label: str
+    path: Path
+    kind: PresetKind
+    source_uri: str
+    description: str = ""
+
+
+def _builtin_preset_manifest_path(path: str | Path | None = None) -> Path:
+    if path is not None:
+        return Path(path)
+    return get_resource_path("resources/presets/manifest.yaml")
+
+
+def get_local_preset_dir(base_dir: str | Path | None = None) -> Path:
+    """Return the user-local preset directory, creating it if needed."""
+    if base_dir is not None:
+        preset_dir = Path(base_dir)
+    else:
+        try:
+            root_dir = get_app_data_dir()
+        except OSError:
+            root_dir = get_resource_path("build/local_app_data")
+        preset_dir = root_dir / "presets"
+    preset_dir.mkdir(parents=True, exist_ok=True)
+    return preset_dir
+
+
+def list_builtin_presets(manifest_path: str | Path | None = None) -> list[PresetReference]:
+    """Return built-in presets from the explicit manifest whitelist."""
+    resolved_manifest = _builtin_preset_manifest_path(manifest_path)
+    with resolved_manifest.open("r", encoding="utf-8") as handle:
+        manifest = yaml.safe_load(handle) or {}
+    if not isinstance(manifest, Mapping):
+        raise ValueError("Built-in preset manifest must contain a mapping.")
+
+    entries = manifest.get("presets", [])
+    if not isinstance(entries, list):
+        raise ValueError("Built-in preset manifest 'presets' must be a list.")
+
+    presets: list[PresetReference] = []
+    for entry in entries:
+        if not isinstance(entry, Mapping):
+            raise ValueError("Built-in preset entries must be mappings.")
+        preset_id = str(entry["id"])
+        label = str(entry.get("label", preset_id))
+        relative_file = str(entry["file"])
+        description = str(entry.get("description", ""))
+        preset_path = resolved_manifest.parent / relative_file
+        if not preset_path.is_file():
+            raise ValueError(f"Built-in preset file not found: {preset_path}")
+        presets.append(
+            PresetReference(
+                preset_id=preset_id,
+                label=label,
+                path=preset_path,
+                kind="builtin",
+                source_uri=f"builtin://{preset_id}",
+                description=description,
+            )
+        )
+    return presets
+
+
+def list_local_presets(base_dir: str | Path | None = None) -> list[PresetReference]:
+    """Return presets stored in the user-local preset directory."""
+    preset_dir = get_local_preset_dir(base_dir)
+    presets: list[PresetReference] = []
+    for preset_path in sorted(
+        list(preset_dir.glob("*.yaml")) + list(preset_dir.glob("*.yml")),
+        key=lambda path: path.name.lower(),
+    ):
+        presets.append(
+            PresetReference(
+                preset_id=preset_path.stem,
+                label=preset_path.stem,
+                path=preset_path,
+                kind="local",
+                source_uri=str(preset_path),
+                description="",
+            )
+        )
+    return presets
+
+
+def load_preset_reference(
+    reference: PresetReference,
+    *,
+    require_required_sections: bool = False,
+) -> "AppConfig":
+    """Load a preset reference into the shared AppConfig structure."""
+    return load_yaml_config(
+        reference.path,
+        require_required_sections=require_required_sections,
+    )
 
 
 def _coerce_mapping(section_name: str, value: Any) -> dict[str, Any]:

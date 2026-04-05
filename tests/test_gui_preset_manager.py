@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Iterable
 
 import pandas as pd
+import yaml
 
 from core.app_config import load_yaml_config
 from gui.main_window import MainWindow
@@ -31,6 +33,18 @@ def _sample_info() -> pd.DataFrame:
             "NormalizationFactor": [1.1, 0.9],
         }
     )
+
+
+def _flatten_menu_texts(actions: Iterable) -> list[str]:
+    texts: list[str] = []
+    for action in actions:
+        text = action.text()
+        if text:
+            texts.append(text)
+        menu = action.menu()
+        if menu is not None:
+            texts.extend(_flatten_menu_texts(menu.actions()))
+    return texts
 
 
 def test_main_window_load_preset_marks_pending_until_data_mapping_resolves(qapp) -> None:
@@ -172,5 +186,48 @@ def test_main_window_save_preset_to_path_round_trips_current_gui_state(
     assert reloaded.groups["include"] == ["Tumor", "Normal"]
     assert window.preset_bar.state_value_label.text() == "Local Preset"
     assert window.preset_bar.source_value_label.text().endswith("saved_preset.yaml")
+
+    window.close()
+
+
+def test_main_window_load_menu_lists_whitelisted_builtin_and_local_presets_only(
+    tmp_path: Path,
+    monkeypatch,
+    qapp,
+) -> None:
+    app_data_dir = tmp_path / "appdata"
+    local_preset_dir = app_data_dir / "presets"
+    local_preset_dir.mkdir(parents=True)
+    local_preset_path = local_preset_dir / "team-default.yaml"
+    local_preset_path.write_text(
+        yaml.safe_dump({"pipeline": {"missing_thresh": 0.45}}, sort_keys=False),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("core.app_config.get_app_data_dir", lambda: app_data_dir)
+
+    window = MainWindow()
+
+    menu_texts = _flatten_menu_texts(window._preset_load_menu.actions())
+
+    assert "Tissue KNN RSD 50% Marker Verify" in menu_texts
+    assert "team-default" in menu_texts
+    assert "tradition_default_mzmine" not in menu_texts
+
+    window.close()
+
+
+def test_main_window_loading_builtin_preset_marks_builtin_state(qapp) -> None:
+    window = MainWindow()
+    preset = next(
+        preset
+        for preset in window._builtin_preset_refs
+        if preset.preset_id == "tissue_knn_rsd050_marker_verify"
+    )
+
+    window._load_preset_reference(preset)
+
+    assert window.preset_bar.state_value_label.text() == "Built-in Preset"
+    assert window.preset_bar.source_value_label.text() == "builtin://tissue_knn_rsd050_marker_verify"
+    assert window.mv_tab.method_combo.currentData() == "knn"
 
     window.close()

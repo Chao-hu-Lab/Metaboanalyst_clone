@@ -1,0 +1,55 @@
+input:
+  file: ""
+  format: sample_type_row
+
+groups:
+  include:
+    - Exposure
+    - Control
+  volcano_pairs:
+    - groups:
+        - Exposure
+        - Control
+      paired: false
+  oplsda_pairs:
+    - groups:
+        - Exposure
+        - Control
+      paired: false
+
+pipeline:
+  missing_thresh: 1.0
+  impute_method: knn
+  qc_rsd_enabled: true
+  qc_rsd_threshold: 0.5
+  filter_method: None
+  filter_cutoff: 0
+  row_norm: None
+  transform: Log10Norm
+  scaling: ParetoNorm
+
+analysis:
+  pca:
+    n_components: 3
+  plsda:
+    n_components: 2
+    top_vip: 15
+  anova:
+    p_thresh: 0.05
+    nonpar: false
+    use_fdr: true
+    posthoc: true
+  volcano:
+    log2_fc_thresh: 2.0
+    p_thresh: 0.05
+    use_fdr: true
+  heatmap:
+    max_features: 50
+    top_by: var
+    method: ward
+    metric: euclidean
+    scale: row
+
+output:
+  suffix: _knn_rsd050
+  auto_timestamp: true

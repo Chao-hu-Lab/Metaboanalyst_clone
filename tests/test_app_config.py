@@ -7,9 +7,13 @@ from pathlib import Path
 import yaml
 
 from core.app_config import (
+    PresetReference,
     apply_cli_overrides,
     default_pipeline_params,
     dump_yaml,
+    list_builtin_presets,
+    list_local_presets,
+    load_preset_reference,
     load_yaml_config,
     normalize_config,
 )
@@ -142,3 +146,55 @@ def test_dump_and_reload_round_trip_keeps_normalized_state() -> None:
     reloaded = load_yaml_config(yaml.safe_load(dumped))
 
     assert reloaded.to_dict(include_runtime=False) == config.to_dict(include_runtime=False)
+
+
+def test_list_builtin_presets_reads_manifest_only() -> None:
+    presets = list_builtin_presets()
+
+    preset_ids = {preset.preset_id for preset in presets}
+
+    assert "tissue_knn_rsd050_marker_verify" in preset_ids
+    assert "tradition_default_mzmine" not in preset_ids
+    assert all(preset.kind == "builtin" for preset in presets)
+    assert all("resources\\presets" in str(preset.path) for preset in presets)
+    assert all("configs\\" not in str(preset.path) for preset in presets)
+
+
+def test_list_local_presets_scans_only_local_repository(tmp_path: Path) -> None:
+    preset_dir = tmp_path / "presets"
+    preset_dir.mkdir(parents=True)
+    local_path = preset_dir / "alpha.yaml"
+    local_path.write_text(
+        yaml.safe_dump({"pipeline": {"missing_thresh": 0.33}}, sort_keys=False),
+        encoding="utf-8",
+    )
+    (tmp_path / "outside.yaml").write_text(
+        yaml.safe_dump({"pipeline": {"missing_thresh": 0.80}}, sort_keys=False),
+        encoding="utf-8",
+    )
+
+    presets = list_local_presets(preset_dir)
+
+    assert presets == [
+        PresetReference(
+            preset_id="alpha",
+            label="alpha",
+            path=local_path,
+            kind="local",
+            source_uri=str(local_path),
+            description="",
+        )
+    ]
+
+
+def test_load_preset_reference_loads_builtin_seed_preset() -> None:
+    preset = next(
+        preset
+        for preset in list_builtin_presets()
+        if preset.preset_id == "tissue_knn_rsd050_marker_verify"
+    )
+
+    config = load_preset_reference(preset)
+
+    assert config.pipeline.impute_method == "knn"
+    assert config.output.suffix == "_tissue_knn_rsd050_marker_verify"

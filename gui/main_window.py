@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPlainTextEdit,
     QProgressBar,
@@ -48,7 +49,17 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from core.app_config import AppConfig, default_pipeline_params, dump_yaml, load_yaml_config
+from core.app_config import (
+    AppConfig,
+    PresetReference,
+    default_pipeline_params,
+    dump_yaml,
+    get_local_preset_dir,
+    list_builtin_presets,
+    list_local_presets,
+    load_preset_reference,
+    load_yaml_config,
+)
 from core.param_specs import build_default_config
 from core.pipeline import MetaboAnalystPipeline
 from core.utils import get_resource_path
@@ -154,6 +165,9 @@ class MainWindow(QMainWindow):
         self._active_preset_kind: str | None = None
         self._last_preset_apply_sections: list[str] = []
         self._last_preset_unsupported_paths: list[str] = []
+        self._builtin_preset_refs: list[PresetReference] = []
+        self._local_preset_refs: list[PresetReference] = []
+        self._preset_load_menu: QMenu | None = None
 
         # Workflow stage:
         # 0: no data, 1: import done, 2: missing done, 3: filter done, 4: norm done
@@ -178,6 +192,7 @@ class MainWindow(QMainWindow):
         self.theme_manager = ThemeManager(default_theme=visual_theme)
 
         self._setup_ui()
+        self._reload_preset_repository()
         self._connect_preset_watchers()
         self._create_menu_bar()
         self._create_main_toolbar()
@@ -461,7 +476,6 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage(self.tr("Ready"))
 
     def _connect_preset_watchers(self) -> None:
-        self.preset_bar.load_button.clicked.connect(self._load_config_yaml)
         self.preset_bar.apply_button.clicked.connect(self._apply_current_preset)
         self.preset_bar.save_button.clicked.connect(self._save_preset_yaml)
         self.preset_bar.reset_button.clicked.connect(self._reset_preset_to_defaults)
@@ -474,6 +488,54 @@ class MainWindow(QMainWindow):
         ):
             if hasattr(tab, "connect_state_changed"):
                 tab.connect_state_changed(self._on_preset_controls_changed)
+
+    def _reload_preset_repository(self) -> None:
+        self._builtin_preset_refs = list_builtin_presets()
+        self._local_preset_refs = list_local_presets()
+        self._rebuild_preset_load_menu()
+
+    def _populate_preset_submenu(
+        self,
+        menu: QMenu,
+        presets: list[PresetReference],
+    ) -> None:
+        if not presets:
+            empty_action = menu.addAction(self.tr("None"))
+            empty_action.setEnabled(False)
+            return
+
+        for preset in presets:
+            action = menu.addAction(preset.label)
+            if preset.description:
+                action.setToolTip(preset.description)
+                action.setStatusTip(preset.description)
+            action.triggered.connect(
+                lambda _checked=False, preset_ref=preset: self._load_preset_reference(preset_ref)
+            )
+
+    def _rebuild_preset_load_menu(self) -> None:
+        menu = QMenu(self)
+        built_in_menu = menu.addMenu(self.tr("Built-in Presets"))
+        self._populate_preset_submenu(built_in_menu, self._builtin_preset_refs)
+
+        local_menu = menu.addMenu(self.tr("Local Presets"))
+        self._populate_preset_submenu(local_menu, self._local_preset_refs)
+
+        menu.addSeparator()
+        browse_action = menu.addAction(self.tr("Browse YAML..."))
+        browse_action.triggered.connect(self._load_config_yaml)
+
+        self._preset_load_menu = menu
+        self.preset_bar.load_button.setMenu(menu)
+
+    def _load_preset_reference(self, reference: PresetReference) -> list[str]:
+        try:
+            config = load_preset_reference(reference, require_required_sections=False)
+        except Exception as exc:
+            QMessageBox.warning(self, self.tr("Load Error"), str(exc))
+            return []
+        display_path = reference.source_uri if reference.kind == "builtin" else str(reference.path)
+        return self._load_preset_config(config, display_path)
 
     @contextmanager
     def _suspend_preset_tracking(self):
@@ -688,6 +750,7 @@ class MainWindow(QMainWindow):
         self._retranslate_tabs()
         self._retranslate_menus()
         self._retranslate_pipeline_nav()
+        self._rebuild_preset_load_menu()
         self.preset_bar.retranslateUi()
         self._log_dock.setWindowTitle(self.tr("Processing Log"))
         self.status_bar.showMessage(self.tr("Ready"))
@@ -950,8 +1013,10 @@ class MainWindow(QMainWindow):
     def _save_preset_to_path(self, path: str | Path) -> AppConfig:
         config = self._build_current_gui_preset_config()
         target_path = Path(path)
+        target_path.parent.mkdir(parents=True, exist_ok=True)
         target_path.write_text(dump_yaml(config, include_runtime=False), encoding="utf-8")
         saved_config = load_yaml_config(target_path, require_required_sections=False)
+        self._reload_preset_repository()
         self._active_preset_config = saved_config
         self._active_preset_path = str(target_path)
         self._active_preset_kind = self._infer_preset_kind(str(target_path))
@@ -976,10 +1041,11 @@ class MainWindow(QMainWindow):
         return saved_config
 
     def _save_preset_yaml(self, *_args):
+        local_preset_dir = get_local_preset_dir()
         path, _ = QFileDialog.getSaveFileName(
             self,
             self.tr("Save Preset (YAML)"),
-            "gui_preset.yaml",
+            str(local_preset_dir / "gui_preset.yaml"),
             "YAML Files (*.yaml *.yml);;All Files (*)",
         )
         if not path:

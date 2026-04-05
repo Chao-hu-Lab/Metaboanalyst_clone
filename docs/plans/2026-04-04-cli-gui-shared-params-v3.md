@@ -847,3 +847,70 @@ pipeline kwargs  GUI state  analysis recipe state
 ### Verification command
 
 `uv run pytest tests\test_gui_state_binding.py tests\test_gui_preset_manager.py tests\test_gui_config_integration.py tests\test_gui_runtime_feature_metadata.py tests\test_gui_layout.py::test_main_window_initialization tests\test_gui_layout.py::test_theme_combo_box_exists -q`
+
+---
+
+## 31. Phase 5 Implementation Status (2026-04-05)
+
+### Completed in this iteration
+
+- Added a shared preset repository layer in `core/app_config.py`:
+  - `PresetReference`
+  - `list_builtin_presets()`
+  - `list_local_presets()`
+  - `load_preset_reference()`
+  - `get_local_preset_dir()`
+- Added packaged built-in preset assets under `resources/presets/`
+- Added an explicit built-in preset manifest whitelist at `resources/presets/manifest.yaml`
+- Migrated the first productized built-in preset from `Tissue_knn_rsd050_marker_verify`
+- Added one additional built-in preset seed for a stable urine workflow
+- Refactored `MainWindow` preset loading to consume repository-backed `PresetReference` objects instead of inferring built-ins only from file paths
+- Added a dedicated preset load menu that separates:
+  - `Built-in Presets`
+  - `Local Presets`
+  - `Browse YAML...`
+- Updated `Save As Preset` to default to the user-local preset directory
+- Added a safe fallback local preset directory for restricted test environments so preset repository behavior remains testable when AppData is unavailable
+
+### Explicitly preserved
+
+- File menu `Load Config (YAML)` still supports arbitrary config browsing for non-repository workflows
+- `configs/` may still contain CLI or historical YAML files, but it is no longer treated as the GUI built-in preset source
+- Built-in preset lifecycle rendering still flows through the Phase 3 preset bar state machine (`Built-in Preset`, `Modified`, `Pending Data Mapping`, etc.)
+
+### Tests added
+
+- `tests/test_app_config.py`
+  - built-in preset manifest whitelist loading
+  - local preset repository scanning
+  - built-in preset reference loading
+- `tests/test_gui_preset_manager.py`
+  - GUI preset menu only lists built-in whitelist entries plus local repository entries
+  - loading a built-in preset renders `Built-in Preset` state in the preset bar
+
+### Remaining after this iteration
+
+- [ ] Layout / UX hardening for preset bar and tab controls under tighter desktop sizes (Phase 6)
+- [ ] Broader smoke / geometry coverage for preset-related UI states (Phase 7)
+
+---
+
+## 32. Milestone 5 Sign-off (Phase 5)
+
+- [x] Built-in preset repository migrated to `resources/presets/`
+- [x] GUI built-in preset list now reads an explicit whitelist manifest instead of treating `configs/` as the source of truth
+- [x] Local presets default to a user-local storage directory rather than the repository
+- [x] Built-in preset and local preset sources are clearly separated in GUI behavior
+- [x] Focused Phase 5 verification passed on 2026-04-05
+
+### Verification commands
+
+`$env:UV_CACHE_DIR='.uv-cache'; uv run pytest tests\test_app_config.py -q`
+
+`$env:UV_CACHE_DIR='.uv-cache'; uv run pytest tests\test_gui_preset_manager.py -q`
+
+`$env:UV_CACHE_DIR='.uv-cache'; uv run pytest tests\test_gui_config_integration.py -q`
+
+`$env:UV_CACHE_DIR='.uv-cache'; uv run pytest tests\test_gui_state_binding.py -q`
+
+`$env:UV_CACHE_DIR='.uv-cache'; uv run pytest tests\test_gui_runtime_feature_metadata.py -q`
