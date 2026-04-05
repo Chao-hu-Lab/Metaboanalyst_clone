@@ -976,3 +976,74 @@ pipeline kwargs  GUI state  analysis recipe state
 `$env:UV_CACHE_DIR='.uv-cache'; uv run pytest tests\test_gui_config_integration.py -q`
 
 `$env:UV_CACHE_DIR='.uv-cache'; uv run pytest tests\test_gui_runtime_feature_metadata.py -q`
+
+---
+
+## 35. Phase 7 Implementation Status (2026-04-06)
+
+### Completed in this iteration
+
+- Expanded `tests/test_gui_layout.py` from basic initialization smoke into a Phase 7 geometry / interaction matrix
+- Added matrix coverage across:
+  - language: `en`, `zh_TW`
+  - window sizes: `1024x680`, `1280x800`, `1366x768`
+  - application font: default and +1 step larger
+  - log dock: visible and hidden
+  - data state: unloaded and loaded
+  - preset state: none, pending mapping, built-in preset, resolved local preset
+- Added scroll-reachability assertions for key controls in:
+  - `MissingValueTab`
+  - `FilterTab`
+  - `NormTab`
+  - `StatsTab`
+- Added failure-only GUI screenshot artifact support in `tests/conftest.py` so failed smoke cases save widget screenshots under repo-local pytest temp directories
+- Added a focused Phase 7 smoke case for preset apply after data mapping resolution so `SpecNorm` factor controls and preset-bar summaries stay reachable
+- Used the new matrix to catch a real round-trip regression: `FilterTab` could not represent shared config value `pipeline.filter_method = "None"`
+- Fixed that regression in `gui/filter_tab.py` by exposing the `"None"` filter option in the combo box while preserving GUI default selection as `"iqr"`
+
+### Explicitly preserved
+
+- Phase 3 preset lifecycle semantics remain unchanged:
+  - `Unsaved`
+  - `Built-in Preset`
+  - `Local Preset`
+  - `Modified`
+  - `Pending Data Mapping`
+- Phase 4 tab-level state ownership still lives in each tab's `read_state()` / `apply_state()` methods
+- Phase 6 layout hardening remains the primary UI guardrail; Phase 7 adds broader regression coverage rather than redesigning the interface
+
+### Tests added
+
+- `tests/conftest.py`
+  - failure-only GUI screenshot artifact recorder for smoke tests
+- `tests/test_gui_layout.py`
+  - preset bar geometry / interaction matrix across locale, size, font, dock, data, and preset states
+  - scroll-reachability assertions for high-risk tabs
+  - preset apply after data mapping smoke coverage
+
+### Remaining after this iteration
+
+- [ ] Optional future enhancement: investigate the long runtime of `tests/test_gui_layout.py` as a separate test-speed task; this is not a correctness blocker for Phase 7
+
+---
+
+## 36. Milestone 7 Sign-off (Phase 7)
+
+- [x] `tests/test_gui_layout.py` now covers geometry / interaction smoke beyond initialization
+- [x] Preset-related UI states are exercised across locale, window-size, font, dock, data, and preset scenarios
+- [x] High-risk scroll containers are verified for control reachability instead of only existence
+- [x] GUI smoke failures now emit screenshot artifacts that map back to the failing test case
+- [x] Phase 7 smoke matrix caught and regression-locked a real GUI/shared-config mismatch (`pipeline.filter_method = "None"`)
+- [x] Focused and broad Phase 7 verification passed on 2026-04-06
+
+### Verification commands
+
+`$env:UV_CACHE_DIR='.uv-cache'; uv run pytest tests\test_gui_layout.py -k "phase7" -q`
+
+`$env:UV_CACHE_DIR='.uv-cache'; uv run pytest tests\test_gui_layout.py -vv`
+
+`$env:UV_CACHE_DIR='.uv-cache'; uv run pytest tests\test_gui_preset_manager.py -q`
+
+`$env:UV_CACHE_DIR='.uv-cache'; uv run pytest tests\test_gui_state_binding.py tests\test_gui_config_integration.py -q`
+
+`$env:UV_CACHE_DIR='.uv-cache'; uv run pytest tests\test_gui_runtime_feature_metadata.py -q`

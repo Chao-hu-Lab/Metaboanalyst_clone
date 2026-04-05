@@ -65,9 +65,10 @@ class FilterTab(QWidget):
         param_layout.addWidget(self.method_label, 0, 0)
         self.method_combo = QComboBox()
         for key, label in FILTER_METHODS.items():
-            if key == "None":
-                continue
             self.method_combo.addItem(label, key)
+        default_method_index = self.method_combo.findData("iqr")
+        if default_method_index >= 0:
+            self.method_combo.setCurrentIndex(default_method_index)
         self.method_combo.setMinimumWidth(200)
         param_layout.addWidget(self.method_combo, 0, 1)
 

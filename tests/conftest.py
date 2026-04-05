@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import DefaultDict
@@ -55,6 +56,39 @@ class RepoTmpPathFactory:
                 return path
 
 
+@dataclass(slots=True)
+class _GuiArtifactTarget:
+    widget: object
+    label: str
+
+
+class GuiArtifactRecorder:
+    """Capture widget screenshots when a GUI test fails."""
+
+    def __init__(self, artifact_dir: Path, test_name: str) -> None:
+        self._artifact_dir = artifact_dir
+        self._test_name = _sanitize_tmp_name(test_name)
+        self._targets: list[_GuiArtifactTarget] = []
+
+    def watch(self, widget: object, label: str) -> None:
+        """Register a widget to capture if the test fails."""
+        self._targets.append(_GuiArtifactTarget(widget=widget, label=label))
+
+    def save_failure_artifacts(self) -> list[Path]:
+        """Save screenshots for every registered widget."""
+        saved_paths: list[Path] = []
+        for target in self._targets:
+            if not hasattr(target.widget, "grab"):
+                continue
+            path = self._artifact_dir / (
+                f"{self._test_name}_{_sanitize_tmp_name(target.label)}.png"
+            )
+            pixmap = target.widget.grab()
+            if pixmap.save(str(path), "PNG"):
+                saved_paths.append(path)
+        return saved_paths
+
+
 @pytest.fixture(scope="session")
 def tmp_path_factory() -> RepoTmpPathFactory:
     """Provide repo-local tmp dirs on Windows without relying on pytest internals."""
@@ -79,3 +113,31 @@ def qapp() -> QApplication:
     if app is None:
         app = QApplication([])
     return app
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[object]):
+    """Expose per-phase test results to fixtures during teardown."""
+    outcome = yield
+    report = outcome.get_result()
+    setattr(item, f"rep_{report.when}", report)
+
+
+@pytest.fixture
+def gui_artifact_recorder(
+    request: pytest.FixtureRequest,
+    tmp_path: Path,
+) -> GuiArtifactRecorder:
+    """Record GUI widgets and save screenshots only when the test fails."""
+    recorder = GuiArtifactRecorder(tmp_path, request.node.name)
+    yield recorder
+
+    report = getattr(request.node, "rep_call", None)
+    if report is None or not report.failed:
+        return
+
+    saved_paths = recorder.save_failure_artifacts()
+    if saved_paths:
+        print("\nSaved GUI artifacts:")
+        for path in saved_paths:
+            print(f" - {path}")
