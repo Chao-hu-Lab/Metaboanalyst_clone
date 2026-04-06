@@ -33,6 +33,8 @@ def _make_sample_info_df() -> pd.DataFrame:
     return pd.DataFrame(
         {
             "Sample_Name": ["QC_1", "QC_2", "S1", "S2"],
+            "Sample_Type": ["QC", "QC", "A", "B"],
+            "Batch": ["B1;B2", "B1;B2", "B1", "B1"],
             "DNA_ng": [1.0, 1.0, 2.0, 4.0],
         }
     )
@@ -102,7 +104,9 @@ def test_gui_import_pipeline_retains_feature_metadata(qapp) -> None:
 def test_gui_runtime_matches_cli_for_marker_aware_qc_rsd(tmp_path: Path, qapp) -> None:
     raw_df = _make_column_oriented_raw_df()
     xlsx_path = tmp_path / "gui_cli_runtime.xlsx"
-    raw_df.to_excel(xlsx_path, index=False)
+    with pd.ExcelWriter(xlsx_path) as writer:
+        raw_df.to_excel(writer, sheet_name="Sheet1", index=False)
+        _make_sample_info_df().to_excel(writer, sheet_name="SampleInfo", index=False)
 
     cli_data, cli_labels, cli_feature_metadata = load_data(
         {

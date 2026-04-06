@@ -12,6 +12,7 @@ import os
 import sys
 import warnings
 from datetime import datetime
+from pathlib import Path
 
 # Ensure project root on path (scripts/ lives one level below project root)
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -26,6 +27,15 @@ from openpyxl.styles import PatternFill  # noqa: E402
 
 from core.app_config import apply_cli_overrides, dump_yaml, load_yaml_config  # noqa: E402
 from core.feature_metadata import FEATURE_MARKER_COLUMN, extract_feature_metadata  # noqa: E402
+from core.input_resolver import (  # noqa: E402
+    build_labels_from_sample_info,
+    detect_sample_type_row_key,
+    get_feature_id_column,
+    read_input_table,
+    require_sample_info_sheet,
+    validate_label_consistency,
+    validate_sample_info_alignment,
+)
 from core.pipeline import MetaboAnalystPipeline  # noqa: E402
 from core.sample_interface import identify_sample_columns  # noqa: E402
 from core.sample_info import read_sample_info_sheet, build_aligned_factors, extract_subject_ids  # noqa: E402
@@ -86,23 +96,17 @@ def assign_group_from_name(name: str) -> str:
     name_lower = name.lower()
     if "qc" in name_lower:
         return "QC"
-    if name.endswith("_RNA") or name.endswith("_DNAandRNA"):
-        return "__EXCLUDE__"
     if name_lower.startswith("tumor"):
         return "Tumor"
     if name_lower.startswith("normal"):
         return "Normal"
     if name_lower.startswith("benignfat"):
         return "Benignfat"
+    if name_lower.startswith("exposure"):
+        return "Exposure"
+    if name_lower.startswith("control"):
+        return "Control"
     return "__EXCLUDE__"
-
-
-def get_feature_id_column(raw: pd.DataFrame) -> str:
-    """Return the feature identifier column for spreadsheet-style inputs."""
-    for candidate in ("Mz/RT", "FeatureID"):
-        if candidate in raw.columns:
-            return candidate
-    return raw.columns[0]
 
 
 def _annotate_feature_table(
@@ -132,23 +136,42 @@ def load_data(cfg: dict) -> tuple[pd.DataFrame, pd.Series, pd.DataFrame]:
 
     print("=" * 60)
     print(f"Loading data from: {os.path.basename(input_file)}")
-    raw = pd.read_excel(input_file)
+    loaded_input = read_input_table(input_file)
+    raw = loaded_input.table
+    if loaded_input.sheet_name:
+        print(f"  Selected worksheet: {loaded_input.sheet_name}")
     feature_col = get_feature_id_column(raw)
     sample_columns = [col for col in identify_sample_columns(raw) if col != feature_col]
+    sample_info = require_sample_info_sheet(input_file) if Path(input_file).suffix.lower() in {".xlsx", ".xls"} else None
+    sample_type_key = detect_sample_type_row_key(raw, feature_column=feature_col)
 
-    if fmt == "sample_type_row":
+    if sample_type_key is not None:
         # Row 0 = Sample_Type labels; rows 1+ = feature values
-        sample_type_row = pd.Series(raw.iloc[0].values, index=raw.columns)
+        id_values = raw[feature_col].astype(str)
+        group_rows = raw[id_values == str(sample_type_key)]
+        if group_rows.empty:
+            raise ValueError("Sample_Type row could not be resolved from the selected worksheet.")
+        if len(group_rows) > 1:
+            raise ValueError("Sample_Type row must be unique in the selected worksheet.")
+        sample_type_row = group_rows.iloc[0]
         valid_sample_cols = [col for col in sample_columns if pd.notna(sample_type_row.get(col))]
-        feature_names = pd.Index(raw[feature_col].iloc[1:].astype(str), name="Feature")
+        feature_rows = raw[id_values != str(sample_type_key)].copy()
+        feature_names = pd.Index(feature_rows[feature_col].astype(str), name="Feature")
         sample_types = sample_type_row.loc[valid_sample_cols].values
         sample_names = np.array(valid_sample_cols)
 
-        data = raw.loc[1:, valid_sample_cols].values.T
+        data = feature_rows.loc[:, valid_sample_cols].values.T
         data = pd.DataFrame(data, columns=feature_names, index=sample_names)
         data = data.apply(pd.to_numeric, errors="coerce")
         labels = pd.Series(sample_types, index=sample_names, name="Group")
-        feature_metadata = extract_feature_metadata(raw.iloc[1:].reset_index(drop=True), feature_names)
+        if sample_info is not None:
+            labels = validate_label_consistency(
+                data.index,
+                labels,
+                sample_info,
+                observed_label_name="Worksheet Sample_Type",
+            )
+        feature_metadata = extract_feature_metadata(feature_rows.reset_index(drop=True), feature_names)
 
     elif fmt == "plain":
         # All rows are features; groups inferred from column names
@@ -159,7 +182,9 @@ def load_data(cfg: dict) -> tuple[pd.DataFrame, pd.Series, pd.DataFrame]:
         data = pd.DataFrame(data, columns=feature_names, index=sample_names)
         data = data.apply(pd.to_numeric, errors="coerce")
         feature_metadata = extract_feature_metadata(raw.reset_index(drop=True), feature_names)
-        if input_cfg.get("plain_label_mode") == "column_names":
+        if sample_info is not None:
+            labels = build_labels_from_sample_info(data.index, sample_info, label_name="Group")
+        elif input_cfg.get("plain_label_mode") == "column_names":
             labels = pd.Series(sample_names, index=sample_names, name="Group")
         else:
             labels = pd.Series(
@@ -176,6 +201,9 @@ def load_data(cfg: dict) -> tuple[pd.DataFrame, pd.Series, pd.DataFrame]:
             labels = labels.loc[~exclude_mask]
     else:
         raise ValueError(f"Unknown input format: '{fmt}'. Use 'sample_type_row' or 'plain'.")
+
+    if sample_info is not None:
+        validate_sample_info_alignment(data.index, sample_info)
 
     print(f"  Samples: {data.shape[0]}, Features: {data.shape[1]}")
     print(f"  Groups: {dict(labels.value_counts())}")
