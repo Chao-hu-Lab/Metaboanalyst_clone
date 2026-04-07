@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import yaml
 
 from core.app_config import (
@@ -37,6 +38,7 @@ def test_normalize_config_merges_shared_defaults() -> None:
     assert normalized["analysis"]["anova"]["p_thresh"] == 0.05
     assert normalized["analysis"]["volcano"]["fc_thresh"] == 2.0
     assert normalized["analysis"]["volcano"]["log2_fc_thresh"] == 1.0
+    assert normalized["analysis"]["volcano"]["parametric_test_default"] == "welch"
     assert normalized["output"]["auto_timestamp"] is True
 
 
@@ -148,6 +150,65 @@ def test_dump_and_reload_round_trip_keeps_normalized_state() -> None:
     assert reloaded.to_dict(include_runtime=False) == config.to_dict(include_runtime=False)
 
 
+def test_normalize_config_keeps_paired_resolution_contract() -> None:
+    normalized = normalize_config(
+        {
+            "input": {"file": "demo.xlsx"},
+            "pipeline": {},
+            "groups": {
+                "paired_resolution": {
+                    "scope": "paired_only",
+                    "on_duplicate": "prefer_override",
+                    "on_unresolved": "warn_keep_first",
+                    "overrides": {
+                        "Exposure": {
+                            "BC2286": "TumorBC2286_DNA",
+                        }
+                    },
+                }
+            },
+            "analysis": {},
+        }
+    )
+
+    assert normalized["groups"]["paired_resolution"]["scope"] == "paired_only"
+    assert normalized["groups"]["paired_resolution"]["on_duplicate"] == "prefer_override"
+    assert normalized["groups"]["paired_resolution"]["on_unresolved"] == "warn_keep_first"
+    assert normalized["groups"]["paired_resolution"]["overrides"]["Exposure"]["BC2286"] == "TumorBC2286_DNA"
+
+
+def test_load_yaml_config_rejects_invalid_volcano_parametric_default() -> None:
+    with pytest.raises(ValueError, match="analysis.volcano.parametric_test_default"):
+        load_yaml_config(
+            {
+                "input": {"file": "demo.xlsx"},
+                "pipeline": {},
+                "groups": {},
+                "analysis": {
+                    "volcano": {
+                        "parametric_test_default": "mystery-test",
+                    }
+                },
+            }
+        )
+
+
+def test_load_yaml_config_rejects_invalid_paired_resolution_policy() -> None:
+    with pytest.raises(ValueError, match="groups.paired_resolution.on_unresolved"):
+        load_yaml_config(
+            {
+                "input": {"file": "demo.xlsx"},
+                "pipeline": {},
+                "groups": {
+                    "paired_resolution": {
+                        "on_unresolved": "mystery-policy",
+                    }
+                },
+                "analysis": {},
+            }
+        )
+
+
 def test_list_builtin_presets_reads_manifest_only() -> None:
     presets = list_builtin_presets()
 
@@ -198,3 +259,5 @@ def test_load_preset_reference_loads_builtin_seed_preset() -> None:
 
     assert config.pipeline.impute_method == "knn"
     assert config.output.suffix == "_tissue_knn_rsd050_marker_verify"
+    assert config.analysis["volcano"]["parametric_test_default"] == "welch"
+    assert config.groups["paired_resolution"]["overrides"]["Exposure"]["BC2286"] == "TumorBC2286_DNA"

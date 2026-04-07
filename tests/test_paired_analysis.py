@@ -6,7 +6,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from core.sample_info import extract_subject_ids, align_paired_samples
+from core.sample_info import (
+    align_paired_samples,
+    align_paired_samples_with_meta,
+    extract_subject_ids,
+)
 from analysis.univariate import volcano_analysis
 
 
@@ -167,6 +171,93 @@ class TestAlignPairedSamples:
         # First occurrence of BC2286 in Exposure group
         assert df1.iloc[0]["f1"] == 1  # BC2286_DNA, not BC2286* DNA+RNA
 
+    def test_duplicate_subjects_can_use_override(self):
+        names = pd.Index([
+            "TumorBC2286_DNAandRNA",
+            "TumorBC2286_DNA",
+            "NormalBC2286_DNA",
+        ])
+        labels = pd.Series(["Exposure", "Exposure", "Normal"], index=names)
+        df = pd.DataFrame(
+            [[1, 2], [3, 4], [5, 6]], index=names, columns=["f1", "f2"]
+        )
+        pair_ids = extract_subject_ids(names)
+
+        df1, df2, matched, meta = align_paired_samples_with_meta(
+            df,
+            labels,
+            "Exposure",
+            "Normal",
+            pair_ids,
+            paired_resolution={
+                "on_duplicate": "prefer_override",
+                "on_unresolved": "warn_keep_first",
+                "overrides": {
+                    "Exposure": {
+                        "BC2286": "TumorBC2286_DNA",
+                    }
+                },
+            },
+        )
+
+        assert len(matched) == 1
+        assert df1.index.tolist() == ["TumorBC2286_DNA"]
+        assert df2.index.tolist() == ["NormalBC2286_DNA"]
+        assert meta["overrides_applied"][0]["selected_sample"] == "TumorBC2286_DNA"
+        assert meta["warnings"] == []
+
+    def test_duplicate_subjects_warn_keep_first_without_override(self):
+        names = pd.Index([
+            "TumorBC2286_DNAandRNA",
+            "TumorBC2286_DNA",
+            "NormalBC2286_DNA",
+        ])
+        labels = pd.Series(["Exposure", "Exposure", "Normal"], index=names)
+        df = pd.DataFrame(
+            [[1, 2], [3, 4], [5, 6]], index=names, columns=["f1", "f2"]
+        )
+        pair_ids = extract_subject_ids(names)
+
+        df1, _df2, _matched, meta = align_paired_samples_with_meta(
+            df,
+            labels,
+            "Exposure",
+            "Normal",
+            pair_ids,
+            paired_resolution={
+                "on_duplicate": "prefer_override",
+                "on_unresolved": "warn_keep_first",
+            },
+        )
+
+        assert df1.index.tolist() == ["TumorBC2286_DNAandRNA"]
+        assert len(meta["warnings"]) == 1
+
+    def test_duplicate_subjects_error_when_policy_requires_resolution(self):
+        names = pd.Index([
+            "TumorBC2286_DNAandRNA",
+            "TumorBC2286_DNA",
+            "NormalBC2286_DNA",
+        ])
+        labels = pd.Series(["Exposure", "Exposure", "Normal"], index=names)
+        df = pd.DataFrame(
+            [[1, 2], [3, 4], [5, 6]], index=names, columns=["f1", "f2"]
+        )
+        pair_ids = extract_subject_ids(names)
+
+        with pytest.raises(ValueError, match="Multiple paired candidates found"):
+            align_paired_samples_with_meta(
+                df,
+                labels,
+                "Exposure",
+                "Normal",
+                pair_ids,
+                paired_resolution={
+                    "on_duplicate": "prefer_override",
+                    "on_unresolved": "error",
+                },
+            )
+
 
 # ── volcano_analysis paired ──────────────────────────────
 
@@ -181,12 +272,15 @@ class TestVolcanoAnalysisPaired:
         )
         assert result.paired is True
         assert result.n_pairs == 10
+        assert result.test_key == "paired_t"
+        assert result.test_label == "Paired t-test"
 
     def test_unpaired_returns_correct_metadata(self):
         df, labels, _ = _make_paired_dataset()
         result = volcano_analysis(df, labels, "Exposure", "Control")
         assert result.paired is False
         assert result.n_pairs is None
+        assert result.test_key == "student"
 
     def test_paired_detects_strong_effect(self):
         df, labels, _ = _make_paired_dataset()
@@ -238,6 +332,56 @@ class TestVolcanoAnalysisPaired:
         )
         assert result.paired is True
         assert result.n_significant >= 1  # strong effect should be detected
+        assert result.test_key == "signed_rank"
+
+    def test_unpaired_welch_metadata(self):
+        df, labels, _ = _make_paired_dataset()
+        result = volcano_analysis(
+            df,
+            labels,
+            "Exposure",
+            "Control",
+            equal_var=False,
+        )
+        assert result.test_key == "welch"
+        assert result.test_label == "Welch's t"
+
+    def test_paired_resolution_metadata_survives_to_volcano_result(self):
+        names = pd.Index([
+            "TumorBC2286_DNAandRNA",
+            "TumorBC2286_DNA",
+            "NormalBC2286_DNA",
+        ])
+        labels = pd.Series(["Exposure", "Exposure", "Normal"], index=names)
+        df = pd.DataFrame(
+            [[10.0, 12.0], [11.0, 13.0], [8.0, 9.0]],
+            index=names,
+            columns=["f1", "f2"],
+        )
+        pair_ids = extract_subject_ids(names)
+
+        result = volcano_analysis(
+            df,
+            labels,
+            "Exposure",
+            "Normal",
+            paired=True,
+            pair_ids=pair_ids,
+            pair_resolution={
+                "on_duplicate": "prefer_override",
+                "on_unresolved": "warn_keep_first",
+                "overrides": {
+                    "Exposure": {
+                        "BC2286": "TumorBC2286_DNA",
+                    }
+                },
+            },
+        )
+
+        assert result.n_pairs == 1
+        assert result.resolution_strategy == "prefer_override"
+        assert result.resolution_overrides_applied[0]["selected_sample"] == "TumorBC2286_DNA"
+        assert result.resolution_warnings == []
 
     def test_fold_change_same_for_paired_and_unpaired(self):
         """FC uses group means regardless of pairing."""
@@ -304,3 +448,20 @@ class TestParsePairConfig:
             ("Exposure", "Normal", True),
             ("Exposure", "Control", False),
         ]
+
+
+class TestResolveVolcanoParametricEqualVar:
+    def test_student_default_returns_true(self):
+        from scripts.run_from_config import resolve_volcano_parametric_equal_var
+
+        assert resolve_volcano_parametric_equal_var({"parametric_test_default": "student"}) is True
+
+    def test_welch_default_returns_false(self):
+        from scripts.run_from_config import resolve_volcano_parametric_equal_var
+
+        assert resolve_volcano_parametric_equal_var({"parametric_test_default": "welch"}) is False
+
+    def test_missing_default_falls_back_to_welch(self):
+        from scripts.run_from_config import resolve_volcano_parametric_equal_var
+
+        assert resolve_volcano_parametric_equal_var({}) is False

@@ -232,5 +232,6 @@ def test_main_window_loading_builtin_preset_marks_builtin_state(qapp) -> None:
     assert window.preset_bar.state_value_label.text() == "Built-in Preset"
     assert window.preset_bar.source_value_label.text() == "builtin://tissue_knn_rsd050_marker_verify"
     assert window.mv_tab.method_combo.currentData() == "knn"
+    assert window.stats_tab.vol_test.currentData() == "welch"
 
     window.close()

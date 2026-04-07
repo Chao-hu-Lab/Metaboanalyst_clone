@@ -21,6 +21,43 @@ def test_feature_boxplot_displays_ttest_and_pvalue_for_two_groups():
     assert "T-test" in all_text
 
 
+def test_feature_boxplot_uses_kruskal_metadata_for_three_groups():
+    from visualization.anova_plot import plot_feature_boxplot
+
+    df = pd.DataFrame(
+        {
+            "FeatA": [10.0, 11.0, 12.0, 18.0, 19.0, 20.0, 28.0, 29.0, 30.0],
+        }
+    )
+    labels = pd.Series(["A"] * 3 + ["B"] * 3 + ["C"] * 3)
+
+    fig = plot_feature_boxplot(df, labels, "FeatA", annotation_method="kruskal")
+    all_text = "\n".join(t.get_text() for t in fig.texts)
+
+    assert "P =" in all_text
+    assert "Kruskal-Wallis" in all_text
+    assert "H =" in all_text
+    assert "ANOVA" not in all_text
+
+
+def test_feature_boxplot_uses_mannwhitney_metadata_for_two_groups():
+    from visualization.anova_plot import plot_feature_boxplot
+
+    df = pd.DataFrame(
+        {
+            "FeatA": [10.0, 10.5, 11.0, 15.0, 15.5, 16.0],
+        }
+    )
+    labels = pd.Series(["Tumor"] * 3 + ["Adjacent"] * 3)
+
+    fig = plot_feature_boxplot(df, labels, "FeatA", annotation_method="mannwhitney")
+    all_text = "\n".join(t.get_text() for t in fig.texts)
+
+    assert "P =" in all_text
+    assert "Mann-Whitney U" in all_text
+    assert "T-test" not in all_text
+
+
 def test_oplsda_has_fallback_without_pyopls(monkeypatch):
     import analysis.oplsda as oplsda_mod
 

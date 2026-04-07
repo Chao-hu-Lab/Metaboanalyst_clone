@@ -34,14 +34,18 @@ def test_gui_state_round_trip_restores_shared_widget_state(qapp) -> None:
     _set_combo_to_data(window.norm_tab.scale_combo, "ParetoNorm")
 
     window.stats_tab.pca_ncomp.setValue(4)
+    _set_combo_to_data(window.stats_tab.pca_label_mode, "all")
     window.stats_tab.pls_ncomp.setValue(2)
+    _set_combo_to_data(window.stats_tab.pls_label_mode, "none")
     window.stats_tab.vip_topn.setValue(18)
     window.stats_tab.vol_fc.setValue(3.5)
     window.stats_tab.vol_p.setValue(0.01)
+    _set_combo_to_data(window.stats_tab.vol_test, "student")
     window.stats_tab.vol_fdr.setChecked(False)
     window.stats_tab.anova_p.setValue(0.02)
     _set_combo_to_data(window.stats_tab.anova_test, "kruskal")
     window.stats_tab.anova_fdr.setChecked(False)
+    _set_combo_to_data(window.stats_tab.oplsda_label_mode, "all")
 
     _set_combo_to_data(window.visual_tab.hm_method, "complete")
     _set_combo_to_data(window.visual_tab.hm_metric, "cosine")
@@ -65,14 +69,18 @@ def test_gui_state_round_trip_restores_shared_widget_state(qapp) -> None:
     assert reloaded_window.norm_tab.scale_combo.currentData() == "ParetoNorm"
 
     assert reloaded_window.stats_tab.pca_ncomp.value() == 4
+    assert reloaded_window.stats_tab.pca_label_mode.currentData() == "all"
     assert reloaded_window.stats_tab.pls_ncomp.value() == 2
+    assert reloaded_window.stats_tab.pls_label_mode.currentData() == "none"
     assert reloaded_window.stats_tab.vip_topn.value() == 18
     assert reloaded_window.stats_tab.vol_fc.value() == 3.5
     assert reloaded_window.stats_tab.vol_p.value() == 0.01
+    assert reloaded_window.stats_tab.vol_test.currentData() == "student"
     assert reloaded_window.stats_tab.vol_fdr.isChecked() is False
     assert reloaded_window.stats_tab.anova_p.value() == 0.02
     assert reloaded_window.stats_tab.anova_test.currentData() == "kruskal"
     assert reloaded_window.stats_tab.anova_fdr.isChecked() is False
+    assert reloaded_window.stats_tab.oplsda_label_mode.currentData() == "all"
 
     assert reloaded_window.visual_tab.hm_method.currentData() == "complete"
     assert reloaded_window.visual_tab.hm_metric.currentData() == "cosine"
@@ -93,7 +101,10 @@ def test_gui_state_binding_reports_invalid_combo_fallbacks(qapp) -> None:
                 "row_norm": "unknown-row-norm",
             },
             "analysis": {
+                "pca": {"score_label_mode": "mystery-pca-labels"},
+                "plsda": {"score_label_mode": "mystery-pls-labels"},
                 "anova": {"nonpar": "sometimes"},
+                "oplsda": {"score_label_mode": "mystery-opls-labels"},
                 "heatmap": {
                     "method": "mystery-linkage",
                     "metric": "mystery-metric",
@@ -109,6 +120,10 @@ def test_gui_state_binding_reports_invalid_combo_fallbacks(qapp) -> None:
     assert window.mv_tab.method_combo.currentData() == "min"
     assert window.filter_tab.method_combo.currentData() == "iqr"
     assert window.norm_tab.row_combo.currentData() == "None"
+    assert window.stats_tab.pca_label_mode.currentData() == "outlier"
+    assert window.stats_tab.pls_label_mode.currentData() == "outlier"
+    assert window.stats_tab.vol_test.currentData() == "welch"
+    assert window.stats_tab.oplsda_label_mode.currentData() == "outlier"
     assert window.visual_tab.hm_method.currentData() == "ward"
     assert window.visual_tab.hm_metric.currentData() == "euclidean"
     assert window.visual_tab.hm_scale.currentData() == "row"
@@ -117,6 +132,9 @@ def test_gui_state_binding_reports_invalid_combo_fallbacks(qapp) -> None:
     assert "pipeline.impute_method" in ignored_text
     assert "pipeline.filter_method" in ignored_text
     assert "pipeline.row_norm" in ignored_text
+    assert "analysis.pca.score_label_mode" in ignored_text
+    assert "analysis.plsda.score_label_mode" in ignored_text
+    assert "analysis.oplsda.score_label_mode" in ignored_text
     assert "analysis.heatmap.method" in ignored_text
     assert "analysis.heatmap.metric" in ignored_text
     assert "analysis.heatmap.scale" in ignored_text
