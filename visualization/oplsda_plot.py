@@ -88,6 +88,7 @@ def plot_oplsda_score(
     score_df = oplsda_result.get_score_df()
     groups = sorted(score_df["Group"].unique())
     colors = get_group_colors(theme, len(groups))
+    backend = getattr(oplsda_result, "backend", "pyopls")
 
     all_t = score_df["T_predictive"].values
     all_o = score_df["T_orthogonal"].values
@@ -140,7 +141,20 @@ def plot_oplsda_score(
         )
 
     ax.set_xlabel(f"T score [1] ({var_t:.1f} %)", fontsize=10.5)
-    ax.set_ylabel(f"Orthogonal T score [1] ({var_o:.1f} %)", fontsize=10.5)
+    if backend == "pls_fallback":
+        ax.set_ylabel(f"T score [2] ({var_o:.1f} %)", fontsize=10.5)
+        ax.text(
+            0.01,
+            0.01,
+            "PLS fallback axis",
+            transform=ax.transAxes,
+            fontsize=8,
+            alpha=0.7,
+            ha="left",
+            va="bottom",
+        )
+    else:
+        ax.set_ylabel(f"Orthogonal T score [1] ({var_o:.1f} %)", fontsize=10.5)
     ax.set_title("Scores Plot", fontsize=12, fontweight="bold", pad=10)
     ax.legend(
         handles=legend_handles,

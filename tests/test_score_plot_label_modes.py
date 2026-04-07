@@ -60,7 +60,7 @@ def _make_plsda_result():
 
 
 class _DummyOPLSDAResult:
-    def __init__(self) -> None:
+    def __init__(self, *, backend: str = "pyopls") -> None:
         scores, sample_names, labels = _make_score_plot_fixture()
         self._score_df = pd.DataFrame(
             {
@@ -70,6 +70,7 @@ class _DummyOPLSDAResult:
                 "Sample": sample_names,
             }
         )
+        self.backend = backend
 
     def get_score_df(self) -> pd.DataFrame:
         return self._score_df.copy()
@@ -94,6 +95,13 @@ def test_score_plots_support_none_outlier_and_all_label_modes(plotter, result_fa
     assert len(fig_none.axes[0].texts) == 0
     assert 0 < len(fig_outlier.axes[0].texts) < total_samples
     assert len(fig_all.axes[0].texts) == total_samples
+
+
+def test_oplsda_plot_labels_fallback_axis_honestly() -> None:
+    fig = plot_oplsda_score(_DummyOPLSDAResult(backend="pls_fallback"), show_labels="none")
+
+    assert fig.axes[0].get_ylabel().startswith("T score [2]")
+    assert any(text.get_text() == "PLS fallback axis" for text in fig.axes[0].texts)
 
 
 @pytest.mark.parametrize(

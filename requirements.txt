@@ -1,4 +1,4 @@
-# === Core (required) ===
+# === Core runtime ===
 numpy
 pandas
 scipy
@@ -14,8 +14,13 @@ Pillow
 pyyaml
 openpyxl
 
-# === Optional (enhanced features) ===
-# qtawesome        # Icon pack — tab icons fallback to no-icon if missing
-# fancyimpute      # SVD imputation method
-# pyppca           # PPCA imputation method
-# pyopls           # OPLS-DA analysis
+# === GUI enhancements ===
+qtawesome          # Icon pack for desktop GUI
+
+# === Analysis backends ===
+fancyimpute        # IterativeSVD imputation method
+pyppca             # PPCA imputation method
+pyopls             # OPLS-DA backend
+
+# === Interactive / graph features ===
+networkx           # Correlation network visualization

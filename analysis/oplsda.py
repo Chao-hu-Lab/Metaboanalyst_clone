@@ -88,6 +88,12 @@ def _build_cv(y: np.ndarray, cv_method: str):
     return StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
 
 
+def _max_pls_components(x_data: np.ndarray, requested: int) -> int:
+    """Return a safe component count for PLSRegression."""
+    upper_bound = min(x_data.shape[0] - 1, x_data.shape[1])
+    return max(1, min(int(requested), int(upper_bound)))
+
+
 def _safe_q2(pls_model: PLSRegression, x_data: np.ndarray, y_data: np.ndarray, cv) -> float:
     """
     Compute Q² via PRESS/TSS using cross_val_predict.
@@ -132,9 +138,39 @@ def run_oplsda(data, labels, n_components=1, cv_method="loo") -> OPLSDAResult:
             r2x = float(1.0 - (np.var(z_data, axis=0).sum() / total_var_x))
     else:
         x_for_pls = x_data
-        orth_scores = np.zeros((x_data.shape[0], 1), dtype=float)
+        # Fallback path: use a second latent PLS component as a 2D score surrogate
+        # instead of plotting a degenerate orthogonal axis at y=0 for every sample.
+        fallback_components = _max_pls_components(x_for_pls, requested=max(2, int(n_components)))
+        pls = PLSRegression(n_components=fallback_components, scale=False)
+        pls.fit(x_for_pls, y_data)
+        pred_scores = _to_single_component(pls.x_scores_)
+        if pls.x_scores_.shape[1] >= 2:
+            orth_scores = np.asarray(pls.x_scores_[:, 1:2], dtype=float)
+        else:
+            orth_scores = np.zeros((x_data.shape[0], 1), dtype=float)
 
-    pls = PLSRegression(n_components=1, scale=False)
+        cv = _build_cv(y_data, cv_method=cv_method)
+        q2 = _safe_q2(pls, x_for_pls, y_data, cv)
+        r2y = float(pls.score(x_for_pls, y_data))
+        loadings_pred = _to_single_component(pls.x_loadings_)
+        loading_importance = np.abs(loadings_pred[:, 0])
+
+        return OPLSDAResult(
+            scores_predictive=pred_scores,
+            scores_orthogonal=orth_scores,
+            labels=labels,
+            r2x=r2x,
+            r2y=r2y,
+            q2=q2,
+            feature_names=feature_names,
+            loadings_predictive=loadings_pred,
+            loading_importance=loading_importance,
+            class_names=class_names,
+            sample_names=list(data.index),
+            backend=backend,
+        )
+
+    pls = PLSRegression(n_components=_max_pls_components(x_for_pls, requested=1), scale=False)
     pls.fit(x_for_pls, y_data)
     pred_scores = _to_single_component(pls.x_scores_)
 

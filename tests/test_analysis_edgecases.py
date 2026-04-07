@@ -81,6 +81,8 @@ def test_oplsda_has_fallback_without_pyopls(monkeypatch):
 
     assert result.scores_predictive.shape == (6, 1)
     assert result.scores_orthogonal.shape == (6, 1)
+    assert np.var(result.scores_orthogonal[:, 0]) > 0
+    assert result.backend == "pls_fallback"
     assert np.isfinite(result.r2y)
     assert np.isfinite(result.q2)
 
