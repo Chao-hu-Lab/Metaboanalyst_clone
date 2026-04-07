@@ -13,6 +13,7 @@ import sys
 import warnings
 from datetime import datetime
 from pathlib import Path
+from typing import Any, Mapping
 
 # Ensure project root on path (scripts/ lives one level below project root)
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -87,6 +88,12 @@ def parse_pair_config(
             paired = False
         result.append((groups[0], groups[1], paired))
     return result
+
+
+def resolve_volcano_parametric_equal_var(volcano_cfg: Mapping[str, Any]) -> bool:
+    """Return the equal-variance flag for unpaired parametric volcano tests."""
+    default_key = str(volcano_cfg.get("parametric_test_default", "welch")).strip().lower()
+    return default_key == "student"
 
 
 # ── Data loaders ──────────────────────────────────────────
@@ -553,6 +560,7 @@ def run_analysis(cfg: dict):
 
     # Collectors for the summary Excel export
     _excel_sheets = {}  # sheet_name -> DataFrame
+    paired_resolution_audit_rows: list[dict[str, Any]] = []
 
     # Save processed data
     processed.to_csv(os.path.join(output_dir, "processed_data.csv"))
@@ -784,6 +792,8 @@ def run_analysis(cfg: dict):
     vol_cfg = analysis_cfg["volcano"]
     raw_pairs = cfg["groups"].get("volcano_pairs", [])
     volcano_pairs = parse_pair_config(raw_pairs)
+    volcano_equal_var = resolve_volcano_parametric_equal_var(vol_cfg)
+    paired_resolution_cfg = cfg["groups"].get("paired_resolution")
 
     # Extract subject IDs if any pair is paired
     pair_id_pattern = cfg["groups"].get("pair_id_pattern", r"BC\d+")
@@ -805,14 +815,46 @@ def run_analysis(cfg: dict):
                 fc_thresh=vol_cfg["fc_thresh"],
                 log2_fc_thresh=vol_cfg.get("log2_fc_thresh"),
                 p_thresh=vol_cfg["p_thresh"],
+                equal_var=volcano_equal_var,
                 use_fdr=vol_cfg["use_fdr"],
                 paired=is_paired,
                 pair_ids=subject_ids if is_paired else None,
                 fc_df=volcano_fc_matrix,
+                pair_resolution=paired_resolution_cfg if is_paired else None,
             )
             pair_info = f", Pairs: {vresult.n_pairs}" if is_paired else ""
+            print(f"    Method: {vresult.test_label}")
             print(f"    Significant: {vresult.n_significant} "
                   f"(Up: {vresult.n_up}, Down: {vresult.n_down}{pair_info})")
+            if is_paired and vresult.resolution_overrides_applied:
+                print(f"    Paired overrides applied: {len(vresult.resolution_overrides_applied)}")
+                for record in vresult.resolution_overrides_applied:
+                    paired_resolution_audit_rows.append(
+                        {
+                            "pair": f"{g1}_vs_{g2}",
+                            "audit_kind": "override",
+                            "group": record.get("group", ""),
+                            "subject_id": record.get("subject_id", ""),
+                            "selected_sample": record.get("selected_sample", ""),
+                            "message": "",
+                            "candidates": " | ".join(record.get("candidates", [])),
+                        }
+                    )
+            if is_paired and vresult.resolution_warnings:
+                print(f"    Paired resolution warnings: {len(vresult.resolution_warnings)}")
+                for warning in vresult.resolution_warnings:
+                    print(f"      - {warning}")
+                    paired_resolution_audit_rows.append(
+                        {
+                            "pair": f"{g1}_vs_{g2}",
+                            "audit_kind": "warning",
+                            "group": "",
+                            "subject_id": "",
+                            "selected_sample": "",
+                            "message": warning,
+                            "candidates": "",
+                        }
+                    )
             vresult.result_df = _annotate_feature_table(vresult.result_df, final_feature_metadata)
             vresult.result_df.to_csv(
                 os.path.join(output_dir, f"volcano_{g1}_vs_{g2}.csv"),
@@ -849,6 +891,11 @@ def run_analysis(cfg: dict):
                 dpi=150, bbox_inches="tight")
     plt.close(fig)
     print("  Saved sample_boxplot.png + density_plot.png")
+
+    if paired_resolution_audit_rows:
+        audit_path = os.path.join(output_dir, "paired_resolution_audit.csv")
+        pd.DataFrame(paired_resolution_audit_rows).to_csv(audit_path, index=False)
+        print(f"  Saved {audit_path}")
 
     # ── Export significant features summary Excel ─────────
     print("\n" + "=" * 60)

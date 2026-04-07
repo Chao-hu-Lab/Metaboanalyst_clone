@@ -336,6 +336,13 @@ PARAM_SPECS: dict[str, ParamSpec] = {
         scope="shared-readonly",
         gui_label="Volcano use FDR",
     ),
+    "analysis.volcano.parametric_test_default": ParamSpec(
+        path="analysis.volcano.parametric_test_default",
+        default="welch",
+        value_type=str,
+        scope="shared-readonly",
+        gui_label="Volcano parametric default",
+    ),
     "analysis.heatmap.max_features": ParamSpec(
         path="analysis.heatmap.max_features",
         default=50,

@@ -9,6 +9,7 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Ellipse
 from scipy.stats import chi2
 
+from visualization.score_labeling import annotate_score_labels
 from visualization.theme import apply_publication_style, get_group_colors
 
 
@@ -47,23 +48,6 @@ def _confidence_ellipse(ax, x, y, color, fill_color, confidence: float = 0.95) -
             zorder=1,
         )
     )
-
-
-def _mahalanobis_outliers(x, y, confidence: float = 0.95) -> np.ndarray:
-    """Return a boolean mask of points outside the confidence ellipse."""
-    if len(x) < 3:
-        return np.zeros(len(x), dtype=bool)
-    points = np.column_stack([x, y])
-    mean = points.mean(axis=0)
-    cov = np.cov(x, y)
-    try:
-        cov_inv = np.linalg.inv(cov)
-    except np.linalg.LinAlgError:
-        return np.zeros(len(x), dtype=bool)
-    diff = points - mean
-    md_sq = np.sum(diff @ cov_inv * diff, axis=1)
-    threshold = chi2.ppf(confidence, 2)
-    return md_sq > threshold
 
 
 def plot_oplsda_score(
@@ -132,24 +116,14 @@ def plot_oplsda_score(
             zorder=3,
         )
 
-        if show_labels == "all":
-            label_mask = np.ones(len(x), dtype=bool)
-        elif show_labels == "outlier":
-            label_mask = _mahalanobis_outliers(x, y, confidence)
-        else:
-            label_mask = np.zeros(len(x), dtype=bool)
-
-        for x_val, y_val, name, should_label in zip(x, y, samples, label_mask):
-            if should_label:
-                ax.annotate(
-                    str(name),
-                    (x_val, y_val),
-                    fontsize=6.5,
-                    color="#444444",
-                    xytext=(5, 2),
-                    textcoords="offset points",
-                    zorder=4,
-                )
+        annotate_score_labels(
+            ax,
+            x,
+            y,
+            samples,
+            show_labels=show_labels,
+            confidence=confidence,
+        )
 
         legend_handles.append(
             Line2D(

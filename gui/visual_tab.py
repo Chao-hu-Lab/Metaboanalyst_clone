@@ -449,6 +449,11 @@ class VisualTab(QWidget):
             pca_result,
             pc_x=self.pca_pc_x.value() - 1,
             pc_y=self.pca_pc_y.value() - 1,
+            show_labels=(
+                stats_tab.pca_label_mode.currentData()
+                if stats_tab is not None and hasattr(stats_tab, "pca_label_mode")
+                else "outlier"
+            ),
             theme=self.theme_manager.current_theme,
             fig=self.mpl_canvas.figure,
         )

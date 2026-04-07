@@ -21,6 +21,10 @@ from core.utils import get_app_data_dir, get_resource_path
 
 REQUIRED_TOP_LEVEL_SECTIONS: tuple[str, ...] = ("input", "pipeline", "groups", "analysis")
 PresetKind = Literal["builtin", "local"]
+VOLCANO_PARAMETRIC_TEST_CHOICES: frozenset[str] = frozenset({"student", "welch"})
+PAIRED_RESOLUTION_SCOPE_CHOICES: frozenset[str] = frozenset({"paired_only"})
+PAIRED_RESOLUTION_DUPLICATE_CHOICES: frozenset[str] = frozenset({"prefer_override"})
+PAIRED_RESOLUTION_UNRESOLVED_CHOICES: frozenset[str] = frozenset({"warn_keep_first", "error"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,6 +146,52 @@ def _deep_merge(base: Mapping[str, Any], overrides: Mapping[str, Any]) -> dict[s
     return merged
 
 
+def _validate_choice(path: str, value: Any, allowed: frozenset[str]) -> str:
+    """Return a normalized lowercase enum value or raise a useful error."""
+    normalized = str(value).strip().lower()
+    if normalized not in allowed:
+        options = ", ".join(sorted(allowed))
+        raise ValueError(f"Config field '{path}' must be one of: {options}.")
+    return normalized
+
+
+def _normalize_paired_resolution_config(groups: Mapping[str, Any]) -> dict[str, Any]:
+    """Validate and normalize the optional paired-resolution config block."""
+    normalized_groups = copy.deepcopy(dict(groups))
+    paired_resolution = normalized_groups.get("paired_resolution")
+    if paired_resolution is None:
+        return normalized_groups
+    if not isinstance(paired_resolution, Mapping):
+        raise ValueError("Config section 'groups.paired_resolution' must be a mapping.")
+
+    normalized_resolution = copy.deepcopy(dict(paired_resolution))
+    if "scope" in normalized_resolution:
+        normalized_resolution["scope"] = _validate_choice(
+            "groups.paired_resolution.scope",
+            normalized_resolution["scope"],
+            PAIRED_RESOLUTION_SCOPE_CHOICES,
+        )
+    if "on_duplicate" in normalized_resolution:
+        normalized_resolution["on_duplicate"] = _validate_choice(
+            "groups.paired_resolution.on_duplicate",
+            normalized_resolution["on_duplicate"],
+            PAIRED_RESOLUTION_DUPLICATE_CHOICES,
+        )
+    if "on_unresolved" in normalized_resolution:
+        normalized_resolution["on_unresolved"] = _validate_choice(
+            "groups.paired_resolution.on_unresolved",
+            normalized_resolution["on_unresolved"],
+            PAIRED_RESOLUTION_UNRESOLVED_CHOICES,
+        )
+
+    overrides = normalized_resolution.get("overrides")
+    if overrides is not None and not isinstance(overrides, Mapping):
+        raise ValueError("Config field 'groups.paired_resolution.overrides' must be a mapping.")
+
+    normalized_groups["paired_resolution"] = normalized_resolution
+    return normalized_groups
+
+
 def _normalize_analysis_config(raw_analysis: Mapping[str, Any]) -> dict[str, Any]:
     """Apply shared analysis defaults and compatibility aliases."""
     analysis = _deep_merge(build_section_defaults("analysis"), raw_analysis)
@@ -175,6 +225,11 @@ def _normalize_analysis_config(raw_analysis: Mapping[str, Any]) -> dict[str, Any
         volcano["log2_fc_thresh"] = float(math.log2(volcano["fc_thresh"]))
     volcano.setdefault("p_thresh", 0.05)
     volcano.setdefault("use_fdr", True)
+    volcano["parametric_test_default"] = _validate_choice(
+        "analysis.volcano.parametric_test_default",
+        volcano.get("parametric_test_default", "welch"),
+        VOLCANO_PARAMETRIC_TEST_CHOICES,
+    )
 
     heatmap = analysis.setdefault("heatmap", {})
     heatmap.setdefault("max_features", 50)
@@ -216,6 +271,10 @@ def _normalize_raw_config(
                 for key, value in merged_spec_norm.items()
                 if value is not None
             }
+        elif section == "groups":
+            normalized[section] = _normalize_paired_resolution_config(
+                _deep_merge(default_value, section_mapping)
+            )
         else:
             normalized[section] = _deep_merge(default_value, section_mapping)
 

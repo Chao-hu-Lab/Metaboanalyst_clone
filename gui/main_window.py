@@ -11,6 +11,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 import logging
 from pathlib import Path
+from typing import Mapping
 
 import pandas as pd
 from PySide6.QtCore import (
@@ -62,6 +63,7 @@ from core.app_config import (
 )
 from core.param_specs import build_default_config
 from core.pipeline import MetaboAnalystPipeline
+from core.qc import align_labels_to_data, exclude_qc_samples
 from core.utils import get_resource_path
 from gui.data_import_tab import DataImportTab
 from gui.filter_tab import FilterTab
@@ -159,6 +161,7 @@ class MainWindow(QMainWindow):
         self.group_col: str | None = None
         self._filtered_data: pd.DataFrame | None = None
         self._filtered_labels: pd.Series | None = None
+        self._stats_matrix_bundle: dict[str, object] | None = None
         self._preset_tracking_depth = 0
         self._active_preset_config: AppConfig | None = None
         self._active_preset_path: str | None = None
@@ -865,6 +868,65 @@ class MainWindow(QMainWindow):
         if self.current_data is not None:
             self.show_shared_table(self.current_data)
 
+    def clear_stats_matrix_bundle(self) -> None:
+        self._stats_matrix_bundle = None
+
+    def set_stats_matrix_bundle(self, bundle: Mapping[str, object] | None) -> None:
+        if bundle is None:
+            self._stats_matrix_bundle = None
+            return
+
+        stored: dict[str, object] = {}
+        for key, value in bundle.items():
+            if hasattr(value, "copy"):
+                stored[key] = value.copy()
+            else:
+                stored[key] = value
+        self._stats_matrix_bundle = stored
+
+    def get_stats_matrix_bundle(self) -> dict[str, object] | None:
+        if self._stats_matrix_bundle is None:
+            return None
+
+        bundle_copy: dict[str, object] = {}
+        for key, value in self._stats_matrix_bundle.items():
+            if hasattr(value, "copy"):
+                bundle_copy[key] = value.copy()
+            else:
+                bundle_copy[key] = value
+        return bundle_copy
+
+    def _build_stats_matrix_bundle(
+        self,
+        pipeline: MetaboAnalystPipeline,
+    ) -> dict[str, object] | None:
+        labels = pipeline.processed_labels
+        if labels is None:
+            return None
+
+        multivariate = pipeline.processed.copy()
+        univariate = pipeline.steps["transformed"].copy()
+        volcano_fc = pipeline.steps["row_normed"].copy()
+        aligned_labels = align_labels_to_data(multivariate, labels)
+        multivariate, filtered_labels, removed_qc = exclude_qc_samples(
+            multivariate,
+            aligned_labels,
+        )
+        if filtered_labels is None:
+            return None
+
+        keep_index = multivariate.index
+        univariate = univariate.reindex(keep_index)
+        volcano_fc = volcano_fc.reindex(keep_index)
+
+        return {
+            "multivariate_data": multivariate,
+            "univariate_data": univariate,
+            "volcano_fc_data": volcano_fc,
+            "labels": filtered_labels.copy(),
+            "removed_qc": int(removed_qc),
+        }
+
     # ------------------------------------------------------------------
     # Pipeline orchestration (single source of truth)
     # ------------------------------------------------------------------
@@ -1096,6 +1158,11 @@ class MainWindow(QMainWindow):
                 if pipeline.processed_feature_metadata is not None
                 else None
             ),
+            "stats_matrix_bundle": (
+                self._build_stats_matrix_bundle(pipeline)
+                if stage == "norm"
+                else None
+            ),
             "log": pipeline.log,
         }
 
@@ -1166,6 +1233,7 @@ class MainWindow(QMainWindow):
             if feature_metadata is not None
             else None
         )
+        self.clear_stats_matrix_bundle()
         self.sample_info = sample_info.copy() if sample_info is not None else None
         self.sample_col = sample_col
         self.group_col = group_col
@@ -1245,6 +1313,9 @@ class MainWindow(QMainWindow):
         if step_key == "filter":
             self._filtered_data = df.copy()
             self._filtered_labels = new_labels.copy() if new_labels is not None else None
+
+        if step_key != "norm":
+            self.clear_stats_matrix_bundle()
 
         self._update_tab_states()
 

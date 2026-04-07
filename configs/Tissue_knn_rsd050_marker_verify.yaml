@@ -5,6 +5,14 @@ input:
 groups:
   include: ["Exposure", "Normal", "Control"]
   pair_id_pattern: "BC\\d+"
+  paired_resolution:
+    scope: "paired_only"
+    on_duplicate: "prefer_override"
+    on_unresolved: "warn_keep_first"
+    overrides:
+      Exposure:
+        BC2286: "TumorBC2286_DNA"
+        BC2304: "TumorBC2304_DNA"
   volcano_pairs:
     - groups: ["Exposure", "Normal"]
       paired: true
@@ -46,6 +54,7 @@ analysis:
     log2_fc_thresh: 1.0
     p_thresh: 0.05
     use_fdr: true
+    parametric_test_default: "welch"
   heatmap:
     max_features: 50
     top_by: "var"

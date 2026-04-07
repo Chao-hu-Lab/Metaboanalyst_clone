@@ -5,6 +5,8 @@
 import math
 from typing import Any, Callable, Mapping
 
+import pandas as pd
+
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QComboBox, QTextEdit, QSpinBox, QDoubleSpinBox,
@@ -29,6 +31,7 @@ class StatsTab(QWidget):
         self._plsda_result = None
         self._volcano_result = None
         self._anova_result = None
+        self._anova_annotation_method: str | None = None
         self._roc_result = None
         self._corr_result = None
         self._rf_result = None
@@ -108,35 +111,55 @@ class StatsTab(QWidget):
 
     def connect_state_changed(self, callback: Callable[..., None]) -> None:
         self.pca_ncomp.valueChanged.connect(callback)
+        self.pca_label_mode.currentIndexChanged.connect(callback)
         self.pls_ncomp.valueChanged.connect(callback)
+        self.pls_label_mode.currentIndexChanged.connect(callback)
         self.vip_topn.valueChanged.connect(callback)
         self.vol_fc.valueChanged.connect(callback)
         self.vol_p.valueChanged.connect(callback)
+        self.vol_test.currentIndexChanged.connect(callback)
         self.vol_fdr.toggled.connect(callback)
         self.anova_p.valueChanged.connect(callback)
         self.anova_test.currentIndexChanged.connect(callback)
         self.anova_fdr.toggled.connect(callback)
+        self.oplsda_label_mode.currentIndexChanged.connect(callback)
 
     def read_state(self) -> dict[str, Any]:
-        return {
-            "analysis": {
-                "pca": {"n_components": int(self.pca_ncomp.value())},
-                "plsda": {
-                    "n_components": int(self.pls_ncomp.value()),
-                    "top_vip": int(self.vip_topn.value()),
-                },
-                "volcano": {
-                    "fc_thresh": float(self.vol_fc.value()),
-                    "log2_fc_thresh": float(math.log2(self.vol_fc.value())),
-                    "p_thresh": float(self.vol_p.value()),
-                    "use_fdr": bool(self.vol_fdr.isChecked()),
-                },
-                "anova": {
-                    "p_thresh": float(self.anova_p.value()),
-                    "nonpar": self.anova_test.currentData() == "kruskal",
-                    "use_fdr": bool(self.anova_fdr.isChecked()),
-                },
+        pca_state: dict[str, Any] = {"n_components": int(self.pca_ncomp.value())}
+        if self.pca_label_mode.currentData() != "outlier":
+            pca_state["score_label_mode"] = self.pca_label_mode.currentData()
+
+        plsda_state: dict[str, Any] = {
+            "n_components": int(self.pls_ncomp.value()),
+            "top_vip": int(self.vip_topn.value()),
+        }
+        if self.pls_label_mode.currentData() != "outlier":
+            plsda_state["score_label_mode"] = self.pls_label_mode.currentData()
+
+        analysis_state: dict[str, Any] = {
+            "pca": pca_state,
+            "plsda": plsda_state,
+            "volcano": {
+                "fc_thresh": float(self.vol_fc.value()),
+                "log2_fc_thresh": float(math.log2(self.vol_fc.value())),
+                "p_thresh": float(self.vol_p.value()),
+                "use_fdr": bool(self.vol_fdr.isChecked()),
+            },
+            "anova": {
+                "p_thresh": float(self.anova_p.value()),
+                "nonpar": self.anova_test.currentData() == "kruskal",
+                "use_fdr": bool(self.anova_fdr.isChecked()),
+            },
+        }
+        if self.vol_test.currentData() in {"student", "welch"}:
+            analysis_state["volcano"]["parametric_test_default"] = self.vol_test.currentData()
+        if self.oplsda_label_mode.currentData() != "outlier":
+            analysis_state["oplsda"] = {
+                "score_label_mode": self.oplsda_label_mode.currentData(),
             }
+
+        return {
+            "analysis": analysis_state
         }
 
     def validate_state(self, state: Mapping[str, Any]) -> ApplyStateResult:
@@ -161,6 +184,14 @@ class StatsTab(QWidget):
         pca = analysis.get("pca", {})
         if isinstance(pca, Mapping) and "n_components" in pca:
             apply_spin_value(self.pca_ncomp, int(pca["n_components"]))
+        if isinstance(pca, Mapping) and "score_label_mode" in pca:
+            result.extend(
+                apply_combo_data(
+                    self.pca_label_mode,
+                    pca["score_label_mode"],
+                    "analysis.pca.score_label_mode",
+                )
+            )
 
         plsda = analysis.get("plsda", {})
         if isinstance(plsda, Mapping):
@@ -168,6 +199,14 @@ class StatsTab(QWidget):
                 apply_spin_value(self.pls_ncomp, int(plsda["n_components"]))
             if "top_vip" in plsda:
                 apply_spin_value(self.vip_topn, int(plsda["top_vip"]))
+            if "score_label_mode" in plsda:
+                result.extend(
+                    apply_combo_data(
+                        self.pls_label_mode,
+                        plsda["score_label_mode"],
+                        "analysis.plsda.score_label_mode",
+                    )
+                )
 
         volcano = analysis.get("volcano", {})
         if isinstance(volcano, Mapping):
@@ -177,6 +216,14 @@ class StatsTab(QWidget):
                 apply_spin_value(self.vol_p, float(volcano["p_thresh"]))
             if "use_fdr" in volcano:
                 apply_checked(self.vol_fdr, bool(volcano["use_fdr"]))
+            if "parametric_test_default" in volcano:
+                result.extend(
+                    apply_combo_data(
+                        self.vol_test,
+                        volcano["parametric_test_default"],
+                        "analysis.volcano.parametric_test_default",
+                    )
+                )
 
         anova = analysis.get("anova", {})
         if isinstance(anova, Mapping):
@@ -190,7 +237,25 @@ class StatsTab(QWidget):
             if "use_fdr" in anova:
                 apply_checked(self.anova_fdr, bool(anova["use_fdr"]))
 
+        oplsda = analysis.get("oplsda", {})
+        if isinstance(oplsda, Mapping) and "score_label_mode" in oplsda:
+            result.extend(
+                apply_combo_data(
+                    self.oplsda_label_mode,
+                    oplsda["score_label_mode"],
+                    "analysis.oplsda.score_label_mode",
+                )
+            )
+
         return result
+
+    def _build_score_label_mode_combo(self, callback: Callable[..., None]) -> QComboBox:
+        combo = QComboBox()
+        combo.addItem(self.tr("Outliers"), "outlier")
+        combo.addItem(self.tr("All Samples"), "all")
+        combo.addItem(self.tr("None"), "none")
+        combo.currentIndexChanged.connect(callback)
+        return combo
 
     def _snapshot_data(self):
         data = self.mw.current_data.copy()
@@ -203,7 +268,54 @@ class StatsTab(QWidget):
         theme_manager = getattr(self.mw, "theme_manager", None)
         return getattr(theme_manager, "current_theme", "light")
 
-    def _snapshot_stats_data(self, require_labels: bool = False):
+    def _resolve_anova_annotation_method(
+        self,
+        labels: pd.Series | None,
+        result: Any | None = None,
+    ) -> str | None:
+        if labels is None:
+            return None
+
+        labels_arr = labels.values if hasattr(labels, "values") else pd.Series(labels).to_numpy()
+        n_groups = len(set(labels_arr.astype(str)))
+        method_key = str(getattr(result, "method_key", "anova")).lower() if result is not None else "anova"
+
+        if method_key == "kruskal":
+            return "mannwhitney" if n_groups == 2 else "kruskal"
+        if method_key == "anova":
+            return "anova"
+        return None
+
+    def _snapshot_stats_matrix_bundle(
+        self,
+        require_labels: bool = False,
+    ) -> tuple[dict[str, Any], pd.Series | None, dict[str, int]]:
+        bundle = self.mw.get_stats_matrix_bundle()
+        if isinstance(bundle, Mapping):
+            multivariate = bundle["multivariate_data"].copy()
+            univariate = bundle["univariate_data"].copy()
+            volcano_fc = bundle["volcano_fc_data"].copy()
+            labels = bundle.get("labels")
+            labels = align_labels_to_data(multivariate, labels)
+
+            if require_labels and labels is None:
+                raise ValueError(self.tr("Group labels are required for this analysis."))
+
+            if labels is not None:
+                multivariate = multivariate.reindex(labels.index)
+                univariate = univariate.reindex(labels.index)
+                volcano_fc = volcano_fc.reindex(labels.index)
+
+            meta = {
+                "removed_qc": int(bundle.get("removed_qc", 0)),
+                "n_samples": int(multivariate.shape[0]),
+            }
+            return {
+                "multivariate_data": multivariate,
+                "univariate_data": univariate,
+                "volcano_fc_data": volcano_fc,
+            }, labels, meta
+
         data, labels = self._snapshot_data()
         labels = align_labels_to_data(data, labels)
 
@@ -215,7 +327,24 @@ class StatsTab(QWidget):
             "removed_qc": removed_qc,
             "n_samples": int(filtered_data.shape[0]),
         }
-        return filtered_data, filtered_labels, meta
+        fallback_bundle = {
+            "multivariate_data": filtered_data,
+            "univariate_data": filtered_data.copy(),
+            "volcano_fc_data": filtered_data.copy(),
+        }
+        return fallback_bundle, filtered_labels, meta
+
+    def _snapshot_stats_data(self, require_labels: bool = False):
+        bundle, labels, meta = self._snapshot_stats_matrix_bundle(require_labels=require_labels)
+        return bundle["multivariate_data"], labels, meta
+
+    def _snapshot_univariate_stats_data(self, require_labels: bool = False):
+        bundle, labels, meta = self._snapshot_stats_matrix_bundle(require_labels=require_labels)
+        return bundle["univariate_data"], labels, meta
+
+    def _snapshot_volcano_inputs(self, require_labels: bool = False):
+        bundle, labels, meta = self._snapshot_stats_matrix_bundle(require_labels=require_labels)
+        return bundle["univariate_data"], bundle["volcano_fc_data"], labels, meta
 
     def _qc_scope_text(self, removed_qc: int) -> str:
         if removed_qc > 0:
@@ -230,6 +359,20 @@ class StatsTab(QWidget):
         except ValueError as exc:
             QMessageBox.warning(self, self.tr("Warning"), str(exc))
             return None, None, None
+
+    def _snapshot_univariate_stats_data_or_warn(self, require_labels: bool = False):
+        try:
+            return self._snapshot_univariate_stats_data(require_labels=require_labels)
+        except ValueError as exc:
+            QMessageBox.warning(self, self.tr("Warning"), str(exc))
+            return None, None, None
+
+    def _snapshot_volcano_inputs_or_warn(self, require_labels: bool = False):
+        try:
+            return self._snapshot_volcano_inputs(require_labels=require_labels)
+        except ValueError as exc:
+            QMessageBox.warning(self, self.tr("Warning"), str(exc))
+            return None, None, None, None
 
     def _run_async(self, job_fn, on_success, error_title: str):
         if self._busy:
@@ -311,6 +454,10 @@ class StatsTab(QWidget):
         self.pca_plot_type.currentIndexChanged.connect(self._update_pca_plot)
         ctrl.addWidget(self.pca_plot_type)
 
+        ctrl.addWidget(QLabel(self.tr("Labels:")))
+        self.pca_label_mode = self._build_score_label_mode_combo(self._update_pca_plot)
+        ctrl.addWidget(self.pca_label_mode)
+
         btn_save = QPushButton(self.tr("Export Figure"))
         btn_save.clicked.connect(lambda: self._save_figure(self.pca_canvas))
         ctrl.addWidget(btn_save)
@@ -366,6 +513,7 @@ class StatsTab(QWidget):
                 self._pca_result,
                 pc_x=self.pca_pcx.value() - 1,
                 pc_y=self.pca_pcy.value() - 1,
+                show_labels=self.pca_label_mode.currentData(),
                 theme=self._current_theme(),
                 fig=fig,
             )
@@ -497,6 +645,10 @@ class StatsTab(QWidget):
         self.pls_plot_type.currentIndexChanged.connect(self._update_plsda_plot)
         ctrl.addWidget(self.pls_plot_type)
 
+        ctrl.addWidget(QLabel(self.tr("Labels:")))
+        self.pls_label_mode = self._build_score_label_mode_combo(self._update_plsda_plot)
+        ctrl.addWidget(self.pls_label_mode)
+
         btn_save = QPushButton(self.tr("Export Figure"))
         btn_save.clicked.connect(lambda: self._save_figure(self.pls_canvas))
         ctrl.addWidget(btn_save)
@@ -575,7 +727,12 @@ class StatsTab(QWidget):
                      data=_data, labels=_labels, theme=self._current_theme(), fig=fig)
         elif plot_key == "score":
             from visualization.plsda_plot import plot_plsda_score
-            plot_plsda_score(self._plsda_result, theme=self._current_theme(), fig=fig)
+            plot_plsda_score(
+                self._plsda_result,
+                show_labels=self.pls_label_mode.currentData(),
+                theme=self._current_theme(),
+                fig=fig,
+            )
         self.pls_canvas.draw()
         self.mw.show_shared_plot(self.pls_canvas.figure)
 
@@ -614,6 +771,7 @@ class StatsTab(QWidget):
         self.vol_test.addItem(self.tr("Student's t (equal variance)"), "student")
         self.vol_test.addItem(self.tr("Welch's t (unequal variance)"), "welch")
         self.vol_test.addItem(self.tr("Wilcoxon (non-parametric)"), "wilcoxon")
+        self.vol_test.setCurrentIndex(max(0, self.vol_test.findData("welch")))
         ctrl2.addWidget(self.vol_test)
         self.vol_fdr = QCheckBox(self.tr("FDR correction (BH)"))
         self.vol_fdr.setChecked(True)
@@ -688,7 +846,9 @@ class StatsTab(QWidget):
         fc_thresh = self.vol_fc.value()
         p_thresh = self.vol_p.value()
         use_fdr = self.vol_fdr.isChecked()
-        data, labels, qc_meta = self._snapshot_stats_data_or_warn(require_labels=True)
+        data, fc_data, labels, qc_meta = self._snapshot_volcano_inputs_or_warn(
+            require_labels=True
+        )
         if qc_meta is None:
             return
 
@@ -701,6 +861,7 @@ class StatsTab(QWidget):
                 equal_var=(test_key == "student"),
                 nonpar=(test_key == "wilcoxon"),
                 use_fdr=use_fdr,
+                fc_df=fc_data,
             )
 
         def _on_success(result):
@@ -711,8 +872,9 @@ class StatsTab(QWidget):
 
             self.vol_info.setText(
                 self.tr(
-                    "Significant features: {n_sig} | Up: {n_up} | Down: {n_down}\n{qc_note}"
+                    "Method: {method} | Significant features: {n_sig} | Up: {n_up} | Down: {n_down}\n{qc_note}"
                 ).format(
+                    method=result.test_label,
                     n_sig=result.n_significant,
                     n_up=result.n_up,
                     n_down=result.n_down,
@@ -822,7 +984,9 @@ class StatsTab(QWidget):
     def _run_anova(self):
         if not self.mw.check_data_ready():
             return
-        data, labels_snapshot, qc_meta = self._snapshot_stats_data_or_warn(require_labels=True)
+        data, labels_snapshot, qc_meta = self._snapshot_univariate_stats_data_or_warn(
+            require_labels=True
+        )
         if qc_meta is None:
             return
         n_groups = len(set(labels_snapshot.astype(str)))
@@ -848,6 +1012,10 @@ class StatsTab(QWidget):
             self._anova_result = result
             self._anova_plot_data = data
             self._anova_plot_labels = labels_snapshot
+            self._anova_annotation_method = self._resolve_anova_annotation_method(
+                labels_snapshot,
+                result,
+            )
             plot_anova_importance(
                 result,
                 theme=self._current_theme(),
@@ -872,8 +1040,9 @@ class StatsTab(QWidget):
             n_show = min(100, len(result_sorted))
             self.anova_table.setRowCount(n_show)
             self.anova_table.setColumnCount(3)
+            stat_header = self.tr("H statistic") if getattr(result, "method_key", "anova") == "kruskal" else self.tr("F statistic")
             self.anova_table.setHorizontalHeaderLabels([
-                self.tr("Feature"), self.tr("F statistic"), self.tr("adj.P"),
+                self.tr("Feature"), stat_header, self.tr("adj.P"),
             ])
             for i in range(n_show):
                 row = result_sorted.iloc[i]
@@ -907,6 +1076,7 @@ class StatsTab(QWidget):
         )
         plot_feature_boxplot(
             data, labels, feat,
+            annotation_method=self._anova_annotation_method,
             theme=self._current_theme(),
             fig=self.anova_feat_canvas.figure,
         )
@@ -1551,6 +1721,10 @@ class StatsTab(QWidget):
         self.oplsda_plot_type.currentIndexChanged.connect(self._update_oplsda_plot)
         ctrl.addWidget(self.oplsda_plot_type)
 
+        ctrl.addWidget(QLabel(self.tr("Labels:")))
+        self.oplsda_label_mode = self._build_score_label_mode_combo(self._update_oplsda_plot)
+        ctrl.addWidget(self.oplsda_label_mode)
+
         btn_save = QPushButton(self.tr("Export Figure"))
         btn_save.clicked.connect(lambda: self._save_figure(self.oplsda_canvas))
         ctrl.addWidget(btn_save)
@@ -1643,7 +1817,12 @@ class StatsTab(QWidget):
         fig = self.oplsda_canvas.figure
         plot_key = self.oplsda_plot_type.currentData()
         if plot_key == "score":
-            plot_oplsda_score(self._oplsda_result, theme=self._current_theme(), fig=fig)
+            plot_oplsda_score(
+                self._oplsda_result,
+                show_labels=self.oplsda_label_mode.currentData(),
+                theme=self._current_theme(),
+                fig=fig,
+            )
         else:
             plot_oplsda_splot(self._oplsda_result, theme=self._current_theme(), fig=fig)
         self.oplsda_canvas.draw()

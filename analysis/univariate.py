@@ -10,6 +10,8 @@ Two-group univariate analysis for volcano plot:
 
 from __future__ import annotations
 
+from typing import Any, Mapping
+
 import numpy as np
 import pandas as pd
 from scipy.stats import mannwhitneyu, ttest_ind, ttest_rel, wilcoxon
@@ -29,6 +31,11 @@ class VolcanoResult:
         fdr_method: str,
         paired: bool = False,
         n_pairs: int | None = None,
+        test_key: str = "student",
+        test_label: str = "Student's t",
+        resolution_strategy: str | None = None,
+        resolution_warnings: list[str] | None = None,
+        resolution_overrides_applied: list[dict[str, Any]] | None = None,
     ):
         self.result_df = result_df
         self.group1 = group1
@@ -40,6 +47,11 @@ class VolcanoResult:
         self.fdr_method = fdr_method
         self.paired = paired
         self.n_pairs = n_pairs
+        self.test_key = test_key
+        self.test_label = test_label
+        self.resolution_strategy = resolution_strategy
+        self.resolution_warnings = list(resolution_warnings or [])
+        self.resolution_overrides_applied = list(resolution_overrides_applied or [])
 
     @property
     def significant(self) -> pd.DataFrame:
@@ -86,6 +98,24 @@ def _ratio_log2fc(mean1: pd.Series, mean2: pd.Series) -> pd.Series:
     return np.log2((mean1 + offset) / (mean2 + offset))
 
 
+def _resolve_test_metadata(
+    *,
+    paired: bool,
+    nonpar: bool,
+    equal_var: bool,
+) -> tuple[str, str]:
+    """Return a stable test identifier and user-facing label."""
+    if paired and nonpar:
+        return "signed_rank", "Wilcoxon signed-rank"
+    if paired:
+        return "paired_t", "Paired t-test"
+    if nonpar:
+        return "mannwhitney", "Mann-Whitney U"
+    if equal_var:
+        return "student", "Student's t"
+    return "welch", "Welch's t"
+
+
 def volcano_analysis(
     df: pd.DataFrame,
     labels,
@@ -101,6 +131,7 @@ def volcano_analysis(
     paired: bool = False,
     pair_ids: pd.Series | None = None,
     fc_df: pd.DataFrame | None = None,
+    pair_resolution: Mapping[str, Any] | None = None,
 ) -> VolcanoResult:
     """
     Two-group univariate analysis for volcano plot.
@@ -120,17 +151,29 @@ def volcano_analysis(
         labels_arr = np.array(labels)
 
     n_pairs = None
+    resolution_meta = {
+        "resolution_strategy": None,
+        "warnings": [],
+        "overrides_applied": [],
+    }
+    test_key, test_label = _resolve_test_metadata(
+        paired=paired,
+        nonpar=nonpar,
+        equal_var=equal_var,
+    )
 
     if paired:
         if pair_ids is None:
             raise ValueError("pair_ids is required for paired analysis.")
 
         # Align samples by subject ID
-        from core.sample_info import align_paired_samples
+        from core.sample_info import align_paired_samples_with_meta
 
-        g1, g2, matched = align_paired_samples(
-            df, pd.Series(labels_arr, index=df.index),
+        g1, g2, matched, resolution_meta = align_paired_samples_with_meta(
+            df,
+            pd.Series(labels_arr, index=df.index),
             group1, group2, pair_ids,
+            paired_resolution=pair_resolution,
         )
         n_pairs = len(matched)
     else:
@@ -239,5 +282,10 @@ def volcano_analysis(
         fdr_method=fdr_method,
         paired=paired,
         n_pairs=n_pairs,
+        test_key=test_key,
+        test_label=test_label,
+        resolution_strategy=resolution_meta.get("resolution_strategy"),
+        resolution_warnings=resolution_meta.get("warnings"),
+        resolution_overrides_applied=resolution_meta.get("overrides_applied"),
     )
 

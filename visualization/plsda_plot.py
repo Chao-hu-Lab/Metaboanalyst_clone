@@ -8,6 +8,7 @@ from matplotlib.figure import Figure
 from matplotlib.patches import Ellipse
 from scipy.stats import chi2
 
+from visualization.score_labeling import annotate_score_labels
 from visualization.theme import apply_publication_style, get_group_colors
 
 
@@ -15,6 +16,8 @@ def plot_plsda_score(
     plsda_result,
     comp_x: int = 0,
     comp_y: int = 1,
+    show_labels: str = "outlier",
+    confidence: float = 0.95,
     theme: str = "light",
     fig: Figure | None = None,
 ) -> Figure:
@@ -29,6 +32,10 @@ def plot_plsda_score(
         Zero-based component index for x-axis.
     comp_y : int, default=1
         Zero-based component index for y-axis.
+    show_labels : {"outlier", "all", "none"}, default="outlier"
+        Labeling strategy for sample names on the score plot.
+    confidence : float, default=0.95
+        Confidence level used for ellipse drawing and outlier labeling.
     theme : str, default="light"
         Visualization theme name.
     fig : Figure or None, default=None
@@ -49,6 +56,10 @@ def plot_plsda_score(
 
     scores = plsda_result.scores
     labels = plsda_result.labels
+    sample_names = np.asarray(
+        getattr(plsda_result, "sample_names", [f"S{i+1}" for i in range(len(scores))]),
+        dtype=object,
+    )
     ev = plsda_result.explained_variance
     labels_arr = labels.values if hasattr(labels, "values") else np.asarray(labels)
     groups = sorted(set(labels_arr))
@@ -58,6 +69,7 @@ def plot_plsda_score(
         mask = labels_arr == group
         x = scores[mask, comp_x]
         y = scores[mask, comp_y]
+        group_names = sample_names[mask]
         ax.scatter(
             x,
             y,
@@ -74,7 +86,7 @@ def plot_plsda_score(
             if np.linalg.det(cov) > 1e-10:
                 eig_vals, eig_vecs = np.linalg.eigh(cov)
                 angle = np.degrees(np.arctan2(*eig_vecs[:, 1][::-1]))
-                n_std = np.sqrt(chi2.ppf(0.95, 2))
+                n_std = np.sqrt(chi2.ppf(confidence, 2))
                 width, height = 2 * n_std * np.sqrt(np.abs(eig_vals))
                 ax.add_patch(
                     Ellipse(
@@ -88,6 +100,15 @@ def plot_plsda_score(
                         linewidth=1.5,
                     )
                 )
+
+        annotate_score_labels(
+            ax,
+            x,
+            y,
+            group_names,
+            show_labels=show_labels,
+            confidence=confidence,
+        )
 
     x_label = f"Comp{comp_x + 1} ({ev[comp_x] * 100:.1f}%)" if len(ev) > comp_x else f"Comp{comp_x + 1}"
     y_label = f"Comp{comp_y + 1} ({ev[comp_y] * 100:.1f}%)" if len(ev) > comp_y else f"Comp{comp_y + 1}"

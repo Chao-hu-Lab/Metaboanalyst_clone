@@ -386,6 +386,7 @@ class NormTab(QWidget):
         df = payload["data"]
         pipeline_log = payload["log"]
         labels = payload.get("labels")
+        self.mw.set_stats_matrix_bundle(payload.get("stats_matrix_bundle"))
         self.btn_run.setEnabled(True)
         self.log_text.setPlainText("\n".join(pipeline_log))
         self.mw.update_data(

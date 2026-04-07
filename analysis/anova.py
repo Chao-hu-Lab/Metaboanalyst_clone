@@ -18,11 +18,19 @@ from statsmodels.stats.multicomp import pairwise_tukeyhsd
 class ANOVAResult:
     """ANOVA 分析結果容器"""
 
-    def __init__(self, result_df, groups, p_thresh, posthoc_df=None):
+    def __init__(
+        self,
+        result_df,
+        groups,
+        p_thresh,
+        posthoc_df=None,
+        method_key: str = "anova",
+    ):
         self.result_df = result_df
         self.groups = groups
         self.p_thresh = p_thresh
         self.posthoc_df = posthoc_df
+        self.method_key = method_key
 
     @property
     def significant(self) -> pd.DataFrame:
@@ -152,4 +160,10 @@ def run_anova(
         if posthoc_records:
             posthoc_df = pd.DataFrame(posthoc_records)
 
-    return ANOVAResult(result_df, groups, p_thresh, posthoc_df)
+    return ANOVAResult(
+        result_df,
+        groups,
+        p_thresh,
+        posthoc_df,
+        method_key="kruskal" if nonpar else "anova",
+    )
