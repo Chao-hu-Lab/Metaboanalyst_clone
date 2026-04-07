@@ -4,35 +4,35 @@ input:
 
 groups:
   include:
-    - Tumor
+    - Exposure
     - Normal
-    - Benignfat
+    - Control
   pair_id_pattern: BC\d+
   volcano_pairs:
     - groups:
-        - Tumor
+        - Exposure
         - Normal
       paired: true
     - groups:
-        - Tumor
-        - Benignfat
+        - Exposure
+        - Control
       paired: false
     - groups:
         - Normal
-        - Benignfat
+        - Control
       paired: false
   oplsda_pairs:
     - groups:
-        - Tumor
+        - Exposure
         - Normal
       paired: true
     - groups:
-        - Tumor
-        - Benignfat
+        - Exposure
+        - Control
       paired: false
     - groups:
         - Normal
-        - Benignfat
+        - Control
       paired: false
 
 pipeline:

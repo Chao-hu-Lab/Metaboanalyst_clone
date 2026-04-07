@@ -3,21 +3,21 @@ input:
   format: "plain"
 
 groups:
-  include: ["Tumor", "Normal", "Benignfat"]
+  include: ["Exposure", "Normal", "Control"]
   pair_id_pattern: "BC\\d+"
   volcano_pairs:
-    - groups: ["Tumor", "Normal"]
+    - groups: ["Exposure", "Normal"]
       paired: true
-    - groups: ["Tumor", "Benignfat"]
+    - groups: ["Exposure", "Control"]
       paired: false
-    - groups: ["Normal", "Benignfat"]
+    - groups: ["Normal", "Control"]
       paired: false
   oplsda_pairs:
-    - groups: ["Tumor", "Normal"]
+    - groups: ["Exposure", "Normal"]
       paired: true
-    - groups: ["Tumor", "Benignfat"]
+    - groups: ["Exposure", "Control"]
       paired: false
-    - groups: ["Normal", "Benignfat"]
+    - groups: ["Normal", "Control"]
       paired: false
 
 pipeline:
