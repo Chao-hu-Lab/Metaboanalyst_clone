@@ -91,6 +91,25 @@ def test_gui_state_round_trip_restores_shared_widget_state(qapp) -> None:
     reloaded_window.close()
 
 
+def test_gui_state_round_trip_preserves_wilcoxon_volcano_selection(qapp) -> None:
+    window = MainWindow()
+
+    _set_combo_to_data(window.stats_tab.vol_test, "wilcoxon")
+
+    config = window._build_current_gui_preset_config()
+
+    assert config.analysis["volcano"]["test"] == "wilcoxon"
+    assert config.analysis["volcano"]["parametric_test_default"] == "welch"
+
+    reloaded_window = MainWindow()
+    reloaded_window._load_preset_config(config, "memory://volcano-wilcoxon")
+
+    assert reloaded_window.stats_tab.vol_test.currentData() == "wilcoxon"
+
+    window.close()
+    reloaded_window.close()
+
+
 def test_gui_state_binding_reports_invalid_combo_fallbacks(qapp) -> None:
     window = MainWindow()
     config = load_yaml_config(
@@ -114,6 +133,7 @@ def test_gui_state_binding_reports_invalid_combo_fallbacks(qapp) -> None:
         },
         require_required_sections=False,
     )
+    config.analysis["volcano"]["test"] = "mystery-volcano-test"
 
     window._load_preset_config(config, "memory://invalid-combos")
 
@@ -134,6 +154,7 @@ def test_gui_state_binding_reports_invalid_combo_fallbacks(qapp) -> None:
     assert "pipeline.row_norm" in ignored_text
     assert "analysis.pca.score_label_mode" in ignored_text
     assert "analysis.plsda.score_label_mode" in ignored_text
+    assert "analysis.volcano.test" in ignored_text
     assert "analysis.oplsda.score_label_mode" in ignored_text
     assert "analysis.heatmap.method" in ignored_text
     assert "analysis.heatmap.metric" in ignored_text

@@ -465,3 +465,28 @@ class TestResolveVolcanoParametricEqualVar:
         from scripts.run_from_config import resolve_volcano_parametric_equal_var
 
         assert resolve_volcano_parametric_equal_var({}) is False
+
+    def test_explicit_wilcoxon_test_keeps_parametric_flag_false(self):
+        from scripts.run_from_config import resolve_volcano_parametric_equal_var
+
+        assert resolve_volcano_parametric_equal_var({"test": "wilcoxon"}) is False
+
+
+class TestResolveVolcanoTestMode:
+    def test_prefers_explicit_test_key(self):
+        from scripts.run_from_config import resolve_volcano_test_mode
+
+        assert resolve_volcano_test_mode({"test": "wilcoxon", "parametric_test_default": "student"}) == (
+            "wilcoxon",
+            False,
+            True,
+        )
+
+    def test_falls_back_to_parametric_default(self):
+        from scripts.run_from_config import resolve_volcano_test_mode
+
+        assert resolve_volcano_test_mode({"parametric_test_default": "student"}) == (
+            "student",
+            True,
+            False,
+        )

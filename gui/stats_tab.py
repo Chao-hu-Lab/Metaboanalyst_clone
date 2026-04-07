@@ -144,6 +144,7 @@ class StatsTab(QWidget):
                 "log2_fc_thresh": float(math.log2(self.vol_fc.value())),
                 "p_thresh": float(self.vol_p.value()),
                 "use_fdr": bool(self.vol_fdr.isChecked()),
+                "test": self.vol_test.currentData(),
             },
             "anova": {
                 "p_thresh": float(self.anova_p.value()),
@@ -216,7 +217,15 @@ class StatsTab(QWidget):
                 apply_spin_value(self.vol_p, float(volcano["p_thresh"]))
             if "use_fdr" in volcano:
                 apply_checked(self.vol_fdr, bool(volcano["use_fdr"]))
-            if "parametric_test_default" in volcano:
+            if "test" in volcano:
+                result.extend(
+                    apply_combo_data(
+                        self.vol_test,
+                        volcano["test"],
+                        "analysis.volcano.test",
+                    )
+                )
+            elif "parametric_test_default" in volcano:
                 result.extend(
                     apply_combo_data(
                         self.vol_test,

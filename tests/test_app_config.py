@@ -39,6 +39,7 @@ def test_normalize_config_merges_shared_defaults() -> None:
     assert normalized["analysis"]["volcano"]["fc_thresh"] == 2.0
     assert normalized["analysis"]["volcano"]["log2_fc_thresh"] == 1.0
     assert normalized["analysis"]["volcano"]["parametric_test_default"] == "welch"
+    assert normalized["analysis"]["volcano"]["test"] == "welch"
     assert normalized["output"]["auto_timestamp"] is True
 
 
@@ -193,6 +194,22 @@ def test_load_yaml_config_rejects_invalid_volcano_parametric_default() -> None:
         )
 
 
+def test_load_yaml_config_rejects_invalid_volcano_test() -> None:
+    with pytest.raises(ValueError, match="analysis.volcano.test"):
+        load_yaml_config(
+            {
+                "input": {"file": "demo.xlsx"},
+                "pipeline": {},
+                "groups": {},
+                "analysis": {
+                    "volcano": {
+                        "test": "mystery-test",
+                    }
+                },
+            }
+        )
+
+
 def test_load_yaml_config_rejects_invalid_paired_resolution_policy() -> None:
     with pytest.raises(ValueError, match="groups.paired_resolution.on_unresolved"):
         load_yaml_config(
@@ -260,4 +277,5 @@ def test_load_preset_reference_loads_builtin_seed_preset() -> None:
     assert config.pipeline.impute_method == "knn"
     assert config.output.suffix == "_tissue_knn_rsd050_marker_verify"
     assert config.analysis["volcano"]["parametric_test_default"] == "welch"
+    assert config.analysis["volcano"]["test"] == "welch"
     assert config.groups["paired_resolution"]["overrides"]["Exposure"]["BC2286"] == "TumorBC2286_DNA"

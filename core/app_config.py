@@ -22,6 +22,7 @@ from core.utils import get_app_data_dir, get_resource_path
 REQUIRED_TOP_LEVEL_SECTIONS: tuple[str, ...] = ("input", "pipeline", "groups", "analysis")
 PresetKind = Literal["builtin", "local"]
 VOLCANO_PARAMETRIC_TEST_CHOICES: frozenset[str] = frozenset({"student", "welch"})
+VOLCANO_TEST_CHOICES: frozenset[str] = frozenset({"student", "welch", "wilcoxon"})
 PAIRED_RESOLUTION_SCOPE_CHOICES: frozenset[str] = frozenset({"paired_only"})
 PAIRED_RESOLUTION_DUPLICATE_CHOICES: frozenset[str] = frozenset({"prefer_override"})
 PAIRED_RESOLUTION_UNRESOLVED_CHOICES: frozenset[str] = frozenset({"warn_keep_first", "error"})
@@ -229,6 +230,11 @@ def _normalize_analysis_config(raw_analysis: Mapping[str, Any]) -> dict[str, Any
         "analysis.volcano.parametric_test_default",
         volcano.get("parametric_test_default", "welch"),
         VOLCANO_PARAMETRIC_TEST_CHOICES,
+    )
+    volcano["test"] = _validate_choice(
+        "analysis.volcano.test",
+        volcano.get("test", volcano["parametric_test_default"]),
+        VOLCANO_TEST_CHOICES,
     )
 
     heatmap = analysis.setdefault("heatmap", {})

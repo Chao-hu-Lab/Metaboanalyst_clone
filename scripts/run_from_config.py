@@ -90,10 +90,20 @@ def parse_pair_config(
     return result
 
 
+def resolve_volcano_test_mode(volcano_cfg: Mapping[str, Any]) -> tuple[str, bool, bool]:
+    """Return (test_key, equal_var, nonpar) for volcano analysis."""
+    test_key = str(
+        volcano_cfg.get("test", volcano_cfg.get("parametric_test_default", "welch"))
+    ).strip().lower()
+    if test_key not in {"student", "welch", "wilcoxon"}:
+        test_key = "welch"
+    return test_key, test_key == "student", test_key == "wilcoxon"
+
+
 def resolve_volcano_parametric_equal_var(volcano_cfg: Mapping[str, Any]) -> bool:
     """Return the equal-variance flag for unpaired parametric volcano tests."""
-    default_key = str(volcano_cfg.get("parametric_test_default", "welch")).strip().lower()
-    return default_key == "student"
+    _test_key, equal_var, _nonpar = resolve_volcano_test_mode(volcano_cfg)
+    return equal_var
 
 
 # ── Data loaders ──────────────────────────────────────────
@@ -792,7 +802,7 @@ def run_analysis(cfg: dict):
     vol_cfg = analysis_cfg["volcano"]
     raw_pairs = cfg["groups"].get("volcano_pairs", [])
     volcano_pairs = parse_pair_config(raw_pairs)
-    volcano_equal_var = resolve_volcano_parametric_equal_var(vol_cfg)
+    volcano_test_key, volcano_equal_var, volcano_nonpar = resolve_volcano_test_mode(vol_cfg)
     paired_resolution_cfg = cfg["groups"].get("paired_resolution")
 
     # Extract subject IDs if any pair is paired
@@ -809,6 +819,8 @@ def run_analysis(cfg: dict):
         test_label = "paired" if is_paired else "unpaired"
         print(f"  {g1} vs {g2} ({test_label})...")
         try:
+            if volcano_nonpar:
+                print(f"    Configured volcano test: {volcano_test_key}")
             vresult = volcano_analysis(
                 volcano_matrix, final_labels,
                 group1=g1, group2=g2,
@@ -816,6 +828,7 @@ def run_analysis(cfg: dict):
                 log2_fc_thresh=vol_cfg.get("log2_fc_thresh"),
                 p_thresh=vol_cfg["p_thresh"],
                 equal_var=volcano_equal_var,
+                nonpar=volcano_nonpar,
                 use_fdr=vol_cfg["use_fdr"],
                 paired=is_paired,
                 pair_ids=subject_ids if is_paired else None,
