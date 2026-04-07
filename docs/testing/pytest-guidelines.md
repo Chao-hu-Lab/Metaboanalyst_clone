@@ -4,6 +4,10 @@ This document captures the recommended pytest baseline for this repository.
 It combines official pytest good practices with repository-specific constraints
 for Windows, PySide6 GUI tests, and the current sandboxed execution environment.
 
+For repository-specific full-suite execution strategy and timeout guidance, also see:
+
+- `docs/testing/full-suite-strategy.md`
+
 ### Baseline configuration
 
 - Keep all tests under `tests/`
