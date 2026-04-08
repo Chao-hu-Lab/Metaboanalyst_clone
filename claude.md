@@ -17,7 +17,7 @@ Build a **desktop Python GUI application** (PySide6) that fully replicates Metab
 - **Core:** numpy, pandas, scipy, scikit-learn, statsmodels
 - **Visualization:** matplotlib, seaborn, plotly (3D PCA only), adjustText
 - **Specialized:** qnorm (quantile normalization), pyopls (OPLS-DA), fancyimpute (SVD impute), pyppca (PPCA impute)
-- **CI support:** test matrix on Python 3.11 / 3.12; desktop build artifacts for Windows and macOS only
+- **CI support:** full regression on Python 3.11, compatibility smoke on Python 3.12, desktop build artifacts for Windows and macOS only
 
 ```bash
 pip install numpy pandas scipy scikit-learn statsmodels matplotlib seaborn plotly adjustText PySide6 fancyimpute pyppca qnorm pyopls
@@ -112,7 +112,7 @@ metaboanalyst_clone/
 13. i18n: extract strings → translate zh_TW → compile .qm → integrate QTranslator
 14. Deploy: PyInstaller spec → test builds → installer / code sign
 15. `main.py` entry point with platform setup + language loading
-16. CI/CD: shared GitHub Actions workflows (Windows/macOS only)
+16. CI/CD: repo-local test workflow + shared build workflow (Windows/macOS only)
 
 ---
 

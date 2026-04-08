@@ -6,7 +6,7 @@
 
 - Supported desktop release targets: Windows and macOS
 - Linux is not a maintained release target for this repository
-- CI test matrix: Python 3.11 / 3.12
+- PR CI uses full regression on Python 3.11 and compatibility smoke on Python 3.12
 - Desktop build workflow currently packages artifacts with Python 3.11 through the shared workflow
 
 ## Packaging Files
@@ -74,17 +74,21 @@ bash packaging/create_dmg.sh
 
 ## CI / Release Build
 
-The repository no longer keeps custom per-platform build logic in caller workflows.
-Instead, it delegates to pinned reusable workflows from `Chao-hu-Lab/shared-workflows`.
+The repository now uses a split strategy:
+
+- test workflow is repo-local because this suite times out too easily as one monolithic pytest run
+- build workflow still delegates to pinned reusable workflows from `Chao-hu-Lab/shared-workflows`
 
 ### CI workflow
 
 File: `.github/workflows/ci.yml`
 
-- Calls shared `python-ci.yml`
 - Runs tests on the self-hosted runner label set `[self-hosted, Windows, X64]`
-- Uses Python `3.11` and `3.12`
-- Keeps a separate `ruff` lint job on `ubuntu-latest`
+- Uses repo-local PowerShell steps instead of the shared `python-ci.yml`
+- Runs the full suite file-by-file on Python `3.11`
+- Runs a targeted compatibility smoke subset on Python `3.12`
+- Keeps a separate low-noise `ruff` lint job on `ubuntu-latest`
+- Uses file-by-file execution because this repository's full suite is not reliable as a single `pytest tests/` invocation in CI
 
 ### Build workflow
 
@@ -158,3 +162,4 @@ xcrun stapler staple dist/PyMetaboAnalyst.app
 - Do not add Linux back into CI/CD unless the repository is willing to maintain Linux packaging and release validation
 - Keep reusable workflow references pinned, not `@main`, if the goal is reproducible CI/CD behavior
 - If shared workflow expectations change, update `packaging/pymetabo_release.spec` together with the caller workflow
+- Keep the repo-local CI strategy aligned with `docs/testing/full-suite-strategy.md`

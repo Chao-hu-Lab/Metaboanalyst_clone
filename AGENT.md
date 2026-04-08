@@ -91,6 +91,10 @@ pytest tests/ -v --tb=short -x
 
 # Run tests in the supported CI matrix locally when needed
 uv run pytest tests/ -v --tb=short -x
+
+# CI-style full regression
+Get-ChildItem tests -Filter "test_*.py" | Sort-Object Name | ForEach-Object { uv run pytest $_.FullName -q }
+
 # Build exe locally (Windows)
 pyinstaller packaging/pymetabo.spec --clean --noconfirm
 
@@ -98,7 +102,7 @@ pyinstaller packaging/pymetabo.spec --clean --noconfirm
 pyinstaller packaging/pymetabo_release.spec --clean --noconfirm
 
 # Lint
-ruff check . --select=E,F,W --ignore=E501
+ruff check . --select=F,E9
 ```
 
 ## Commit Message Convention

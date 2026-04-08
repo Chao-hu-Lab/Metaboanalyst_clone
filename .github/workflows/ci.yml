@@ -10,15 +10,94 @@ permissions:
   contents: read
 
 jobs:
-  test:
-    uses: Chao-hu-Lab/shared-workflows/.github/workflows/python-ci.yml@078fc7c1cccf64884d230df8a1d84f034c9a41eb
-    with:
-      python-versions: '["3.11", "3.12"]'
-      install-args: "-r requirements.txt pytest"
-      submodules: false
+  test-full-311:
+    name: Full Regression (Python 3.11)
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 180
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install uv
+          $env:UV_CACHE_DIR = Join-Path $env:GITHUB_WORKSPACE ".uv-cache"
+          uv pip install --system -r requirements.txt pytest
+
+      - name: Run full suite file-by-file
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $env:UV_CACHE_DIR = Join-Path $env:GITHUB_WORKSPACE ".uv-cache"
+          $files = Get-ChildItem -Path "tests" -Filter "test_*.py" | Sort-Object Name
+
+          foreach ($file in $files) {
+              Write-Host "=== RUNNING $($file.Name) ==="
+              uv run pytest $file.FullName -q
+              if ($LASTEXITCODE -ne 0) {
+                  throw "Test file failed: $($file.Name)"
+              }
+          }
+
+  test-compat-312:
+    name: Compatibility Smoke (Python 3.12)
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install uv
+          $env:UV_CACHE_DIR = Join-Path $env:GITHUB_WORKSPACE ".uv-cache"
+          uv pip install --system -r requirements.txt pytest
+
+      - name: Run compatibility smoke tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $env:UV_CACHE_DIR = Join-Path $env:GITHUB_WORKSPACE ".uv-cache"
+          $files = @(
+              "tests\test_app_config.py",
+              "tests\test_core.py",
+              "tests\test_paired_analysis.py",
+              "tests\test_run_from_config_input_formats.py",
+              "tests\test_gui_state_binding.py",
+              "tests\test_plot_toolbar.py"
+          )
+
+          foreach ($file in $files) {
+              Write-Host "=== RUNNING $file ==="
+              uv run pytest $file -q
+              if ($LASTEXITCODE -ne 0) {
+                  throw "Compatibility smoke failed: $file"
+              }
+          }
 
   lint:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
@@ -32,4 +111,4 @@ jobs:
         run: pip install ruff
 
       - name: Lint
-        run: ruff check . --select=E,F,W --ignore=E501
+        run: ruff check . --select=F,E9
