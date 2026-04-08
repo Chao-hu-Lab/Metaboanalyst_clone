@@ -17,17 +17,12 @@ ANY of these analyses within that version:
 
 from __future__ import annotations
 
-import os
-import sys
-import textwrap
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
 import matplotlib.patches as mpatches
 import numpy as np
 import pandas as pd
-from matplotlib_venn import venn2, venn3
 from upsetplot import UpSet, from_memberships
 
 # ── Config ─────────────────────────────────────────────────────────────────
@@ -169,7 +164,7 @@ def plot_tier_summary(mat: pd.DataFrame) -> plt.Figure:
 
 def plot_venn_diagram(version_sig: dict[str, set[str]]) -> plt.Figure:
     """3-set Venn (Loose/Default/Strict) + annotation for Control."""
-    from matplotlib_venn import venn3, venn3_circles
+    from matplotlib_venn import venn3
 
     fig, axes = plt.subplots(1, 2, figsize=(14, 6))
 
@@ -181,8 +176,12 @@ def plot_venn_diagram(version_sig: dict[str, set[str]]) -> plt.Figure:
         version_sig["Default"],
         version_sig["Strict"],
     )
-    v = venn3(sets, set_labels=("Loose", "Default", "Strict"),
-              set_colors=("#FF7F0E", "#2CA02C", "#D62728"), alpha=0.55)
+    venn3(
+        sets,
+        set_labels=("Loose", "Default", "Strict"),
+        set_colors=("#FF7F0E", "#2CA02C", "#D62728"),
+        alpha=0.55,
+    )
     ax.set_title("Overlap: Loose / Default / Strict", fontsize=12, fontweight="bold")
 
     # Right: Control / Loose / Strict (another view)
@@ -193,8 +192,12 @@ def plot_venn_diagram(version_sig: dict[str, set[str]]) -> plt.Figure:
         version_sig["Loose"],
         version_sig["Strict"],
     )
-    v2 = venn3(sets2, set_labels=("Control", "Loose", "Strict"),
-               set_colors=("#1F77B4", "#FF7F0E", "#D62728"), alpha=0.55)
+    venn3(
+        sets2,
+        set_labels=("Control", "Loose", "Strict"),
+        set_colors=("#1F77B4", "#FF7F0E", "#D62728"),
+        alpha=0.55,
+    )
     ax2.set_title("Overlap: Control / Loose / Strict", fontsize=12, fontweight="bold")
 
     fig.suptitle("Venn Diagrams of Significant Features", fontsize=14, fontweight="bold", y=1.01)
@@ -238,7 +241,7 @@ def plot_presence_heatmap(mat: pd.DataFrame, top_n: int = 80) -> plt.Figure:
     fig, ax = plt.subplots(figsize=(7, max(6, top_n * 0.18)))
     data = display[VERSIONS].values.astype(float)
 
-    im = ax.imshow(data, aspect="auto", cmap="YlGnBu", vmin=0, vmax=1, interpolation="nearest")
+    ax.imshow(data, aspect="auto", cmap="YlGnBu", vmin=0, vmax=1, interpolation="nearest")
 
     # Color left edge by tier
     for i, (_, row) in enumerate(display.iterrows()):
@@ -272,7 +275,6 @@ def plot_analysis_breakdown(version_sig: dict[str, set[str]], mat: pd.DataFrame)
 
     fig, ax = plt.subplots(figsize=(10, 5))
     tiers = [1, 2, 3, 4]
-    tier_labels = [f"T{t}" for t in tiers]
     x = np.arange(len(tiers))
     bar_width = 0.18
 
@@ -331,7 +333,7 @@ def plot_analysis_type_heatmap(mat: pd.DataFrame, version_sig: dict) -> plt.Figu
 
     fig, ax = plt.subplots(figsize=(max(10, len(col_labels) * 0.9),
                                     max(4, len(tier1_feats) * 0.32)))
-    im = ax.imshow(data, aspect="auto", cmap="Blues", vmin=0, vmax=1, interpolation="nearest")
+    ax.imshow(data, aspect="auto", cmap="Blues", vmin=0, vmax=1, interpolation="nearest")
 
     ax.set_xticks(range(len(col_labels)))
     ax.set_xticklabels(col_labels, fontsize=8, rotation=45, ha="right")
@@ -409,7 +411,7 @@ def main():
         desc = {1: "all 4 versions", 2: "3 versions", 3: "2 versions", 4: "1 version"}[tier]
         print(f"  Tier {tier} ({desc}): {n} features")
     print(f"  Total unique significant features: {len(mat)}")
-    print(f"  Total unique features tested: —")
+    print("  Total unique features tested: —")
 
     # Save figures
     print("\nGenerating visualizations...")
