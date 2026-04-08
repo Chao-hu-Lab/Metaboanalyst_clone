@@ -37,6 +37,7 @@ NUL
 .tmp/
 tmp*/
 
-# Local config presets
+# Config presets use an allowlist: ignore all local presets by default,
+# then explicitly unignore only productized presets that should be versioned.
 configs/*.yaml
 !configs/Tissue_knn_rsd050_marker_verify.yaml
