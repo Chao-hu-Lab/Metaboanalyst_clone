@@ -1,26 +1,92 @@
-name: Build Desktop Packages
+name: Build Release
 
 on:
   push:
-    tags: ["v*.*.*"]
-  workflow_dispatch:
-    inputs:
-      upload_artifact:
-        description: "Upload as artifact when manually triggered"
-        type: boolean
-        default: true
-
-permissions:
-  contents: write
+    tags: ["v*"]
 
 jobs:
-  build:
-    uses: Chao-hu-Lab/shared-workflows/.github/workflows/python-build.yml@078fc7c1cccf64884d230df8a1d84f034c9a41eb
-    with:
-      upload_artifact: ${{ inputs.upload_artifact || false }}
-      spec-file: "packaging/pymetabo_release.spec"
-      executable-name: "PyMetaboAnalyst"
-      artifact-prefix: "PyMetaboAnalyst"
-      install-command: "pip install -r requirements.txt pyinstaller"
-      version-source: "tag"
-      platforms: '["windows", "macos"]'
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+      - name: Generate icons
+        run: python scripts/generate_icon.py
+      - name: Build with PyInstaller
+        run: pyinstaller packaging/pymetabo.spec --noconfirm --clean
+      - name: Verify exe exists
+        run: test -f dist/PyMetaboAnalyst/PyMetaboAnalyst.exe
+        shell: bash
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PyMetaboAnalyst-Windows
+          path: dist/PyMetaboAnalyst/
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+      - name: Generate icons
+        run: python scripts/generate_icon.py
+      - name: Build with PyInstaller
+        run: pyinstaller packaging/pymetabo_mac.spec --noconfirm --clean
+      - name: Create DMG
+        run: bash packaging/create_dmg.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PyMetaboAnalyst-macOS
+          path: dist/PyMetaboAnalyst.dmg
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+      - name: Generate icons
+        run: python scripts/generate_icon.py
+      - name: Build with PyInstaller
+        run: pyinstaller packaging/pymetabo.spec --noconfirm --clean
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PyMetaboAnalyst-Linux
+          path: dist/PyMetaboAnalyst/
+
+  release:
+    needs: [build-windows, build-macos, build-linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+      - name: Zip Windows build
+        run: cd PyMetaboAnalyst-Windows && zip -r ../PyMetaboAnalyst-Windows.zip .
+      - name: Zip Linux build
+        run: cd PyMetaboAnalyst-Linux && zip -r ../PyMetaboAnalyst-Linux.zip .
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            PyMetaboAnalyst-Windows.zip
+            PyMetaboAnalyst-macOS/PyMetaboAnalyst.dmg
+            PyMetaboAnalyst-Linux.zip

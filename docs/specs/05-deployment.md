@@ -1,160 +1,205 @@
 # Cross-Platform Deployment (Windows + macOS)
 
-> Current authoritative reference for packaging, release artifacts, and CI/CD.
+> Extracted from CLAUDE.md. Authoritative reference for packaging, signing, and CI/CD.
 
-## Supported Targets
+## Licensing Decision: PySide6 (LGPL) Recommended
 
-- Supported desktop release targets: Windows and macOS
-- Linux is not a maintained release target for this repository
-- CI test matrix: Python 3.11 / 3.12
-- Desktop build workflow currently packages artifacts with Python 3.11 through the shared workflow
+**PyQt6 is GPL v3** — closed-source distribution requires a commercial license (~€550/dev/year).
+**PySide6 is LGPL** — allows free closed-source distribution.
 
-## Packaging Files
+APIs are ~99.9% identical. **If you plan to distribute as .exe/.app, use PySide6 instead of PyQt6.**
 
-```text
+## Additional Dependencies
+
+```bash
+pip install pyinstaller pyqtdarktheme qtawesome
+```
+
+## Project Structure Extension
+
+```
 metaboanalyst_clone/
-├── packaging/
-│   ├── pymetabo.spec           # Local Windows onedir build
-│   ├── pymetabo_mac.spec       # Local macOS app bundle build
-│   ├── pymetabo_release.spec   # CI/release spec for shared workflow
-│   ├── inno_setup.iss          # Windows installer script
-│   └── create_dmg.sh           # Optional local macOS DMG helper
-├── resources/
-│   ├── fonts/
-│   └── icons/
-│       ├── app.ico
-│       └── app.icns
-└── .github/workflows/
-    ├── ci.yml
-    └── build.yml
+├── assets/
+│   ├── app.ico              # Windows icon (256×256 multi-res)
+│   ├── app.icns             # macOS icon (1024×1024)
+│   ├── app.png              # Linux / fallback (512×512)
+│   └── splash.png           # Splash screen (optional)
+├── deploy/
+│   ├── pymetaboanalyst.spec  # PyInstaller spec (shared)
+│   ├── pymetaboanalyst_mac.spec
+│   ├── inno_setup.iss        # Windows Inno Setup script
+│   └── Info.plist             # macOS plist overrides
+└── .github/
+    └── workflows/
+        └── build-release.yml  # CI/CD for both platforms
 ```
 
-## Resource Resolution
+## Platform-Specific Handling
 
-Runtime resource lookup is implemented in `core/utils.py` via `get_resource_path()`.
+```python
+import sys, os
+from pathlib import Path
 
-- Frozen app: resolves from `sys._MEIPASS`
-- Dev mode: resolves from the repository root
+def get_resource_path(relative_path: str) -> Path:
+    if hasattr(sys, '_MEIPASS'):
+        return Path(sys._MEIPASS) / relative_path
+    return Path(os.path.abspath('.')) / relative_path
 
-This is why PyInstaller specs must include:
+def get_data_dir() -> Path:
+    if sys.platform == 'win32':
+        base = Path(os.environ.get('APPDATA', Path.home()))
+    elif sys.platform == 'darwin':
+        base = Path.home() / 'Library' / 'Application Support'
+    else:
+        base = Path.home() / '.config'
+    path = base / 'PyMetaboAnalyst'
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
-- `translations/`
-- `resources/fonts/`
-- `resources/icons/`
-
-## Local Build Commands
-
-### Windows local build
-
-```powershell
-pyinstaller packaging\pymetabo.spec --clean --noconfirm
+def setup_platform():
+    if sys.platform == 'win32':
+        from ctypes import windll
+        windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+            'com.yourname.pymetaboanalyst'
+        )
+    elif sys.platform == 'darwin':
+        os.environ['QT_MAC_WANTS_LAYER'] = '1'
 ```
 
-Output:
+## PyInstaller Configuration
 
-- `dist\PyMetaboAnalyst\PyMetaboAnalyst.exe`
+**Always use `--onedir` mode** (not `--onefile`).
 
-Use this path with `packaging\inno_setup.iss` if you want a Windows installer.
+**Windows:**
+```bash
+pyinstaller --noconsole --windowed \
+    --name "PyMetaboAnalyst" \
+    --icon=assets/app.ico \
+    --add-data "translations;translations" \
+    --add-data "resources;resources" \
+    --add-data "assets;assets" \
+    main.py
+```
 
-### macOS local build
+**macOS:**
+```bash
+pyinstaller --noconsole --windowed \
+    --name "PyMetaboAnalyst" \
+    --icon=assets/app.icns \
+    --add-data "translations:translations" \
+    --add-data "resources:resources" \
+    --add-data "assets:assets" \
+    --osx-bundle-identifier "com.yourname.pymetaboanalyst" \
+    main.py
+```
+
+## Windows Installer (Inno Setup)
+
+```iss
+[Setup]
+AppName=PyMetaboAnalyst
+AppVersion=1.0.0
+DefaultDirName={autopf}\PyMetaboAnalyst
+DefaultGroupName=PyMetaboAnalyst
+OutputBaseFilename=PyMetaboAnalyst_Setup_1.0.0
+SetupIconFile=..\assets\app.ico
+Compression=lzma2
+SolidCompression=yes
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
+
+[Files]
+Source: "..\dist\PyMetaboAnalyst\*"; DestDir: "{app}"; Flags: recursesubdirs
+
+[Icons]
+Name: "{group}\PyMetaboAnalyst"; Filename: "{app}\PyMetaboAnalyst.exe"
+Name: "{autodesktop}\PyMetaboAnalyst"; Filename: "{app}\PyMetaboAnalyst.exe"
+
+[Run]
+Filename: "{app}\PyMetaboAnalyst.exe"; Description: "Launch PyMetaboAnalyst"; Flags: postinstall nowait
+```
+
+## macOS Code Signing & Notarization
+
+Required for macOS Sequoia 15+. Needs Apple Developer Program ($99/year).
 
 ```bash
-pyinstaller packaging/pymetabo_mac.spec --clean --noconfirm
-```
+# Sign all internal dylibs
+find dist/PyMetaboAnalyst.app -name "*.dylib" -o -name "*.so" | while read f; do
+    codesign --force --sign "Developer ID Application: YOUR NAME (TEAMID)" \
+        --options runtime --timestamp "$f"
+done
 
-Output:
-
-- `dist/PyMetaboAnalyst.app`
-
-Optional local DMG creation:
-
-```bash
-bash packaging/create_dmg.sh
-```
-
-## CI / Release Build
-
-The repository no longer keeps custom per-platform build logic in caller workflows.
-Instead, it delegates to pinned reusable workflows from `Chao-hu-Lab/shared-workflows`.
-
-### CI workflow
-
-File: `.github/workflows/ci.yml`
-
-- Calls shared `python-ci.yml`
-- Runs tests on the self-hosted runner label set `[self-hosted, Windows, X64]`
-- Uses Python `3.11` and `3.12`
-- Keeps a separate `ruff` lint job on `ubuntu-latest`
-
-### Build workflow
-
-File: `.github/workflows/build.yml`
-
-- Calls shared `python-build.yml`
-- Triggered by tags matching `v*.*.*`
-- Supports manual `workflow_dispatch`
-- Publishes Windows and macOS artifacts only
-- Uses `packaging/pymetabo_release.spec`
-
-Current release artifact contract:
-
-- Windows artifact contains `PyMetaboAnalyst.exe`
-- macOS artifact contains `PyMetaboAnalyst.app`
-- Shared workflow packages both outputs as zip artifacts / release assets
-
-## Why CI Uses a Separate Spec
-
-`packaging/pymetabo_release.spec` exists to match the output contract expected by the shared build workflow:
-
-- Windows: `dist/PyMetaboAnalyst.exe`
-- macOS: `dist/PyMetaboAnalyst.app`
-
-This is intentionally separate from local packaging specs:
-
-- local Windows installer flow still uses `packaging/pymetabo.spec`
-- local macOS DMG flow still uses `packaging/pymetabo_mac.spec` and `packaging/create_dmg.sh`
-
-That split keeps CI/CD deterministic without forcing local packaging workflows to change.
-
-## Windows Installer
-
-`packaging/inno_setup.iss` still targets the local Windows onedir build:
-
-- source directory: `dist\PyMetaboAnalyst\`
-- executable: `dist\PyMetaboAnalyst\PyMetaboAnalyst.exe`
-
-Recommended local flow:
-
-```powershell
-pyinstaller packaging\pymetabo.spec --clean --noconfirm
-```
-
-Then compile `packaging\inno_setup.iss` with Inno Setup Compiler.
-
-## macOS Signing / Notarization
-
-Code signing and notarization are still a separate manual concern from CI packaging.
-If production notarization is needed, sign the `.app`, notarize the zipped app, then staple it.
-
-Typical sequence:
-
-```bash
+# Sign the app bundle
 codesign --force --sign "Developer ID Application: YOUR NAME (TEAMID)" \
-  --options runtime --deep --timestamp dist/PyMetaboAnalyst.app
+    --options runtime --deep --timestamp dist/PyMetaboAnalyst.app
 
+# Notarize
 ditto -c -k --keepParent dist/PyMetaboAnalyst.app dist/PyMetaboAnalyst.zip
-
 xcrun notarytool submit dist/PyMetaboAnalyst.zip \
-  --apple-id "your@email.com" \
-  --password "app-specific-password" \
-  --team-id "TEAMID" \
-  --wait
-
+    --apple-id "your@email.com" --password "app-specific-password" \
+    --team-id "TEAMID" --wait
 xcrun stapler staple dist/PyMetaboAnalyst.app
+
+# Create DMG
+hdiutil create -volname "PyMetaboAnalyst" \
+    -srcfolder dist/PyMetaboAnalyst.app -ov -format UDZO dist/PyMetaboAnalyst.dmg
 ```
 
-## Operational Notes
+## GitHub Actions CI/CD
 
-- Do not add Linux back into CI/CD unless the repository is willing to maintain Linux packaging and release validation
-- Keep reusable workflow references pinned, not `@main`, if the goal is reproducible CI/CD behavior
-- If shared workflow expectations change, update `packaging/pymetabo_release.spec` together with the caller workflow
+Create `.github/workflows/build-release.yml`:
+
+```yaml
+name: Build and Release
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt pyinstaller
+      - run: pyinstaller deploy/pymetaboanalyst.spec --noconfirm
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PyMetaboAnalyst-Windows
+          path: dist/PyMetaboAnalyst/
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt pyinstaller
+      - run: pyinstaller deploy/pymetaboanalyst_mac.spec --noconfirm
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PyMetaboAnalyst-macOS
+          path: dist/PyMetaboAnalyst.dmg
+
+  release:
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            PyMetaboAnalyst-Windows/**
+            PyMetaboAnalyst-macOS/**
+```
+
+**Required GitHub Secrets:**
+- `MACOS_CERT_BASE64` — base64 encoded .p12 certificate
+- `MACOS_CERT_PASSWORD` — certificate password
+- `APPLE_ID` — Apple developer email
+- `APPLE_APP_PASSWORD` — app-specific password
+- `APPLE_TEAM_ID` — 10-char team identifier
