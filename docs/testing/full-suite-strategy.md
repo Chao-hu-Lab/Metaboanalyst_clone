@@ -37,9 +37,9 @@ Examples:
 
 ```powershell
 $env:UV_CACHE_DIR = ".uv-cache"
-uv run pytest tests\test_app_config.py -q
+uv run pytest tests\test_config_load.py -q
 uv run pytest tests\test_paired_analysis.py -q
-uv run pytest tests\test_gui_state_binding.py -q
+uv run pytest tests\test_sample_interface.py -q
 ```
 
 ### 2. Before concluding regression status
@@ -79,20 +79,18 @@ If `uv run pytest tests -q` times out:
 
 ## Known slow files
 
-The following files are known to dominate full-suite runtime in the current
+The following file is known to dominate full-suite runtime in the current
 Windows harness environment:
 
 - `tests\test_gui_layout.py`
-- `tests\test_stats_matrix_routing.py`
 
 Observed runtime during the April 2026 verification pass:
 
 - `tests\test_gui_layout.py`: about 14 minutes
-- `tests\test_stats_matrix_routing.py`: about 14-15 minutes
 
-These numbers may vary by machine, but the general lesson remains:
+This number may vary by machine, but the general lesson remains:
 
-- this repository has a few very expensive files
+- this repository has at least one very expensive file
 - monolithic full-suite execution hides that fact
 
 ---

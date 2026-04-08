@@ -52,20 +52,29 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $files = @(
-              "tests\test_app_config.py",
+          $smokeTargets = @(
+              "tests\test_config_load.py",
               "tests\test_core.py",
               "tests\test_paired_analysis.py",
               "tests\test_run_from_config_input_formats.py",
-              "tests\test_gui_state_binding.py",
+              "tests\test_sample_interface.py",
               "tests\test_plot_toolbar.py"
           )
 
+          $files = foreach ($target in $smokeTargets) {
+              if (-not (Test-Path $target)) {
+                  throw "Compatibility smoke target not found: $target"
+              }
+
+              (Get-Item $target).FullName
+          }
+
           foreach ($file in $files) {
-              Write-Host "=== RUNNING $file ==="
+              $name = Split-Path $file -Leaf
+              Write-Host "=== RUNNING $name ==="
               uv run pytest $file -q
               if ($LASTEXITCODE -ne 0) {
-                  throw "Compatibility smoke failed: $file"
+                  throw "Compatibility smoke failed: $name"
               }
           }
 
