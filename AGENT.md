@@ -66,7 +66,7 @@ Use the `superpowers:finishing-a-development-branch` skill to choose:
 3. Push to main
 4. Tag: `git tag -a vX.Y.Z -m "vX.Y.Z: description"`
 5. Push tag: `git push origin vX.Y.Z`
-6. Build workflow auto-creates GitHub Release with platform executables
+6. Build workflow auto-creates GitHub Release artifacts for Windows and macOS only
 
 ## Submodule Rules (ms-core, when integrated)
 
@@ -89,11 +89,20 @@ When ms-core submodule is added:
 # Run tests
 pytest tests/ -v --tb=short -x
 
+# Run tests in the supported CI matrix locally when needed
+uv run pytest tests/ -v --tb=short -x
+
+# CI-style full regression
+Get-ChildItem tests -Filter "test_*.py" | Sort-Object Name | ForEach-Object { uv run pytest $_.FullName -q }
+
 # Build exe locally (Windows)
 pyinstaller packaging/pymetabo.spec --clean --noconfirm
 
+# Build CI-compatible release package locally
+pyinstaller packaging/pymetabo_release.spec --clean --noconfirm
+
 # Lint
-ruff check . --select=E,F,W --ignore=E501
+ruff check . --select=F,E9
 ```
 
 ## Commit Message Convention
