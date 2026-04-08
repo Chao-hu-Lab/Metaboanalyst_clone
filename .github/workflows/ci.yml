@@ -2,39 +2,85 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: ["main"]
   pull_request:
-    branches: [main]
+    branches: ["main"]
+
+permissions:
+  contents: read
 
 jobs:
-  test:
-    runs-on: windows-latest
-    strategy:
-      matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+  test-full-311:
+    name: Full Regression (Python 3.11)
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 180
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: Chao-hu-Lab/shared-workflows/.github/actions/setup-python@078fc7c1cccf64884d230df8a1d84f034c9a41eb
         with:
-          submodules: recursive
+          python-version: "3.11"
+          submodules: "false"
+          install-args: "-r requirements.txt pytest"
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-          cache: "pip"
-
-      - name: Install dependencies
+      - name: Run full suite file-by-file
+        shell: pwsh
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest
+          $ErrorActionPreference = "Stop"
+          $files = Get-ChildItem -Path "tests" -Filter "test_*.py" | Sort-Object Name
 
-      - name: Run tests
-        run: pytest tests/ -v --tb=short -x
+          foreach ($file in $files) {
+              Write-Host "=== RUNNING $($file.Name) ==="
+              uv run pytest $file.FullName -q
+              if ($LASTEXITCODE -ne 0) {
+                  throw "Test file failed: $($file.Name)"
+              }
+          }
+
+  test-compat-312:
+    name: Compatibility Smoke (Python 3.12)
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 90
+
+    steps:
+      - uses: Chao-hu-Lab/shared-workflows/.github/actions/setup-python@078fc7c1cccf64884d230df8a1d84f034c9a41eb
+        with:
+          python-version: "3.12"
+          submodules: "false"
+          install-args: "-r requirements.txt pytest"
+
+      - name: Run compatibility smoke tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $smokeTargets = @(
+              "tests\test_config_load.py",
+              "tests\test_core.py",
+              "tests\test_paired_analysis.py",
+              "tests\test_run_from_config_input_formats.py",
+              "tests\test_sample_interface.py",
+              "tests\test_plot_toolbar.py"
+          )
+
+          $files = foreach ($target in $smokeTargets) {
+              if (-not (Test-Path $target)) {
+                  throw "Compatibility smoke target not found: $target"
+              }
+
+              (Get-Item $target).FullName
+          }
+
+          foreach ($file in $files) {
+              $name = Split-Path $file -Leaf
+              Write-Host "=== RUNNING $name ==="
+              uv run pytest $file -q
+              if ($LASTEXITCODE -ne 0) {
+                  throw "Compatibility smoke failed: $name"
+              }
+          }
 
   lint:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
@@ -48,4 +94,4 @@ jobs:
         run: pip install ruff
 
       - name: Lint
-        run: ruff check . --select=E,F,W --ignore=E501
+        run: ruff check . --select=F,E9

@@ -37,9 +37,9 @@ Examples:
 
 ```powershell
 $env:UV_CACHE_DIR = ".uv-cache"
-uv run pytest tests\test_app_config.py -q
+uv run pytest tests\test_config_load.py -q
 uv run pytest tests\test_paired_analysis.py -q
-uv run pytest tests\test_gui_state_binding.py -q
+uv run pytest tests\test_sample_interface.py -q
 ```
 
 ### 2. Before concluding regression status
@@ -79,20 +79,18 @@ If `uv run pytest tests -q` times out:
 
 ## Known slow files
 
-The following files are known to dominate full-suite runtime in the current
+The following file is known to dominate full-suite runtime in the current
 Windows harness environment:
 
 - `tests\test_gui_layout.py`
-- `tests\test_stats_matrix_routing.py`
 
 Observed runtime during the April 2026 verification pass:
 
 - `tests\test_gui_layout.py`: about 14 minutes
-- `tests\test_stats_matrix_routing.py`: about 14-15 minutes
 
-These numbers may vary by machine, but the general lesson remains:
+This number may vary by machine, but the general lesson remains:
 
-- this repository has a few very expensive files
+- this repository has at least one very expensive file
 - monolithic full-suite execution hides that fact
 
 ---
@@ -127,8 +125,25 @@ Use this order by default:
 
 1. Focused tests for the files touched in the current change
 2. File-by-file full-suite verification when broad regression confidence is needed
-3. Optional monolithic or parallel runs when checking for order interactions or
-   benchmarking runtime
+3. Optional monolithic or parallel runs when checking for order interactions or benchmarking runtime
 
 This policy is preferred unless the repository test architecture changes enough
 to make monolithic full-suite execution consistently reliable.
+
+---
+
+## Current CI policy
+
+The repository CI intentionally does **not** run the same monolithic command on every PR.
+
+Current policy:
+
+1. Python 3.11 runs the full suite file-by-file on the self-hosted Windows runner
+2. Python 3.12 runs a targeted compatibility smoke subset
+3. `ruff` is kept as a low-noise guardrail using `--select=F,E9`
+
+Why:
+
+- Python 3.11 is the main regression signal
+- Python 3.12 still provides compatibility coverage without doubling the full-suite wall clock time
+- file-by-file execution localizes failures and avoids the false-negative timeout pattern already observed in this repository
