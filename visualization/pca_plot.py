@@ -8,7 +8,7 @@ from matplotlib.figure import Figure
 from matplotlib.patches import Ellipse
 from scipy.stats import chi2
 
-from visualization.score_labeling import annotate_score_labels
+from visualization.score_labeling import add_score_labels, finalize_score_labels
 from visualization.theme import apply_publication_style, get_group_colors
 from visualization.vip_plot import _format_mzrt_label
 
@@ -65,6 +65,9 @@ def plot_pca_score(
     labels_arr = labels.values if hasattr(labels, "values") else np.asarray(labels)
     groups = sorted(set(labels_arr))
     colors = get_group_colors(theme, len(groups))
+    label_texts: list = []
+    all_x = scores[:, pc_x]
+    all_y = scores[:, pc_y]
 
     for idx, group in enumerate(groups):
         mask = labels_arr == group
@@ -102,14 +105,19 @@ def plot_pca_score(
                     )
                 )
 
-        annotate_score_labels(
-            ax,
-            x,
-            y,
-            group_names,
-            show_labels=show_labels,
-            confidence=confidence,
+        label_texts.extend(
+            add_score_labels(
+                ax,
+                x,
+                y,
+                group_names,
+                show_labels=show_labels,
+                confidence=confidence,
+                bbox_edgecolor=colors[idx],
+            )
         )
+
+    finalize_score_labels(ax, label_texts, all_x, all_y)
 
     ax.set_xlabel(f"PC{pc_x + 1} ({var_ratio[pc_x] * 100:.1f}%)")
     ax.set_ylabel(f"PC{pc_y + 1} ({var_ratio[pc_y] * 100:.1f}%)")

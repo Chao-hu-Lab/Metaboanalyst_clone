@@ -8,7 +8,7 @@ from matplotlib.figure import Figure
 from matplotlib.patches import Ellipse
 from scipy.stats import chi2
 
-from visualization.score_labeling import annotate_score_labels
+from visualization.score_labeling import add_score_labels, finalize_score_labels
 from visualization.theme import apply_publication_style, get_group_colors
 
 
@@ -64,6 +64,9 @@ def plot_plsda_score(
     labels_arr = labels.values if hasattr(labels, "values") else np.asarray(labels)
     groups = sorted(set(labels_arr))
     colors = get_group_colors(theme, len(groups))
+    label_texts: list = []
+    all_x = scores[:, comp_x]
+    all_y = scores[:, comp_y]
 
     for idx, group in enumerate(groups):
         mask = labels_arr == group
@@ -101,14 +104,19 @@ def plot_plsda_score(
                     )
                 )
 
-        annotate_score_labels(
-            ax,
-            x,
-            y,
-            group_names,
-            show_labels=show_labels,
-            confidence=confidence,
+        label_texts.extend(
+            add_score_labels(
+                ax,
+                x,
+                y,
+                group_names,
+                show_labels=show_labels,
+                confidence=confidence,
+                bbox_edgecolor=colors[idx],
+            )
         )
+
+    finalize_score_labels(ax, label_texts, all_x, all_y)
 
     x_label = f"Comp{comp_x + 1} ({ev[comp_x] * 100:.1f}%)" if len(ev) > comp_x else f"Comp{comp_x + 1}"
     y_label = f"Comp{comp_y + 1} ({ev[comp_y] * 100:.1f}%)" if len(ev) > comp_y else f"Comp{comp_y + 1}"

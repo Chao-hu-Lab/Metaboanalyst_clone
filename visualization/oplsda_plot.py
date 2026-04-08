@@ -9,7 +9,7 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Ellipse
 from scipy.stats import chi2
 
-from visualization.score_labeling import annotate_score_labels
+from visualization.score_labeling import add_score_labels, finalize_score_labels
 from visualization.theme import apply_publication_style, get_group_colors
 
 
@@ -97,6 +97,7 @@ def plot_oplsda_score(
     var_o = np.var(all_o) / total_var * 100 if total_var > 0 else 0.0
 
     legend_handles = []
+    label_texts: list = []
     for idx, group in enumerate(groups):
         color = colors[idx % len(colors)]
         marker = _MA_MARKERS[idx % len(_MA_MARKERS)]
@@ -117,13 +118,16 @@ def plot_oplsda_score(
             zorder=3,
         )
 
-        annotate_score_labels(
-            ax,
-            x,
-            y,
-            samples,
-            show_labels=show_labels,
-            confidence=confidence,
+        label_texts.extend(
+            add_score_labels(
+                ax,
+                x,
+                y,
+                samples,
+                show_labels=show_labels,
+                confidence=confidence,
+                bbox_edgecolor=color,
+            )
         )
 
         legend_handles.append(
@@ -139,6 +143,8 @@ def plot_oplsda_score(
                 label=str(group),
             )
         )
+
+    finalize_score_labels(ax, label_texts, all_t, all_o)
 
     ax.set_xlabel(f"T score [1] ({var_t:.1f} %)", fontsize=10.5)
     if backend == "pls_fallback":

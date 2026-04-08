@@ -105,6 +105,45 @@ def test_oplsda_plot_labels_fallback_axis_honestly() -> None:
 
 
 @pytest.mark.parametrize(
+    ("plotter", "result_factory", "coords_getter"),
+    [
+        (plot_pca_score, _make_pca_result, lambda result: result.scores),
+        (plot_plsda_score, _make_plsda_result, lambda result: result.scores),
+        (
+            plot_oplsda_score,
+            _DummyOPLSDAResult,
+            lambda result: result.get_score_df()[["T_predictive", "T_orthogonal"]].to_numpy(),
+        ),
+    ],
+)
+def test_score_plot_labels_use_collision_avoidance(plotter, result_factory, coords_getter) -> None:
+    result = result_factory()
+    coords = coords_getter(result)
+    sample_names = (
+        list(result.sample_names)
+        if hasattr(result, "sample_names")
+        else result.get_score_df()["Sample"].tolist()
+    )
+    coord_map = {
+        str(name): tuple(map(float, xy))
+        for name, xy in zip(sample_names, coords)
+    }
+
+    fig = plotter(result, show_labels="all")
+
+    assert len(fig.axes[0].texts) == len(sample_names)
+    moved_count = 0
+    for text in fig.axes[0].texts:
+        original = coord_map[text.get_text()]
+        current = tuple(map(float, text.get_position()))
+        if not np.allclose(original, current, atol=1e-3):
+            moved_count += 1
+        assert text.get_bbox_patch() is not None
+
+    assert moved_count > 0
+
+
+@pytest.mark.parametrize(
     ("result_attr", "plot_type_attr", "label_mode_attr", "update_method_name", "module_path"),
     [
         ("_pca_result", "pca_plot_type", "pca_label_mode", "_update_pca_plot", "visualization.pca_plot"),
