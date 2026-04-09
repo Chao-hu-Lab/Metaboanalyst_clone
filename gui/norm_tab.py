@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Mapping
 
-from PySide6.QtCore import QSignalBlocker, Qt
+from PySide6.QtCore import QSignalBlocker
 from PySide6.QtWidgets import (
     QComboBox,
     QGridLayout,
