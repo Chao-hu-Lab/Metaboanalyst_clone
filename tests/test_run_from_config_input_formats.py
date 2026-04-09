@@ -198,16 +198,41 @@ def test_load_data_plain_extracts_presence_absence_marker_metadata(tmp_path: Pat
     assert feature_metadata["is_Presence_Absence_Marker"].tolist() == [False, True, False]
 
 
-def test_load_data_requires_sample_info_sheet_for_excel(tmp_path: Path):
+def test_load_data_plain_excel_without_sample_info_falls_back_to_name_inference(tmp_path: Path):
     xlsx_path = tmp_path / "test_missing_sample_info.xlsx"
     pd.DataFrame(
         {
-            "FeatureID": ["100.1/1.1"],
-            "Tumor_A": [1.0],
+            "FeatureID": ["100.1/1.1", "200.2/2.2"],
+            "Tumor_A": [1.0, 2.0],
+            "Normal_B": [3.0, 4.0],
         }
     ).to_excel(xlsx_path, index=False)
 
-    with pytest.raises(ValueError, match="SampleInfo sheet is required"):
+    data, labels, feature_metadata = load_data(
+        {
+            "input": {
+                "file": str(xlsx_path),
+                "format": "plain",
+            }
+        }
+    )
+
+    assert list(data.index) == ["Tumor_A", "Normal_B"]
+    assert labels.to_dict() == {"Tumor_A": "Tumor", "Normal_B": "Normal"}
+    assert feature_metadata.index.tolist() == ["100.1/1.1", "200.2/2.2"]
+
+
+def test_load_data_sample_type_row_excel_still_requires_sample_info(tmp_path: Path):
+    xlsx_path = tmp_path / "test_missing_sample_info_sample_type_row.xlsx"
+    pd.DataFrame(
+        {
+            "Mz/RT": ["Sample_Type", "100.1/1.1"],
+            "TumorBC1_DNA": ["Exposure", 1.0],
+            "NormalBC1_DNA": ["Normal", 2.0],
+        }
+    ).to_excel(xlsx_path, index=False)
+
+    with pytest.raises(ValueError, match="SampleInfo sheet is required for Excel files with Sample_Type rows"):
         load_data(
             {
                 "input": {

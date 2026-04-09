@@ -38,10 +38,10 @@ from core.input_resolver import (
     detect_sample_type_row_key,
     has_sample_type_row,
     read_input_table,
-    require_sample_info_sheet,
     validate_label_consistency,
     validate_sample_info_alignment,
 )
+from core.sample_info import read_sample_info_sheet
 from core.sample_interface import identify_sample_columns
 from gui.widgets.pandas_model import create_sortable_model
 
@@ -289,7 +289,7 @@ class DataImportTab(QWidget):
             df = loaded.table
             self._loaded_sheet_name = loaded.sheet_name
             if Path(path).suffix.lower() in {".xlsx", ".xls"}:
-                self._sample_info_df = require_sample_info_sheet(path)
+                self._sample_info_df = read_sample_info_sheet(path)
         except Exception as exc:
             QMessageBox.critical(self, self.tr("Import Error"), str(exc))
             return
@@ -445,7 +445,12 @@ class DataImportTab(QWidget):
             return
 
         try:
-            if detect_sample_type_row_key(self._raw_df) is not None:
+            has_sample_type = detect_sample_type_row_key(self._raw_df) is not None
+            if has_sample_type and self._sample_info_df is None and self.path_edit.text().strip().lower().endswith((".xlsx", ".xls")):
+                raise ValueError(
+                    self.tr("SampleInfo sheet is required for Excel files with Sample_Type rows.")
+                )
+            if has_sample_type:
                 matrix, labels, feature_metadata, sample_col, group_col = self._parse_samples_as_columns()
             else:
                 mode = self.orientation_combo.currentData()
@@ -454,7 +459,7 @@ class DataImportTab(QWidget):
                 else:
                     matrix, labels, feature_metadata, sample_col, group_col = self._parse_samples_as_rows()
             if self._sample_info_df is not None:
-                if detect_sample_type_row_key(self._raw_df) is not None:
+                if has_sample_type:
                     labels = validate_label_consistency(
                         matrix.index,
                         labels,

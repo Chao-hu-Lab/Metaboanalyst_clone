@@ -33,7 +33,6 @@ from core.input_resolver import (  # noqa: E402
     detect_sample_type_row_key,
     get_feature_id_column,
     read_input_table,
-    require_sample_info_sheet,
     validate_label_consistency,
     validate_sample_info_alignment,
 )
@@ -155,6 +154,7 @@ def load_data(cfg: dict) -> tuple[pd.DataFrame, pd.Series, pd.DataFrame]:
     if not input_file:
         raise ValueError("No input file specified. Use --input <path> on the command line.")
     fmt = input_cfg.get("format", "sample_type_row")
+    is_excel_input = Path(input_file).suffix.lower() in {".xlsx", ".xls"}
 
     print("=" * 60)
     print(f"Loading data from: {os.path.basename(input_file)}")
@@ -164,8 +164,12 @@ def load_data(cfg: dict) -> tuple[pd.DataFrame, pd.Series, pd.DataFrame]:
         print(f"  Selected worksheet: {loaded_input.sheet_name}")
     feature_col = get_feature_id_column(raw)
     sample_columns = [col for col in identify_sample_columns(raw) if col != feature_col]
-    sample_info = require_sample_info_sheet(input_file) if Path(input_file).suffix.lower() in {".xlsx", ".xls"} else None
+    sample_info = read_sample_info_sheet(input_file) if is_excel_input else None
     sample_type_key = detect_sample_type_row_key(raw, feature_column=feature_col)
+    if sample_type_key is not None and sample_info is None and is_excel_input:
+        raise ValueError(
+            f"SampleInfo sheet is required for Excel files with Sample_Type rows in '{Path(input_file).name}'."
+        )
 
     if sample_type_key is not None:
         # Row 0 = Sample_Type labels; rows 1+ = feature values
