@@ -8,10 +8,14 @@ Main window:
 
 from __future__ import annotations
 
-from contextlib import redirect_stdout
 from contextlib import contextmanager
-import io
 import logging
+import json
+import subprocess
+import sys
+import tempfile
+import threading
+import time
 from pathlib import Path
 from typing import Mapping
 
@@ -25,6 +29,7 @@ from PySide6.QtCore import (
     QSignalBlocker,
     QSettings,
     QSize,
+    QTimer,
     QThreadPool,
     Qt,
     QTranslator,
@@ -46,6 +51,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QComboBox,
+    QScrollArea,
     QSplitter,
     QStackedWidget,
     QStatusBar,
@@ -78,7 +84,7 @@ from gui.theme import apply_flat_theme
 from gui.visual_tab import VisualTab
 from gui.widgets.log_handler import QLogHandler
 from gui.widgets.quick_run_panel import QuickRunPanel
-from gui.widgets.worker import PipelineWorker
+from gui.widgets.worker import CancelledError, PipelineWorker
 from visualization.theme_manager import ThemeManager
 
 logger = logging.getLogger("pipeline")
@@ -290,17 +296,33 @@ class MainWindow(QMainWindow):
         central_layout.setContentsMargins(0, 0, 0, 0)
         central_layout.setSpacing(0)
         central_layout.addWidget(self._create_pipeline_nav())
-        self.quick_run_panel = QuickRunPanel(self)
-        self.preset_bar = self.quick_run_panel
-        central_layout.addWidget(self.quick_run_panel)
+        self._workflow_scroll = QScrollArea(self)
+        self._workflow_scroll.setObjectName("workflow_scroll")
+        self._workflow_scroll.setWidgetResizable(True)
+        self._workflow_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        central_layout.addWidget(self._workflow_scroll, stretch=1)
 
-        self._advanced_container = QWidget(self)
+        workflow_content = QWidget(self._workflow_scroll)
+        workflow_layout = QVBoxLayout(workflow_content)
+        workflow_layout.setContentsMargins(0, 0, 0, 0)
+        workflow_layout.setSpacing(0)
+
+        self.quick_run_panel = QuickRunPanel(workflow_content)
+        self.preset_bar = self.quick_run_panel
+        workflow_layout.addWidget(self.quick_run_panel)
+
+        self._advanced_container = QWidget(workflow_content)
         advanced_layout = QVBoxLayout(self._advanced_container)
         advanced_layout.setContentsMargins(0, 0, 0, 0)
         advanced_layout.addWidget(splitter)
         self._advanced_container.setVisible(False)
-        central_layout.addWidget(self._advanced_container, stretch=1)
+        workflow_layout.addWidget(self._advanced_container, stretch=1)
+        self._workflow_scroll.setWidget(workflow_content)
         self.setCentralWidget(central)
+
+    def show_shared_plot(self, figure) -> None:
+        """Compatibility shim for deprecated shared-preview callbacks."""
+        _ = figure
 
     def _create_pipeline_nav(self) -> QFrame:
         """Create pipeline navigation bar showing overall workflow position."""
@@ -453,17 +475,23 @@ class MainWindow(QMainWindow):
         self.log_widget = QPlainTextEdit()
         self.log_widget.setReadOnly(True)
         self.log_widget.setMaximumBlockCount(2000)
-        self.log_widget.setMaximumHeight(180)
+        self.log_widget.setMaximumHeight(140)
 
         self._log_dock = QDockWidget(self.tr("Processing Log"), self)
         self._log_dock.setWidget(self.log_widget)
         self._log_dock.setAllowedAreas(Qt.DockWidgetArea.BottomDockWidgetArea)
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self._log_dock)
+        QTimer.singleShot(0, self._apply_initial_log_dock_size)
 
         self._log_handler = QLogHandler()
         self._log_handler.log_signal.connect(self.log_widget.appendPlainText)
         logger.addHandler(self._log_handler)
         logger.setLevel(logging.INFO)
+
+    def _apply_initial_log_dock_size(self) -> None:
+        if not hasattr(self, "_log_dock") or not self._log_dock.isVisible():
+            return
+        self.resizeDocks([self._log_dock], [120], Qt.Orientation.Vertical)
 
     def _setup_statusbar(self):
         self.status_bar = QStatusBar()
@@ -908,18 +936,95 @@ class MainWindow(QMainWindow):
         self._merge_config_fragment(run_config, self.import_tab.get_run_input_state())
         return AppConfig.from_mapping(run_config, require_required_sections=False)
 
-    def _execute_full_analysis(self, app_config: AppConfig) -> dict[str, str]:
-        from scripts.run_from_config import run_analysis
-
+    def _execute_full_analysis(
+        self,
+        app_config: AppConfig,
+        worker: PipelineWorker | None = None,
+    ) -> dict[str, str]:
+        project_root = Path(__file__).resolve().parent.parent
         config_dict = app_config.to_dict(include_runtime=True)
-        capture = io.StringIO()
-        with redirect_stdout(capture):
-            result = run_analysis(config_dict)
-        output_dir = str(result.get("output_dir", "")) if isinstance(result, Mapping) else ""
-        return {
-            "log": capture.getvalue(),
-            "output_dir": output_dir,
-        }
+        temp_config_path: str | None = None
+        process: subprocess.Popen[str] | None = None
+        captured_chunks: list[str] = []
+        reader_thread: threading.Thread | None = None
+
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                suffix=".yaml",
+                prefix="quick_run_",
+                dir=project_root,
+                delete=False,
+                encoding="utf-8",
+            ) as handle:
+                handle.write(dump_yaml(config_dict, include_runtime=False))
+                temp_config_path = handle.name
+
+            process = subprocess.Popen(
+                [sys.executable, str(project_root / "scripts" / "run_from_config.py"), temp_config_path],
+                cwd=project_root,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+            )
+
+            def _read_stdout() -> None:
+                assert process is not None and process.stdout is not None
+                for line in process.stdout:
+                    captured_chunks.append(line)
+
+            reader_thread = threading.Thread(target=_read_stdout, daemon=True)
+            reader_thread.start()
+
+            while process.poll() is None:
+                if worker is not None and worker.is_cancelled():
+                    process.terminate()
+                    try:
+                        process.wait(timeout=2)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait(timeout=2)
+                    raise CancelledError()
+                time.sleep(0.15)
+
+            if reader_thread is not None:
+                reader_thread.join(timeout=2)
+            captured_output = "".join(captured_chunks)
+            if process.returncode != 0:
+                raise RuntimeError(captured_output.strip() or "Quick run failed.")
+
+            output_dir = ""
+            sentinel = "__RESULT_JSON__:"
+            for line in captured_output.splitlines():
+                if line.startswith(sentinel):
+                    try:
+                        output_dir = str(json.loads(line[len(sentinel):].strip()))
+                    except json.JSONDecodeError:
+                        output_dir = line[len(sentinel):].strip()
+                    break
+            if not output_dir:
+                saved_lines = [
+                    line.split("Saved to", 1)[1].strip()
+                    for line in captured_output.splitlines()
+                    if "Saved to" in line
+                ]
+                output_dir = saved_lines[-1] if saved_lines else ""
+
+            return {
+                "log": captured_output,
+                "output_dir": output_dir,
+            }
+        finally:
+            if process is not None and process.poll() is None:
+                process.kill()
+            if reader_thread is not None and reader_thread.is_alive():
+                reader_thread.join(timeout=1)
+            if temp_config_path:
+                try:
+                    Path(temp_config_path).unlink(missing_ok=True)
+                except OSError:
+                    logger.debug("Failed to remove temporary quick-run config: %s", temp_config_path, exc_info=True)
 
     def _run_full_analysis_async(self) -> None:
         can_run, reason = self._can_run_full_analysis()
@@ -931,7 +1036,13 @@ class MainWindow(QMainWindow):
         self.quick_run_panel.run_button.setEnabled(False)
         self.status_bar.showMessage(self.tr("Running full analysis..."))
         self.show_progress(True)
-        worker = PipelineWorker(self._execute_full_analysis, app_config)
+        worker: PipelineWorker | None = None
+
+        def _job():
+            assert worker is not None
+            return self._execute_full_analysis(app_config, worker)
+
+        worker = PipelineWorker(_job)
         self._active_workers.add(worker)
 
         def _handle_result(payload):
@@ -939,11 +1050,15 @@ class MainWindow(QMainWindow):
 
         def _handle_error(error_text: str):
             self.quick_run_panel.run_button.setEnabled(True)
+            if error_text == "Cancelled":
+                self.status_bar.showMessage(self.tr("Quick run cancelled."))
+                return
             QMessageBox.critical(self, self.tr("Quick Run Failed"), error_text)
 
         def _handle_finished():
             self.show_progress(False)
             self._active_workers.discard(worker)
+            self.quick_run_panel.run_button.setEnabled(True)
             self._refresh_preset_bar()
 
         worker.signals.result.connect(_handle_result)
@@ -1146,18 +1261,18 @@ class MainWindow(QMainWindow):
         *,
         factor_column_applied: bool,
     ) -> list[str]:
-        applied_sections = ["pipeline"]
+        applied_sections = [self.tr("pipeline")]
         if "groups" in config.source_sections:
-            applied_sections.append("groups (stored for later phases)")
+            applied_sections.append(self.tr("groups (stored for later phases)"))
         if "analysis" in config.source_sections:
-            applied_sections.append("analysis (stored for later phases)")
+            applied_sections.append(self.tr("analysis (stored for later phases)"))
         if "output" in config.source_sections:
-            applied_sections.append("output (stored for later phases)")
+            applied_sections.append(self.tr("output (stored for later phases)"))
         if "spec_norm" in config.source_sections:
             if factor_column_applied:
-                applied_sections.append("spec_norm")
+                applied_sections.append(self.tr("spec_norm"))
             else:
-                applied_sections.append("spec_norm (stored for later phases)")
+                applied_sections.append(self.tr("spec_norm (stored for later phases)"))
         return applied_sections
 
     def _apply_loaded_config(
@@ -1378,8 +1493,8 @@ class MainWindow(QMainWindow):
                 self.filter_tab.on_data_updated()
             if hasattr(self.norm_tab, "on_data_updated"):
                 self.norm_tab.on_data_updated()
-            if hasattr(self.stats_tab, "_refresh_groups"):
-                self.stats_tab._refresh_groups()
+            if hasattr(self.stats_tab, "on_data_updated"):
+                self.stats_tab.on_data_updated()
 
         if should_preserve_preset:
             self._apply_config_to_widgets(preserved_preset_config)
@@ -1457,8 +1572,8 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage(msg)
         logger.info(msg)
 
-        if self._stage >= 4 and hasattr(self.stats_tab, "_refresh_groups"):
-            self.stats_tab._refresh_groups()
+        if hasattr(self.stats_tab, "on_data_updated"):
+            self.stats_tab.on_data_updated()
 
     def check_data_ready(self) -> bool:
         if self.current_data is None:
@@ -1488,8 +1603,16 @@ class MainWindow(QMainWindow):
         self.progress_bar.setValue(value)
 
     def _on_cancel_clicked(self):
+        cancelled = False
+        for worker in list(self._active_workers):
+            if hasattr(worker, "cancel"):
+                worker.cancel()
+                cancelled = True
         if hasattr(self.stats_tab, "cancel_running"):
             self.stats_tab.cancel_running()
+            cancelled = True
+        if cancelled:
+            self.status_bar.showMessage(self.tr("Cancelling..."))
 
     # ------------------------------------------------------------------
     # File / dialog actions

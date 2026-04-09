@@ -79,6 +79,63 @@ def _make_roc_result():
     )
 
 
+def _make_score_fixture():
+    scores = np.array(
+        [
+            [0.10, 0.18],
+            [0.24, 0.31],
+            [0.16, 0.40],
+            [1.40, 1.18],
+            [1.56, 1.34],
+            [1.28, 1.46],
+        ]
+    )
+    sample_names = ["S1", "S2", "S3", "S4", "S5", "S6"]
+    labels = pd.Series(
+        ["Exposure", "Exposure", "Exposure", "Control", "Control", "Control"],
+        index=sample_names,
+        name="Group",
+    )
+    return scores, sample_names, labels
+
+
+def _make_pca_result():
+    scores, sample_names, labels = _make_score_fixture()
+    return SimpleNamespace(
+        scores=scores,
+        labels=labels,
+        sample_names=sample_names,
+        explained_variance_ratio=np.array([0.61, 0.23]),
+    )
+
+
+def _make_plsda_result():
+    scores, sample_names, labels = _make_score_fixture()
+    return SimpleNamespace(
+        scores=scores,
+        labels=labels,
+        sample_names=sample_names,
+        explained_variance=np.array([0.57, 0.26]),
+    )
+
+
+class _DummyOPLSDAResult:
+    def __init__(self) -> None:
+        scores, sample_names, labels = _make_score_fixture()
+        self._score_df = pd.DataFrame(
+            {
+                "T_predictive": scores[:, 0],
+                "T_orthogonal": scores[:, 1],
+                "Group": labels.to_numpy(),
+                "Sample": sample_names,
+            }
+        )
+        self.backend = "pyopls"
+
+    def get_score_df(self) -> pd.DataFrame:
+        return self._score_df.copy()
+
+
 @pytest.mark.skipif(not HAS_PLOTLY, reason="plotly not installed")
 def test_volcano_interactive_returns_figure():
     from visualization.volcano_plot import plot_volcano_interactive
@@ -86,6 +143,52 @@ def test_volcano_interactive_returns_figure():
     fig = plot_volcano_interactive(_make_volcano_result(), theme="light")
     assert fig is not None
     assert len(fig.data) >= 2
+
+
+@pytest.mark.skipif(not HAS_PLOTLY, reason="plotly not installed")
+def test_volcano_interactive_embeds_feature_customdata_for_selection():
+    from visualization.volcano_plot import plot_volcano_interactive
+
+    fig = plot_volcano_interactive(_make_volcano_result(), theme="light")
+    assert fig is not None
+
+    customdata_values = []
+    for trace in fig.data:
+        trace_customdata = getattr(trace, "customdata", None) or []
+        customdata_values.extend(str(value) for value in trace_customdata)
+
+    assert "F1" in customdata_values
+    assert "F2" in customdata_values
+
+
+@pytest.mark.skipif(not HAS_PLOTLY, reason="plotly not installed")
+def test_pca_score_interactive_returns_figure():
+    from visualization.pca_plot import plot_pca_score_interactive
+
+    fig = plot_pca_score_interactive(_make_pca_result(), theme="light")
+    assert fig is not None
+    assert len(fig.data) == 4
+    assert any(getattr(trace, "mode", "") == "lines" for trace in fig.data)
+
+
+@pytest.mark.skipif(not HAS_PLOTLY, reason="plotly not installed")
+def test_plsda_score_interactive_returns_figure():
+    from visualization.plsda_plot import plot_plsda_score_interactive
+
+    fig = plot_plsda_score_interactive(_make_plsda_result(), theme="light")
+    assert fig is not None
+    assert len(fig.data) == 4
+    assert any(getattr(trace, "mode", "") == "lines" for trace in fig.data)
+
+
+@pytest.mark.skipif(not HAS_PLOTLY, reason="plotly not installed")
+def test_oplsda_score_interactive_returns_figure():
+    from visualization.oplsda_plot import plot_oplsda_score_interactive
+
+    fig = plot_oplsda_score_interactive(_DummyOPLSDAResult(), theme="light")
+    assert fig is not None
+    assert len(fig.data) == 4
+    assert any(getattr(trace, "mode", "") == "lines" for trace in fig.data)
 
 
 @pytest.mark.skipif(not HAS_PLOTLY, reason="plotly not installed")

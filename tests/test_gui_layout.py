@@ -5,11 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+import numpy as np
 import pandas as pd
 import pytest
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import QPushButton, QScrollArea
+from PySide6.QtWidgets import QBoxLayout, QPushButton, QScrollArea, QTableWidgetItem
 
 from core.app_config import load_yaml_config
 from gui.main_window import MainWindow
@@ -254,6 +255,25 @@ def test_phase6_high_risk_tabs_wrap_content_in_scroll_areas(qapp):
         window.close()
 
 
+def test_data_import_tab_wraps_content_in_scroll_area(qapp):
+    window = MainWindow()
+    try:
+        scroll_areas = window.import_tab.findChildren(QScrollArea)
+        assert scroll_areas
+        assert any(scroll.widgetResizable() for scroll in scroll_areas)
+    finally:
+        window.close()
+
+
+def test_normalization_tab_no_longer_renders_embedded_preview(qapp):
+    window = MainWindow()
+    try:
+        assert hasattr(window.norm_tab, "preview_group") is False
+        assert "Preview" not in window.norm_tab.log_group.title()
+    finally:
+        window.close()
+
+
 @pytest.mark.parametrize(
     ("case_name", "locale", "size", "font_delta", "log_visible", "data_state", "preset_state", "expected_state"),
     [
@@ -468,6 +488,86 @@ def test_quick_run_panel_toggles_advanced_workspace(qapp):
     window.close()
 
 
+def test_workflow_scroll_preserves_quick_run_height_when_advanced_is_visible(qapp):
+    window = MainWindow()
+    window.resize(1181, 768)
+    window.quick_run_panel.advanced_button.click()
+    window.show()
+    qapp.processEvents()
+
+    assert isinstance(window._workflow_scroll, QScrollArea)
+    assert window._workflow_scroll.widgetResizable() is True
+    assert window.quick_run_panel.height() >= window.quick_run_panel.minimumSizeHint().height() - 12
+    window.close()
+
+
+def test_log_dock_defaults_to_compact_height(qapp):
+    window = MainWindow()
+    try:
+        window.resize(1181, 768)
+        window.show()
+        qapp.processEvents()
+
+        assert window._log_dock.height() <= 180
+        assert window.log_widget.maximumHeight() == 140
+    finally:
+        window.close()
+
+
+def test_normalization_method_labels_follow_active_locale(qapp):
+    window = MainWindow()
+    try:
+        window.switch_language("en")
+        assert window.norm_tab.row_combo.itemText(window.norm_tab.row_combo.findData("MedianNorm")) == "Normalize by row median"
+        assert window.norm_tab.trans_combo.itemText(window.norm_tab.trans_combo.findData("LogNorm")) == "Generalized Log2 (glog2)"
+        assert window.norm_tab.scale_combo.itemText(window.norm_tab.scale_combo.findData("ParetoNorm")) == "Pareto scaling"
+
+        window.switch_language("zh_TW")
+        assert window.norm_tab.row_combo.itemText(window.norm_tab.row_combo.findData("MedianNorm")) == "依列中位數正規化"
+        assert window.norm_tab.trans_combo.itemText(window.norm_tab.trans_combo.findData("LogNorm")) == "廣義 Log₂ (glog2)"
+        assert window.norm_tab.scale_combo.itemText(window.norm_tab.scale_combo.findData("ParetoNorm")) == "帕累托縮放 (Pareto Scaling)"
+    finally:
+        window.close()
+
+
+def test_missing_value_method_labels_follow_active_locale(qapp):
+    window = MainWindow()
+    try:
+        window.switch_language("en")
+        assert (
+            window.mv_tab.method_combo.itemText(window.mv_tab.method_combo.findData("min"))
+            == "Minimum positive / 5 (LoD)"
+        )
+        assert (
+            window.mv_tab.method_combo.itemText(window.mv_tab.method_combo.findData("median"))
+            == "Median"
+        )
+
+        window.switch_language("zh_TW")
+        assert (
+            window.mv_tab.method_combo.itemText(window.mv_tab.method_combo.findData("min"))
+            == "最小值/5 (LoD)"
+        )
+        assert (
+            window.mv_tab.method_combo.itemText(window.mv_tab.method_combo.findData("median"))
+            == "中位數"
+        )
+    finally:
+        window.close()
+
+
+def test_missing_value_tab_displays_marker_aware_imputation_note(qapp):
+    window = MainWindow()
+    try:
+        window.switch_language("en")
+        assert "non-marker features only" in window.mv_tab.marker_note.text()
+
+        window.switch_language("zh_TW")
+        assert "非 marker 特徵" in window.mv_tab.marker_note.text()
+    finally:
+        window.close()
+
+
 def test_quick_run_enables_for_cli_compatible_sample_type_input(tmp_path, qapp):
     window = MainWindow()
     csv_path = tmp_path / "quick_run_sample_type.csv"
@@ -591,6 +691,292 @@ def test_visual_tab_routes_interactive_volcano_to_plotly_widget(qapp, monkeypatc
     window.close()
 
 
+def test_stats_tab_hides_result_sidebars_until_analysis_runs(qapp):
+    window = MainWindow()
+    try:
+        window.resize(960, 720)
+        window.show()
+        window.quick_run_panel.advanced_button.click()
+        window._nav_list.setCurrentRow(4)
+        qapp.processEvents()
+
+        assert window.stats_tab.pca_info.isHidden() is True
+        assert window.stats_tab.pls_side_panel.isHidden() is True
+        assert window.stats_tab.vol_side_panel.isHidden() is True
+    finally:
+        window.close()
+
+
+def test_stats_tab_analysis_context_reflects_current_matrix_scope(qapp):
+    window = MainWindow()
+    try:
+        _load_phase7_data(window)
+        window.resize(1180, 760)
+        window.show()
+        window.quick_run_panel.advanced_button.click()
+        window._nav_list.setCurrentRow(4)
+        qapp.processEvents()
+
+        assert "Case:1" in window.stats_tab.context_groups_value.text()
+        assert "Control:1" in window.stats_tab.context_groups_value.text()
+        assert window.stats_tab.context_shape_value.text() == "2 / 2"
+        assert window.stats_tab.context_matrix_value.text() == "Multivariate matrix"
+
+        window.stats_tab.sub_tabs.setCurrentIndex(3)
+        qapp.processEvents()
+        assert window.stats_tab.context_matrix_value.text() == "Univariate matrix + FC matrix"
+    finally:
+        window.close()
+
+
+def test_stats_tab_group_refresh_preserves_existing_selection(qapp):
+    window = MainWindow()
+    try:
+        _load_phase7_data(window)
+        window.show()
+        window.quick_run_panel.advanced_button.click()
+        window._nav_list.setCurrentRow(4)
+        qapp.processEvents()
+
+        window.stats_tab.vol_pair_combo.setCurrentIndex(
+            window.stats_tab.vol_pair_combo.findText("Control vs Case")
+        )
+        window.stats_tab._refresh_groups()
+
+        assert window.stats_tab.vol_pair_combo.currentText() == "Control vs Case"
+    finally:
+        window.close()
+
+
+def test_stats_tab_volcano_plot_click_selects_table_row(qapp):
+    window = MainWindow()
+    try:
+        window.show()
+        window.stats_tab.vol_table.setColumnCount(3)
+        window.stats_tab.vol_table.setRowCount(2)
+        window.stats_tab.vol_table.setItem(0, 0, QTableWidgetItem("Feature_A"))
+        window.stats_tab.vol_table.setItem(1, 0, QTableWidgetItem("Feature_B"))
+        window.stats_tab._volcano_feature_to_row = {"Feature_A": 0, "Feature_B": 1}
+
+        window.stats_tab._on_volcano_plotly_event({"type": "point_click", "feature": "Feature_B"})
+        qapp.processEvents()
+
+        assert window.stats_tab.vol_table.currentRow() == 1
+    finally:
+        window.close()
+
+
+def test_stats_tab_volcano_table_selection_highlights_plotly_feature(qapp, monkeypatch):
+    window = MainWindow()
+    try:
+        captured = {}
+        monkeypatch.setattr(
+            window.stats_tab.vol_widget,
+            "highlight_feature",
+            lambda feature: captured.setdefault("feature", feature),
+        )
+
+        window.show()
+        window.stats_tab.vol_table.setColumnCount(3)
+        window.stats_tab.vol_table.setRowCount(1)
+        window.stats_tab.vol_table.setItem(0, 0, QTableWidgetItem("Feature_A"))
+        window.stats_tab.vol_table.selectRow(0)
+        qapp.processEvents()
+
+        assert captured["feature"] == "Feature_A"
+    finally:
+        window.close()
+
+
+def test_main_window_cancel_requests_active_workers(qapp):
+    class _DummyWorker:
+        def __init__(self):
+            self.cancelled = False
+
+        def cancel(self):
+            self.cancelled = True
+
+    window = MainWindow()
+    try:
+        worker = _DummyWorker()
+        window._active_workers.add(worker)
+        window._on_cancel_clicked()
+        assert worker.cancelled is True
+    finally:
+        window.close()
+
+
+def test_execute_full_analysis_honors_cancelled_worker(monkeypatch, qapp):
+    import subprocess
+
+    from gui.widgets.worker import CancelledError
+
+    class _CancelledWorker:
+        @staticmethod
+        def is_cancelled() -> bool:
+            return True
+
+    class _FakeProcess:
+        def __init__(self, *args, **kwargs):
+            self.returncode = None
+            self.stdout = iter(())
+            self.terminated = False
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            self.terminated = True
+            self.returncode = -15
+
+        def wait(self, timeout=None):
+            self.returncode = -15
+            return self.returncode
+
+        def kill(self):
+            self.returncode = -9
+
+    window = MainWindow()
+    try:
+        monkeypatch.setattr(subprocess, "Popen", _FakeProcess)
+        with pytest.raises(CancelledError):
+            window._execute_full_analysis(window._build_current_gui_preset_config(), _CancelledWorker())
+    finally:
+        window.close()
+
+
+def test_stats_tab_pca_score_plot_routes_to_plotly_widget(qapp, monkeypatch):
+    import visualization.pca_plot as pca_plot
+
+    window = MainWindow()
+    try:
+        captured = {}
+        window.stats_tab._pca_result = SimpleNamespace(
+            scores=pd.DataFrame([[0.1, 0.2], [0.3, 0.4]]).to_numpy(),
+            labels=pd.Series(["Exposure", "Control"], index=["S1", "S2"]),
+            sample_names=["S1", "S2"],
+            explained_variance_ratio=np.array([0.61, 0.24]),
+        )
+
+        monkeypatch.setattr(
+            pca_plot,
+            "plot_pca_score_interactive",
+            lambda *args, **kwargs: object(),
+        )
+        monkeypatch.setattr(
+            window.stats_tab.pca_plotly_widget,
+            "show_figure",
+            lambda fig, **kwargs: captured.setdefault("fig", fig),
+        )
+
+        window.stats_tab.pca_plot_type.setCurrentIndex(window.stats_tab.pca_plot_type.findData("score"))
+        window.stats_tab._update_pca_plot()
+
+        assert captured["fig"] is not None
+        assert window.stats_tab.pca_plot_stack.currentWidget() is window.stats_tab.pca_plotly_widget
+    finally:
+        window.close()
+
+
+def test_stats_tab_outlier_group_filter_updates_table(qapp):
+    window = MainWindow()
+    try:
+        window.show()
+        window.stats_tab._outlier_result = SimpleNamespace(
+            get_outlier_df=lambda: pd.DataFrame(
+                {
+                    "Sample": ["S1", "S2"],
+                    "T2": [1.0, 2.0],
+                    "DModX": [0.1, 0.2],
+                    "Any_Outlier": [False, True],
+                }
+            )
+        )
+        window.stats_tab._outlier_labels = pd.Series(["Exposure", "Control"], index=["S1", "S2"])
+        window.stats_tab._sync_display_group_combo(window.stats_tab.out_group_combo, ["Exposure", "Control"])
+
+        window.stats_tab.out_group_combo.setCurrentIndex(window.stats_tab.out_group_combo.findData("Control"))
+        qapp.processEvents()
+
+        assert window.stats_tab.out_table.rowCount() == 1
+        assert window.stats_tab.out_table.item(0, 0).text() == "S2"
+    finally:
+        window.close()
+
+
+def test_outlier_score_plot_all_groups_keeps_group_legend(monkeypatch):
+    from analysis.outlier import OutlierResult
+    from sklearn.decomposition import PCA
+    from visualization.outlier_plot import plot_outlier_score
+
+    scores = np.array([[0.1, 0.2], [0.3, 0.1], [1.4, 1.2], [1.6, 1.1]])
+    result = OutlierResult(
+        scores=scores,
+        t2_values=np.array([0.1, 0.2, 1.5, 1.8]),
+        t2_threshold=1.0,
+        dmodx=np.array([0.05, 0.06, 0.2, 0.22]),
+        dmodx_threshold=0.15,
+        outlier_mask_t2=np.array([False, False, True, True]),
+        outlier_mask_dmodx=np.array([False, False, True, True]),
+        sample_names=["S1", "S2", "S3", "S4"],
+        explained_variance=np.array([0.6, 0.2]),
+        pca_model=PCA(n_components=2),
+    )
+    labels = pd.Series(["Exposure", "Exposure", "Normal", "Control"], index=result.sample_names)
+
+    fig = plot_outlier_score(result, labels=labels, group_filter=None, theme="light")
+    legend = fig.axes[0].get_legend()
+    texts = [text.get_text() for text in legend.get_texts()]
+
+    assert "Exposure" in texts
+    assert "Normal" in texts
+    assert "Control" in texts
+    assert "Outlier" in texts
+
+
+def test_stats_tab_switches_splitters_vertical_on_narrow_width(qapp):
+    window = MainWindow()
+    try:
+        window.resize(960, 720)
+        window.show()
+        window.quick_run_panel.advanced_button.click()
+        window._nav_list.setCurrentRow(4)
+        qapp.processEvents()
+
+        assert window.stats_tab.pca_splitter.orientation() == Qt.Orientation.Vertical
+        assert window.stats_tab.pls_splitter.orientation() == Qt.Orientation.Vertical
+
+        window.resize(1400, 900)
+        qapp.processEvents()
+
+        assert window.stats_tab.pca_splitter.orientation() == Qt.Orientation.Horizontal
+        assert window.stats_tab.pls_splitter.orientation() == Qt.Orientation.Horizontal
+    finally:
+        window.close()
+
+
+def test_visual_tab_stacks_controls_above_preview_on_narrow_width(qapp):
+    window = MainWindow()
+    try:
+        window.resize(960, 720)
+        window.show()
+        window.quick_run_panel.advanced_button.click()
+        window._nav_list.setCurrentRow(5)
+        qapp.processEvents()
+
+        assert window.visual_tab._root_layout.direction() == QBoxLayout.Direction.TopToBottom
+        assert window.visual_tab.control_dock.maximumHeight() == 280
+        assert window.visual_tab.control_dock.maximumWidth() == 16777215
+
+        window.resize(1440, 900)
+        qapp.processEvents()
+
+        assert window.visual_tab._root_layout.direction() == QBoxLayout.Direction.LeftToRight
+        assert window.visual_tab.control_dock.maximumWidth() == 320
+    finally:
+        window.close()
+
+
 def test_stats_tab_passes_active_theme_to_plot_helpers(qapp, monkeypatch):
     import visualization.roc_plot as roc_plot
 
@@ -611,3 +997,33 @@ def test_stats_tab_passes_active_theme_to_plot_helpers(qapp, monkeypatch):
 
     assert captured["theme"] == "dark"
     window.close()
+
+
+def test_stats_tab_pca_plot_update_no_longer_requires_removed_shared_preview(qapp, monkeypatch):
+    import visualization.pca_plot as pca_plot
+
+    window = MainWindow()
+    stats_tab = window.stats_tab
+    stats_tab._pca_result = object()
+
+    def fake_plot_pca_score(*args, **kwargs):
+        return kwargs.get("fig")
+
+    monkeypatch.setattr(pca_plot, "plot_pca_score", fake_plot_pca_score)
+    stats_tab.pca_plot_type.setCurrentIndex(stats_tab.pca_plot_type.findData("score"))
+    stats_tab._update_pca_plot()
+    window.close()
+
+
+def test_primary_action_buttons_are_tagged_for_emphasis(qapp):
+    window = MainWindow()
+    try:
+        assert window.mv_tab.btn_run.property("variant") == "primary"
+        assert window.filter_tab.btn_run.property("variant") == "primary"
+        assert window.norm_tab.btn_run.property("variant") == "primary"
+        assert any(
+            button.property("variant") == "primary"
+            for button in window.stats_tab.findChildren(QPushButton)
+        )
+    finally:
+        window.close()

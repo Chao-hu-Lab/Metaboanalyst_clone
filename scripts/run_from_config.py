@@ -8,6 +8,7 @@ Usage (from project root):
 """
 
 import argparse
+import json
 import os
 import sys
 import warnings
@@ -47,8 +48,20 @@ from ms_core.visualization.pca_plot import plot_pca_score, plot_pca_scree, plot_
 from ms_core.visualization.boxplot import plot_sample_boxplot  # noqa: E402
 from ms_core.visualization.density_plot import plot_density  # noqa: E402
 from ms_core.visualization.anova_plot import plot_anova_importance, plot_feature_boxplot  # noqa: E402
+from visualization.oplsda_plot import plot_oplsda_score_interactive  # noqa: E402
+from visualization.pca_plot import plot_pca_score_interactive  # noqa: E402
+from visualization.plsda_plot import plot_plsda_score_interactive  # noqa: E402
+from visualization.volcano_plot import plot_volcano_interactive  # noqa: E402
 
 warnings.filterwarnings("ignore")
+
+try:
+    import plotly.io as pio  # noqa: E402
+
+    HAS_PLOTLY = True
+except ImportError:
+    pio = None
+    HAS_PLOTLY = False
 
 TRUE_FILL = PatternFill(fill_type="solid", start_color="C6EFCE", end_color="C6EFCE")
 FALSE_FILL = PatternFill(fill_type="solid", start_color="FCE4D6", end_color="FCE4D6")
@@ -60,6 +73,15 @@ REDUNDANT_EXPORT_COLUMNS = {
     "pvalue_raw",
     "significance_pvalue",
 }
+
+
+def _save_plotly_html(fig: Any, path: str) -> bool:
+    """Persist a Plotly figure as a standalone HTML document when available."""
+    if fig is None or not HAS_PLOTLY or pio is None:
+        return False
+    html = pio.to_html(fig, include_plotlyjs="cdn", full_html=True)
+    Path(path).write_text(html, encoding="utf-8")
+    return True
 
 
 # ── Config loader ─────────────────────────────────────────
@@ -597,6 +619,11 @@ def run_analysis(cfg: dict) -> dict[str, str]:
     plot_pca_score(pca_result, pc_x=0, pc_y=1, fig=fig)
     fig.savefig(os.path.join(output_dir, "pca_score_plot.png"), dpi=150, bbox_inches="tight")
     plt.close(fig)
+    if _save_plotly_html(
+        plot_pca_score_interactive(pca_result, pc_x=0, pc_y=1),
+        os.path.join(output_dir, "pca_score_plot.html"),
+    ):
+        print("  Saved pca_score_plot.html")
 
     fig = plt.figure(figsize=(8, 5))
     plot_pca_scree(pca_result, fig=fig)
@@ -716,6 +743,11 @@ def run_analysis(cfg: dict) -> dict[str, str]:
             )
             plt.close(fig)
             print("  Saved plsda_score_all_groups.png")
+            if _save_plotly_html(
+                plot_plsda_score_interactive(all_plsda_result),
+                os.path.join(output_dir, "plsda_score_all_groups.html"),
+            ):
+                print("  Saved plsda_score_all_groups.html")
         except Exception as e:
             print(f"  All-group PLS-DA error: {e}")
 
@@ -734,6 +766,20 @@ def run_analysis(cfg: dict) -> dict[str, str]:
                 vip_df = _annotate_feature_table(plsda_result.get_vip_df(), final_feature_metadata)
                 vip_df.insert(0, "Rank", range(1, len(vip_df) + 1))
                 _excel_sheets[f"VIP_{g1}_vs_{g2}"] = vip_df
+
+                fig = plt.figure(figsize=(8, 6))
+                plot_plsda_score(plsda_result, fig=fig)
+                fig.savefig(
+                    os.path.join(output_dir, f"plsda_score_{g1}_vs_{g2}.png"),
+                    dpi=150,
+                    bbox_inches="tight",
+                )
+                plt.close(fig)
+                if _save_plotly_html(
+                    plot_plsda_score_interactive(plsda_result),
+                    os.path.join(output_dir, f"plsda_score_{g1}_vs_{g2}.html"),
+                ):
+                    print(f"    Saved plsda_score_{g1}_vs_{g2}.html")
 
                 fig = plt.figure(figsize=(10, max(6, top_vip * 0.32)))
                 plot_vip(plsda_result, top_n=top_vip,
@@ -781,6 +827,11 @@ def run_analysis(cfg: dict) -> dict[str, str]:
                 fig.savefig(os.path.join(output_dir, f"oplsda_score_{g1}_vs_{g2}.png"),
                             dpi=150, bbox_inches="tight")
                 plt.close(fig)
+                if _save_plotly_html(
+                    plot_oplsda_score_interactive(oplsda_result),
+                    os.path.join(output_dir, f"oplsda_score_{g1}_vs_{g2}.html"),
+                ):
+                    print(f"    Saved oplsda_score_{g1}_vs_{g2}.html")
 
                 print("    Saved score plot")
             except Exception as e:
@@ -876,6 +927,11 @@ def run_analysis(cfg: dict) -> dict[str, str]:
             fig.savefig(os.path.join(output_dir, f"volcano_{g1}_vs_{g2}.png"),
                         dpi=150, bbox_inches="tight")
             plt.close(fig)
+            if _save_plotly_html(
+                plot_volcano_interactive(vresult),
+                os.path.join(output_dir, f"volcano_{g1}_vs_{g2}.html"),
+            ):
+                print(f"    Saved volcano_{g1}_vs_{g2}.html")
         except Exception as e:
             print(f"    Error: {e}")
 
@@ -961,7 +1017,8 @@ def main():
     if args.input:
         print(f"Input overridden: {args.input}")
     print(f"Loaded config: {args.config}")
-    run_analysis(cfg)
+    result = run_analysis(cfg)
+    print(f"__RESULT_JSON__:{json.dumps(str(result.get('output_dir', '')))}")
 
 
 if __name__ == "__main__":

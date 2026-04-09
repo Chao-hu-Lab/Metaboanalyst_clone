@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QTableView,
     QTextEdit,
     QVBoxLayout,
@@ -62,7 +63,19 @@ class DataImportTab(QWidget):
         self._init_ui()
 
     def _init_ui(self):
-        layout = QVBoxLayout(self)
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.scroll_area = QScrollArea(self)
+        self.scroll_area.setWidgetResizable(True)
+        root_layout.addWidget(self.scroll_area)
+
+        content = QWidget(self.scroll_area)
+        self.scroll_area.setWidget(content)
+
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(12)
 
         file_group = QGroupBox()
         file_layout = QVBoxLayout()

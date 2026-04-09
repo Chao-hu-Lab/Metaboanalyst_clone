@@ -3,6 +3,7 @@
 """
 
 import math
+from itertools import combinations
 from typing import Any, Callable, Mapping
 
 import pandas as pd
@@ -12,7 +13,8 @@ from PySide6.QtWidgets import (
     QComboBox, QTextEdit, QSpinBox, QDoubleSpinBox,
     QCheckBox, QTabWidget, QTableWidget,
     QTableWidgetItem, QHeaderView, QMessageBox, QSplitter,
-    QFileDialog, QScrollArea, QFrame,
+    QAbstractItemView,
+    QFileDialog, QScrollArea, QFrame, QStackedWidget,
 )
 from PySide6.QtCore import Qt, QThreadPool
 
@@ -27,6 +29,7 @@ class StatsTab(QWidget):
     def __init__(self, main_window):
         super().__init__()
         self.mw = main_window
+        self._responsive_splitters: list[tuple[QSplitter, QWidget]] = []
         self._pca_result = None
         self._plsda_result = None
         self._volcano_result = None
@@ -41,6 +44,8 @@ class StatsTab(QWidget):
         self._anova_plot_data = None
         self._anova_plot_labels = None
         self._outlier_labels = None
+        self._volcano_feature_to_row: dict[str, int] = {}
+        self._volcano_selection_syncing = False
         self._active_workers: set[PipelineWorker] = set()
         self._current_worker: PipelineWorker | None = None
         self._busy = False
@@ -57,7 +62,41 @@ class StatsTab(QWidget):
                 if widget is not None:
                     widget.deleteLater()
 
+        self.context_group = QFrame(self)
+        self.context_group.setObjectName("stats_context_group")
+        context_layout = QHBoxLayout(self.context_group)
+        context_layout.setContentsMargins(12, 10, 12, 10)
+        context_layout.setSpacing(18)
+
+        self.context_groups_label = QLabel(self.tr("Groups:"))
+        self.context_groups_label.setObjectName("stats_context_label")
+        context_layout.addWidget(self.context_groups_label)
+
+        self.context_groups_value = QLabel("")
+        self.context_groups_value.setObjectName("stats_context_value")
+        self.context_groups_value.setWordWrap(True)
+        context_layout.addWidget(self.context_groups_value, stretch=2)
+
+        self.context_shape_label = QLabel(self.tr("Samples / Features:"))
+        self.context_shape_label.setObjectName("stats_context_label")
+        context_layout.addWidget(self.context_shape_label)
+
+        self.context_shape_value = QLabel("")
+        self.context_shape_value.setObjectName("stats_context_value")
+        context_layout.addWidget(self.context_shape_value, stretch=1)
+
+        self.context_matrix_label = QLabel(self.tr("Matrix type:"))
+        self.context_matrix_label.setObjectName("stats_context_label")
+        context_layout.addWidget(self.context_matrix_label)
+
+        self.context_matrix_value = QLabel("")
+        self.context_matrix_value.setObjectName("stats_context_value")
+        context_layout.addWidget(self.context_matrix_value, stretch=1)
+
+        layout.addWidget(self.context_group)
+
         self.sub_tabs = QTabWidget()
+        self.sub_tabs.currentChanged.connect(lambda *_: self._refresh_analysis_context())
         self.sub_tabs.addTab(self._wrap_subtab_panel(self._build_pca_panel()), self.tr("PCA"))
         self.sub_tabs.addTab(self._wrap_subtab_panel(self._build_pca3d_panel()), self.tr("3D PCA"))
         self.sub_tabs.addTab(self._wrap_subtab_panel(self._build_plsda_panel()), self.tr("PLS-DA / VIP"))
@@ -88,6 +127,7 @@ class StatsTab(QWidget):
             self.tr("Clustering"),
         )
         layout.addWidget(self.sub_tabs)
+        self._refresh_analysis_context()
 
     def _wrap_subtab_panel(self, panel: QWidget) -> QScrollArea:
         scroll = QScrollArea(self)
@@ -96,60 +136,73 @@ class StatsTab(QWidget):
         scroll.setWidget(panel)
         return scroll
 
-    def _available_analysis_groups(self) -> list[str]:
-        if self.mw.labels is None or self.mw.current_data is None:
-            return []
+    def _register_result_splitter(self, splitter: QSplitter, side_panel: QWidget) -> None:
+        splitter.setChildrenCollapsible(False)
+        splitter.setStretchFactor(0, 5)
+        if splitter.count() > 1:
+            splitter.setStretchFactor(splitter.count() - 1, 1)
+        side_panel.setVisible(False)
+        self._responsive_splitters.append((splitter, side_panel))
 
-        labels = align_labels_to_data(self.mw.current_data, self.mw.labels)
-        _, labels_no_qc, _ = exclude_qc_samples(self.mw.current_data, labels)
-        if labels_no_qc is None:
-            return []
-        return sorted(set(labels_no_qc.astype(str)))
+    def _show_result_panel(self, side_panel: QWidget, splitter: QSplitter) -> None:
+        side_panel.setVisible(True)
+        self._apply_responsive_splitters()
+        if splitter.count() == 3 and splitter is getattr(self, "anova_splitter", None):
+            if splitter.orientation() == Qt.Orientation.Horizontal:
+                splitter.setSizes([760, 260, 220])
+            else:
+                splitter.setSizes([420, 260, 180])
+        elif splitter.orientation() == Qt.Orientation.Horizontal:
+            splitter.setSizes([820, 220])
+        else:
+            splitter.setSizes([560, 160])
 
-    def _populate_distinct_group_combos(
-        self,
-        combo1: QComboBox,
-        combo2: QComboBox,
-        groups: list[str],
-        previous_pair: tuple[str, str] | None = None,
-    ) -> None:
-        prev1, prev2 = previous_pair or (combo1.currentText(), combo2.currentText())
-        for combo in (combo1, combo2):
-            was_blocked = combo.blockSignals(True)
-            combo.clear()
-            for group in groups:
-                combo.addItem(str(group))
-            combo.blockSignals(was_blocked)
+    def _apply_responsive_splitters(self) -> None:
+        narrow = self.width() < 1080
+        for splitter, side_panel in self._responsive_splitters:
+            splitter.setOrientation(
+                Qt.Orientation.Vertical if narrow else Qt.Orientation.Horizontal
+            )
+            if side_panel.isVisible():
+                if splitter.count() == 3 and splitter is getattr(self, "anova_splitter", None):
+                    if narrow:
+                        splitter.setSizes([420, 260, 180])
+                    else:
+                        splitter.setSizes([760, 260, 220])
+                elif narrow:
+                    splitter.setSizes([560, 160])
+                else:
+                    splitter.setSizes([820, 220])
+            else:
+                if splitter.count() == 3 and splitter is getattr(self, "anova_splitter", None):
+                    splitter.setSizes([3, 2, 0])
+                else:
+                    splitter.setSizes([1, 0])
 
-        if not groups:
-            return
+    def _show_canvas_placeholder(self, canvas: MplWidget, message: str) -> None:
+        fig = canvas.figure
+        fig.clear()
+        fig.patch.set_alpha(0.0)
+        ax = fig.add_subplot(111)
+        ax.text(0.5, 0.5, message, ha="center", va="center", wrap=True, fontsize=11)
+        ax.set_axis_off()
+        canvas.draw()
 
-        first = prev1 if prev1 in groups else groups[0]
-        remaining = [group for group in groups if group != first]
-        second = prev2 if prev2 in remaining else (remaining[0] if remaining else first)
+    @staticmethod
+    def _mark_primary_action(button: QPushButton) -> QPushButton:
+        button.setProperty("variant", "primary")
+        return button
 
-        for combo, value in ((combo1, first), (combo2, second)):
-            was_blocked = combo.blockSignals(True)
-            combo.setCurrentText(value)
-            combo.blockSignals(was_blocked)
-
-    def _ensure_distinct_pair_selection(self, primary: QComboBox, secondary: QComboBox) -> None:
-        groups = [primary.itemText(i) for i in range(primary.count())]
-        current = primary.currentText()
-        if not current or current != secondary.currentText():
-            return
-
-        replacement = next((group for group in groups if group != current), None)
-        if replacement is None:
-            return
-
-        was_blocked = secondary.blockSignals(True)
-        secondary.setCurrentText(replacement)
-        secondary.blockSignals(was_blocked)
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._apply_responsive_splitters()
 
     def retranslateUi(self):
         if not hasattr(self, "sub_tabs"):
             return
+        self.context_groups_label.setText(self.tr("Groups:"))
+        self.context_shape_label.setText(self.tr("Samples / Features:"))
+        self.context_matrix_label.setText(self.tr("Matrix type:"))
         tab_titles = [
             self.tr("PCA"), self.tr("3D PCA"), self.tr("PLS-DA / VIP"),
             self.tr("Volcano (t-test + FC)"), self.tr("ANOVA"), self.tr("ROC"),
@@ -159,6 +212,7 @@ class StatsTab(QWidget):
         for i, title in enumerate(tab_titles):
             if i < self.sub_tabs.count():
                 self.sub_tabs.setTabText(i, title)
+        self._refresh_analysis_context()
 
     def connect_state_changed(self, callback: Callable[..., None]) -> None:
         self.pca_ncomp.valueChanged.connect(callback)
@@ -318,11 +372,168 @@ class StatsTab(QWidget):
         return combo
 
     def _snapshot_data(self):
+        if self.mw.current_data is None:
+            return pd.DataFrame(), None
         data = self.mw.current_data.copy()
         labels = self.mw.labels
         if labels is not None and hasattr(labels, "copy"):
             labels = labels.copy()
         return data, labels
+
+    def _current_matrix_key(self) -> str:
+        current_index = self.sub_tabs.currentIndex() if hasattr(self, "sub_tabs") else 0
+        if current_index == 3:
+            return "volcano"
+        if current_index in {4, 5, 6}:
+            return "univariate"
+        return "multivariate"
+
+    def _current_matrix_label(self) -> str:
+        key = self._current_matrix_key()
+        if key == "volcano":
+            return self.tr("Univariate matrix + FC matrix")
+        if key == "univariate":
+            return self.tr("Statistics matrix")
+        return self.tr("Multivariate matrix")
+
+    def _analysis_context_snapshot(self) -> tuple[pd.DataFrame | None, pd.Series | None]:
+        bundle = self.mw.get_stats_matrix_bundle()
+        if isinstance(bundle, Mapping):
+            labels = bundle.get("labels")
+            matrix_key = self._current_matrix_key()
+            if matrix_key == "volcano":
+                data = bundle.get("univariate_data")
+            elif matrix_key == "univariate":
+                data = bundle.get("univariate_data")
+            else:
+                data = bundle.get("multivariate_data")
+            if isinstance(data, pd.DataFrame):
+                aligned_labels = align_labels_to_data(data, labels)
+                if aligned_labels is not None:
+                    data = data.reindex(aligned_labels.index)
+                return data.copy(), aligned_labels
+
+        data, labels = self._snapshot_data()
+        labels = align_labels_to_data(data, labels)
+        filtered_data, filtered_labels, _ = exclude_qc_samples(data, labels)
+        return filtered_data, filtered_labels
+
+    def _refresh_analysis_context(self) -> None:
+        if not hasattr(self, "context_groups_value"):
+            return
+
+        data, labels = self._analysis_context_snapshot()
+        if data is None or data.empty:
+            self.context_groups_value.setText(self.tr("No group labels"))
+            self.context_shape_value.setText(self.tr("No dataset loaded"))
+            self.context_matrix_value.setText(self._current_matrix_label())
+            return
+
+        if labels is None or len(labels) == 0:
+            group_text = self.tr("No group labels")
+        else:
+            counts = labels.astype(str).value_counts()
+            group_text = ", ".join(f"{group}:{count}" for group, count in counts.items())
+
+        self.context_groups_value.setText(group_text)
+        self.context_shape_value.setText(
+            self.tr("{samples} / {features}").format(
+                samples=data.shape[0],
+                features=data.shape[1],
+            )
+        )
+        self.context_matrix_value.setText(self._current_matrix_label())
+
+    @staticmethod
+    def _refresh_group_pair(
+        combo_a: QComboBox,
+        combo_b: QComboBox,
+        groups: list[str],
+    ) -> None:
+        previous_a = combo_a.currentText()
+        previous_b = combo_b.currentText()
+
+        for combo in (combo_a, combo_b):
+            combo.blockSignals(True)
+            combo.clear()
+            combo.addItems(groups)
+
+        if groups:
+            selected_a = previous_a if previous_a in groups else groups[0]
+            fallback_b = groups[1] if len(groups) > 1 else groups[0]
+            selected_b = previous_b if previous_b in groups and previous_b != selected_a else fallback_b
+            if selected_b == selected_a and len(groups) > 1:
+                selected_b = next((group for group in groups if group != selected_a), fallback_b)
+            combo_a.setCurrentIndex(max(combo_a.findText(selected_a), 0))
+            combo_b.setCurrentIndex(max(combo_b.findText(selected_b), 0))
+
+        for combo in (combo_a, combo_b):
+            combo.blockSignals(False)
+
+    def _available_groups(self) -> list[str]:
+        if self.mw.labels is None or self.mw.current_data is None:
+            return []
+        labels = align_labels_to_data(self.mw.current_data, self.mw.labels)
+        _, labels_no_qc, _ = exclude_qc_samples(self.mw.current_data, labels)
+        if labels_no_qc is None:
+            return []
+        return sorted(set(labels_no_qc.astype(str)))
+
+    @staticmethod
+    def _build_group_pairs(groups: list[str]) -> list[tuple[str, str]]:
+        return [(str(left), str(right)) for left, right in combinations(groups, 2)]
+
+    @staticmethod
+    def _sync_pair_combo(
+        pair_combo: QComboBox,
+        hidden_a: QComboBox,
+        hidden_b: QComboBox,
+        groups: list[str],
+    ) -> None:
+        previous_pair = pair_combo.currentData()
+        pairs = StatsTab._build_group_pairs(groups)
+
+        pair_combo.blockSignals(True)
+        hidden_a.blockSignals(True)
+        hidden_b.blockSignals(True)
+
+        pair_combo.clear()
+        hidden_a.clear()
+        hidden_b.clear()
+        hidden_a.addItems(groups)
+        hidden_b.addItems(groups)
+
+        for left, right in pairs:
+            pair_combo.addItem(f"{left} vs {right}", (left, right))
+
+        selected_pair = previous_pair if previous_pair in pairs else (pairs[0] if pairs else None)
+        if selected_pair is not None:
+            pair_combo.setCurrentIndex(max(pair_combo.findText(f"{selected_pair[0]} vs {selected_pair[1]}"), 0))
+            hidden_a.setCurrentIndex(max(hidden_a.findText(selected_pair[0]), 0))
+            hidden_b.setCurrentIndex(max(hidden_b.findText(selected_pair[1]), 0))
+
+        hidden_a.blockSignals(False)
+        hidden_b.blockSignals(False)
+        pair_combo.blockSignals(False)
+
+    @staticmethod
+    def _selected_pair(pair_combo: QComboBox) -> tuple[str, str] | None:
+        pair = pair_combo.currentData()
+        if isinstance(pair, tuple) and len(pair) == 2:
+            return str(pair[0]), str(pair[1])
+        return None
+
+    @staticmethod
+    def _sync_display_group_combo(combo: QComboBox, groups: list[str]) -> None:
+        previous = combo.currentData()
+        combo.blockSignals(True)
+        combo.clear()
+        combo.addItem(combo.tr("All groups"), None)
+        for group in groups:
+            combo.addItem(str(group), str(group))
+        index = combo.findData(previous)
+        combo.setCurrentIndex(index if index >= 0 else 0)
+        combo.blockSignals(False)
 
     def _current_theme(self) -> str:
         theme_manager = getattr(self.mw, "theme_manager", None)
@@ -502,7 +713,7 @@ class StatsTab(QWidget):
         self.pca_pcy.setValue(2)
         ctrl.addWidget(self.pca_pcy)
 
-        btn_run = QPushButton(self.tr("Run PCA"))
+        btn_run = self._mark_primary_action(QPushButton(self.tr("Run PCA")))
         btn_run.clicked.connect(self._run_pca)
         ctrl.addWidget(btn_run)
 
@@ -518,20 +729,30 @@ class StatsTab(QWidget):
         self.pca_label_mode = self._build_score_label_mode_combo(self._update_pca_plot)
         ctrl.addWidget(self.pca_label_mode)
 
-        btn_save = QPushButton(self.tr("Export Figure"))
-        btn_save.clicked.connect(lambda: self._save_figure(self.pca_canvas))
+        btn_save = QPushButton(self.tr("Export"))
+        btn_save.clicked.connect(self._export_pca_view)
         ctrl.addWidget(btn_save)
 
         layout.addLayout(ctrl)
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.pca_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.pca_plot_stack = QStackedWidget()
         self.pca_canvas = MplWidget()
-        splitter.addWidget(self.pca_canvas)
+        self.pca_plotly_widget = PlotlyWidget()
+        self.pca_plot_stack.addWidget(self.pca_canvas)
+        self.pca_plot_stack.addWidget(self.pca_plotly_widget)
+        self.pca_plot_stack.setCurrentWidget(self.pca_canvas)
+        self.pca_splitter.addWidget(self.pca_plot_stack)
         self.pca_info = QTextEdit()
         self.pca_info.setReadOnly(True)
         self.pca_info.setMaximumWidth(300)
-        splitter.addWidget(self.pca_info)
-        layout.addWidget(splitter, stretch=1)
+        self.pca_splitter.addWidget(self.pca_info)
+        self._register_result_splitter(self.pca_splitter, self.pca_info)
+        self._show_canvas_placeholder(
+            self.pca_canvas,
+            self.tr("Run PCA to inspect score, scree, or loading plots here."),
+        )
+        layout.addWidget(self.pca_splitter, stretch=1)
         return w
 
     def _run_pca(self):
@@ -556,6 +777,7 @@ class StatsTab(QWidget):
             lines.append(self.tr("Cumulative: {pct}%").format(pct=f"{sum(var)*100:.2f}"))
             lines.append(self._qc_scope_text(qc_meta["removed_qc"]))
             self.pca_info.setPlainText("\n".join(lines))
+            self._show_result_panel(self.pca_info, self.pca_splitter)
             self._update_pca_plot()
 
         self._run_async(_job, _on_success, self.tr("PCA Error"))
@@ -563,12 +785,29 @@ class StatsTab(QWidget):
     def _update_pca_plot(self):
         if self._pca_result is None:
             return
-        from visualization.pca_plot import plot_pca_score, plot_pca_scree, plot_pca_loading
+        from visualization.pca_plot import (
+            plot_pca_loading,
+            plot_pca_score,
+            plot_pca_score_interactive,
+            plot_pca_scree,
+        )
 
         plot_key = self.pca_plot_type.currentData()
-        fig = self.pca_canvas.figure
 
         if plot_key == "score":
+            interactive_fig = plot_pca_score_interactive(
+                self._pca_result,
+                pc_x=self.pca_pcx.value() - 1,
+                pc_y=self.pca_pcy.value() - 1,
+                show_labels=self.pca_label_mode.currentData(),
+                theme=self._current_theme(),
+            )
+            if interactive_fig is not None:
+                self.pca_plotly_widget.show_figure(interactive_fig, enable_selection_bridge=True)
+                self.pca_plot_stack.setCurrentWidget(self.pca_plotly_widget)
+                return
+
+            fig = self.pca_canvas.figure
             plot_pca_score(
                 self._pca_result,
                 pc_x=self.pca_pcx.value() - 1,
@@ -578,14 +817,17 @@ class StatsTab(QWidget):
                 fig=fig,
             )
         elif plot_key == "scree":
+            fig = self.pca_canvas.figure
             plot_pca_scree(self._pca_result, theme=self._current_theme(), fig=fig)
         elif plot_key == "loading":
+            fig = self.pca_canvas.figure
             plot_pca_loading(
                 self._pca_result,
                 pc=self.pca_pcx.value() - 1,
                 theme=self._current_theme(),
                 fig=fig,
             )
+        self.pca_plot_stack.setCurrentWidget(self.pca_canvas)
         self.pca_canvas.draw()
         self.mw.show_shared_plot(self.pca_canvas.figure)
 
@@ -612,7 +854,7 @@ class StatsTab(QWidget):
         self.pca3d_z.setValue(3)
         ctrl.addWidget(self.pca3d_z)
 
-        btn_run = QPushButton(self.tr("Run 3D PCA"))
+        btn_run = self._mark_primary_action(QPushButton(self.tr("Run 3D PCA")))
         btn_run.clicked.connect(self._run_pca3d)
         ctrl.addWidget(btn_run)
 
@@ -695,7 +937,7 @@ class StatsTab(QWidget):
         self.vip_topn.setValue(25)
         ctrl.addWidget(self.vip_topn)
 
-        btn_run = QPushButton(self.tr("Run PLS-DA"))
+        btn_run = self._mark_primary_action(QPushButton(self.tr("Run PLS-DA")))
         btn_run.clicked.connect(self._run_plsda)
         ctrl.addWidget(btn_run)
 
@@ -709,28 +951,38 @@ class StatsTab(QWidget):
         self.pls_label_mode = self._build_score_label_mode_combo(self._update_plsda_plot)
         ctrl.addWidget(self.pls_label_mode)
 
-        btn_save = QPushButton(self.tr("Export Figure"))
-        btn_save.clicked.connect(lambda: self._save_figure(self.pls_canvas))
+        btn_save = QPushButton(self.tr("Export"))
+        btn_save.clicked.connect(self._export_plsda_view)
         ctrl.addWidget(btn_save)
 
         layout.addLayout(ctrl)
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.pls_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.pls_plot_stack = QStackedWidget()
         self.pls_canvas = MplWidget()
-        splitter.addWidget(self.pls_canvas)
+        self.pls_plotly_widget = PlotlyWidget()
+        self.pls_plot_stack.addWidget(self.pls_canvas)
+        self.pls_plot_stack.addWidget(self.pls_plotly_widget)
+        self.pls_plot_stack.setCurrentWidget(self.pls_canvas)
+        self.pls_splitter.addWidget(self.pls_plot_stack)
 
-        right_panel = QWidget()
-        right_layout = QVBoxLayout(right_panel)
+        self.pls_side_panel = QWidget()
+        right_layout = QVBoxLayout(self.pls_side_panel)
         self.pls_info = QTextEdit()
         self.pls_info.setReadOnly(True)
         self.pls_info.setMaximumHeight(120)
         right_layout.addWidget(self.pls_info)
         self.vip_table = QTableWidget()
         right_layout.addWidget(self.vip_table)
-        right_panel.setMaximumWidth(350)
-        splitter.addWidget(right_panel)
+        self.pls_side_panel.setMaximumWidth(350)
+        self.pls_splitter.addWidget(self.pls_side_panel)
+        self._register_result_splitter(self.pls_splitter, self.pls_side_panel)
+        self._show_canvas_placeholder(
+            self.pls_canvas,
+            self.tr("Run PLS-DA to inspect VIP scores and score plots here."),
+        )
 
-        layout.addWidget(splitter, stretch=1)
+        layout.addWidget(self.pls_splitter, stretch=1)
         return w
 
     def _run_plsda(self):
@@ -768,6 +1020,7 @@ class StatsTab(QWidget):
                 self.vip_table.setItem(i, 0, QTableWidgetItem(str(vip_df.iloc[i]["Feature"])))
                 self.vip_table.setItem(i, 1, QTableWidgetItem(f'{vip_df.iloc[i]["VIP"]:.4f}'))
             self.vip_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+            self._show_result_panel(self.pls_side_panel, self.pls_splitter)
             self._update_plsda_plot()
 
         self._run_async(_job, _on_success, self.tr("PLS-DA Error"))
@@ -775,24 +1028,37 @@ class StatsTab(QWidget):
     def _update_plsda_plot(self):
         if self._plsda_result is None:
             return
+        from visualization.plsda_plot import plot_plsda_score, plot_plsda_score_interactive
         from visualization.vip_plot import plot_vip
 
-        fig = self.pls_canvas.figure
         plot_key = self.pls_plot_type.currentData()
 
         if plot_key == "vip":
+            fig = self.pls_canvas.figure
             _data = self.mw.current_data
             _labels = align_labels_to_data(self.mw.current_data, self.mw.labels)
             plot_vip(self._plsda_result, top_n=self.vip_topn.value(),
                      data=_data, labels=_labels, theme=self._current_theme(), fig=fig)
+            self.pls_plot_stack.setCurrentWidget(self.pls_canvas)
         elif plot_key == "score":
-            from visualization.plsda_plot import plot_plsda_score
+            interactive_fig = plot_plsda_score_interactive(
+                self._plsda_result,
+                show_labels=self.pls_label_mode.currentData(),
+                theme=self._current_theme(),
+            )
+            if interactive_fig is not None:
+                self.pls_plotly_widget.show_figure(interactive_fig, enable_selection_bridge=True)
+                self.pls_plot_stack.setCurrentWidget(self.pls_plotly_widget)
+                return
+
+            fig = self.pls_canvas.figure
             plot_plsda_score(
                 self._plsda_result,
                 show_labels=self.pls_label_mode.currentData(),
                 theme=self._current_theme(),
                 fig=fig,
             )
+            self.pls_plot_stack.setCurrentWidget(self.pls_canvas)
         self.pls_canvas.draw()
         self.mw.show_shared_plot(self.pls_canvas.figure)
 
@@ -803,18 +1069,12 @@ class StatsTab(QWidget):
         layout = QVBoxLayout(w)
 
         ctrl1 = QHBoxLayout()
-        ctrl1.addWidget(QLabel(self.tr("Group 1:")))
+        ctrl1.addWidget(QLabel(self.tr("Comparison:")))
+        self.vol_pair_combo = QComboBox()
+        self.vol_pair_combo.setMinimumWidth(220)
+        ctrl1.addWidget(self.vol_pair_combo)
         self.vol_group1 = QComboBox()
-        self.vol_group1.currentIndexChanged.connect(
-            lambda _index: self._ensure_distinct_pair_selection(self.vol_group1, self.vol_group2)
-        )
-        ctrl1.addWidget(self.vol_group1)
-        ctrl1.addWidget(QLabel(self.tr("Group 2:")))
         self.vol_group2 = QComboBox()
-        self.vol_group2.currentIndexChanged.connect(
-            lambda _index: self._ensure_distinct_pair_selection(self.vol_group2, self.vol_group1)
-        )
-        ctrl1.addWidget(self.vol_group2)
 
         ctrl1.addWidget(QLabel(self.tr("FC threshold:")))
         self.vol_fc = QDoubleSpinBox()
@@ -843,16 +1103,18 @@ class StatsTab(QWidget):
         self.vol_fdr.setChecked(True)
         ctrl2.addWidget(self.vol_fdr)
 
-        btn_run = QPushButton(self.tr("Run Volcano Analysis"))
+        btn_run = self._mark_primary_action(QPushButton(self.tr("Run Volcano Analysis")))
         btn_run.clicked.connect(self._run_volcano)
         ctrl2.addWidget(btn_run)
 
-        btn_refresh = QPushButton(self.tr("Refresh Groups"))
-        btn_refresh.clicked.connect(self._refresh_groups)
-        ctrl2.addWidget(btn_refresh)
-
-        btn_save = QPushButton(self.tr("Export Figure"))
-        btn_save.clicked.connect(lambda: self._save_figure(self.vol_canvas))
+        btn_save = QPushButton(self.tr("Export Interactive HTML"))
+        btn_save.clicked.connect(
+            lambda: self._save_plotly_html(
+                self.vol_widget,
+                self.tr("Export Volcano Interactive Chart"),
+                "volcano_plot.html",
+            )
+        )
         ctrl2.addWidget(btn_save)
 
         btn_csv = QPushButton(self.tr("Export Results CSV"))
@@ -860,50 +1122,47 @@ class StatsTab(QWidget):
         ctrl2.addWidget(btn_csv)
         layout.addLayout(ctrl2)
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        self.vol_canvas = MplWidget()
-        splitter.addWidget(self.vol_canvas)
+        self.vol_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.vol_widget = PlotlyWidget()
+        self.vol_widget.plotly_event.connect(self._on_volcano_plotly_event)
+        self.vol_splitter.addWidget(self.vol_widget)
 
-        right = QWidget()
-        rl = QVBoxLayout(right)
+        self.vol_side_panel = QWidget()
+        rl = QVBoxLayout(self.vol_side_panel)
         self.vol_info = QLabel("")
         rl.addWidget(self.vol_info)
         self.vol_table = QTableWidget()
+        self.vol_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.vol_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.vol_table.itemSelectionChanged.connect(self._sync_volcano_plot_from_table)
         rl.addWidget(self.vol_table)
-        right.setMaximumWidth(400)
-        splitter.addWidget(right)
-        layout.addWidget(splitter, stretch=1)
+        self.vol_side_panel.setMaximumWidth(400)
+        self.vol_splitter.addWidget(self.vol_side_panel)
+        self._register_result_splitter(self.vol_splitter, self.vol_side_panel)
+        layout.addWidget(self.vol_splitter, stretch=1)
         return w
 
     def _refresh_groups(self):
-        groups = self._available_analysis_groups()
-        self._populate_distinct_group_combos(
-            self.vol_group1,
-            self.vol_group2,
-            groups,
-            (self.vol_group1.currentText(), self.vol_group2.currentText()),
-        )
-        self._populate_distinct_group_combos(
-            self.roc_group1,
-            self.roc_group2,
-            groups,
-            (self.roc_group1.currentText(), self.roc_group2.currentText()),
-        )
+        groups = self._available_groups()
+        self._sync_pair_combo(self.vol_pair_combo, self.vol_group1, self.vol_group2, groups)
+        self._sync_pair_combo(self.roc_pair_combo, self.roc_group1, self.roc_group2, groups)
+        self._sync_display_group_combo(self.out_group_combo, groups)
+        self._refresh_analysis_context()
 
     def _run_volcano(self):
         if not self.mw.check_data_ready():
             return
-        g1 = self.vol_group1.currentText()
-        g2 = self.vol_group2.currentText()
-        if g1 == g2:
-            QMessageBox.warning(self, self.tr("Warning"), self.tr("Please choose two different groups."))
+        self._sync_pair_combo(self.vol_pair_combo, self.vol_group1, self.vol_group2, self._available_groups())
+        pair = self._selected_pair(self.vol_pair_combo)
+        if pair is None:
+            QMessageBox.warning(self, self.tr("Warning"), self.tr("At least 2 groups are required for volcano analysis."))
             return
+        g1, g2 = pair
         if self.mw.labels is None:
-            self._refresh_groups()
             return
 
         from analysis.univariate import volcano_analysis
-        from visualization.volcano_plot import plot_volcano
+        from visualization.volcano_plot import plot_volcano_interactive
 
         test_key = self.vol_test.currentData()
         fc_thresh = self.vol_fc.value()
@@ -929,9 +1188,18 @@ class StatsTab(QWidget):
 
         def _on_success(result):
             self._volcano_result = result
-            plot_volcano(result, theme=self._current_theme(), fig=self.vol_canvas.figure)
-            self.vol_canvas.draw()
-            self.mw.show_shared_plot(self.vol_canvas.figure)
+            interactive_fig = plot_volcano_interactive(
+                result,
+                theme=self._current_theme(),
+            )
+            if interactive_fig is None:
+                self.vol_widget.show_html(
+                    "<html><body style='font-family:sans-serif; padding:24px; color:#888;'>"
+                    + self.tr("Plotly is required to render the interactive volcano chart.")
+                    + "</body></html>"
+                )
+            else:
+                self.vol_widget.show_figure(interactive_fig, enable_selection_bridge=True)
 
             self.vol_info.setText(
                 self.tr(
@@ -949,15 +1217,26 @@ class StatsTab(QWidget):
             n_show = min(100, len(sig_df))
             self.vol_table.setRowCount(n_show)
             self.vol_table.setColumnCount(3)
+            self._volcano_feature_to_row = {}
             self.vol_table.setHorizontalHeaderLabels([
                 self.tr("Feature"), self.tr("log2FC"), self.tr("adj.P"),
             ])
             for i in range(n_show):
                 row = sig_df.iloc[i]
-                self.vol_table.setItem(i, 0, QTableWidgetItem(str(row["Feature"])))
+                feature = str(row["Feature"])
+                self._volcano_feature_to_row[feature] = i
+                self.vol_table.setItem(i, 0, QTableWidgetItem(feature))
                 self.vol_table.setItem(i, 1, QTableWidgetItem(f'{row["log2FC"]:.3f}'))
                 self.vol_table.setItem(i, 2, QTableWidgetItem(f'{row["pvalue_adj"]:.2e}'))
             self.vol_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+            if n_show:
+                self._volcano_selection_syncing = True
+                self.vol_table.selectRow(0)
+                self._volcano_selection_syncing = False
+                first_feature = self.vol_table.item(0, 0).text()
+                if interactive_fig is not None:
+                    self.vol_widget.highlight_feature(first_feature)
+            self._show_result_panel(self.vol_side_panel, self.vol_splitter)
 
         self._run_async(_job, _on_success, self.tr("Volcano Error"))
 
@@ -971,6 +1250,37 @@ class StatsTab(QWidget):
         if path:
             self._volcano_result.result_df.to_csv(path, index=False)
             self.mw.status_bar.showMessage(self.tr("Saved: {path}").format(path=path))
+
+    def _on_volcano_plotly_event(self, payload: object) -> None:
+        if self._volcano_selection_syncing or not isinstance(payload, Mapping):
+            return
+        if payload.get("type") != "point_click":
+            return
+        feature = str(payload.get("feature", "")).strip()
+        row = self._volcano_feature_to_row.get(feature)
+        if row is None:
+            return
+
+        self._volcano_selection_syncing = True
+        self.vol_table.selectRow(row)
+        item = self.vol_table.item(row, 0)
+        if item is not None:
+            self.vol_table.scrollToItem(item, QAbstractItemView.ScrollHint.PositionAtCenter)
+        self._volcano_selection_syncing = False
+
+    def _sync_volcano_plot_from_table(self) -> None:
+        if self._volcano_selection_syncing:
+            return
+        row = self.vol_table.currentRow()
+        if row < 0:
+            return
+        item = self.vol_table.item(row, 0)
+        if item is None:
+            return
+
+        self._volcano_selection_syncing = True
+        self.vol_widget.highlight_feature(item.text())
+        self._volcano_selection_syncing = False
 
     # ?????????????????? ANOVA ??????????????????
 
@@ -996,7 +1306,7 @@ class StatsTab(QWidget):
         self.anova_fdr.setChecked(True)
         ctrl.addWidget(self.anova_fdr)
 
-        btn_run = QPushButton(self.tr("Run ANOVA"))
+        btn_run = self._mark_primary_action(QPushButton(self.tr("Run ANOVA")))
         btn_run.clicked.connect(self._run_anova)
         ctrl.addWidget(btn_run)
 
@@ -1016,34 +1326,44 @@ class StatsTab(QWidget):
         self.anova_feat_combo.setMinimumWidth(200)
         self.anova_feat_combo.currentIndexChanged.connect(self._on_anova_feature_changed)
         feat_ctrl.addWidget(self.anova_feat_combo)
-        btn_feat = QPushButton(self.tr("Plot Feature Boxplot"))
-        btn_feat.clicked.connect(self._draw_feature_boxplot)
-        feat_ctrl.addWidget(btn_feat)
         feat_ctrl.addStretch()
         layout.addLayout(feat_ctrl)
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.anova_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.anova_splitter.setChildrenCollapsible(False)
+        self.anova_splitter.setStretchFactor(0, 6)
+        self.anova_splitter.setStretchFactor(1, 2)
+        self.anova_splitter.setStretchFactor(2, 2)
 
         # 撌? ???扳???
-        self.anova_canvas = MplWidget()
-        splitter.addWidget(self.anova_canvas)
+        self.anova_canvas = MplWidget(figsize=(11.5, 4.6))
+        self.anova_splitter.addWidget(self.anova_canvas)
 
         # 銝? ?孵噩 boxplot
-        self.anova_feat_canvas = MplWidget(figsize=(5, 4))
-        splitter.addWidget(self.anova_feat_canvas)
+        self.anova_feat_canvas = MplWidget(figsize=(4.2, 4.6))
+        self.anova_splitter.addWidget(self.anova_feat_canvas)
 
         # ?? 蝯?銵冽
-        right = QWidget()
-        rl = QVBoxLayout(right)
+        self.anova_side_panel = QWidget()
+        rl = QVBoxLayout(self.anova_side_panel)
         self.anova_info = QLabel("")
         rl.addWidget(self.anova_info)
         self.anova_table = QTableWidget()
         self.anova_table.itemSelectionChanged.connect(self._sync_anova_feature_from_table)
         rl.addWidget(self.anova_table)
-        right.setMaximumWidth(400)
-        splitter.addWidget(right)
+        self.anova_side_panel.setMaximumWidth(400)
+        self.anova_splitter.addWidget(self.anova_side_panel)
+        self._register_result_splitter(self.anova_splitter, self.anova_side_panel)
+        self._show_canvas_placeholder(
+            self.anova_canvas,
+            self.tr("Run ANOVA to inspect the importance plot here."),
+        )
+        self._show_canvas_placeholder(
+            self.anova_feat_canvas,
+            self.tr("Select a feature after running ANOVA to inspect its boxplot."),
+        )
 
-        layout.addWidget(splitter, stretch=1)
+        layout.addWidget(self.anova_splitter, stretch=1)
         return w
 
     def _run_anova(self):
@@ -1126,6 +1446,7 @@ class StatsTab(QWidget):
             for feat in other_feats[:50]:
                 self.anova_feat_combo.addItem(str(feat), feat)
             self.anova_feat_combo.blockSignals(combo_was_blocked)
+            self._show_result_panel(self.anova_side_panel, self.anova_splitter)
 
             if self.anova_feat_combo.count():
                 target_index = (
@@ -1137,6 +1458,7 @@ class StatsTab(QWidget):
                     target_index = 0
                 self.anova_feat_combo.setCurrentIndex(target_index)
                 self._draw_feature_boxplot()
+            self._show_result_panel(self.anova_side_panel, self.anova_splitter)
 
         self._run_async(_job, _on_success, self.tr("ANOVA Error"))
 
@@ -1203,18 +1525,12 @@ class StatsTab(QWidget):
         layout = QVBoxLayout(w)
 
         ctrl = QHBoxLayout()
-        ctrl.addWidget(QLabel(self.tr("Group 1:")))
+        ctrl.addWidget(QLabel(self.tr("Comparison:")))
+        self.roc_pair_combo = QComboBox()
+        self.roc_pair_combo.setMinimumWidth(220)
+        ctrl.addWidget(self.roc_pair_combo)
         self.roc_group1 = QComboBox()
-        self.roc_group1.currentIndexChanged.connect(
-            lambda _index: self._ensure_distinct_pair_selection(self.roc_group1, self.roc_group2)
-        )
-        ctrl.addWidget(self.roc_group1)
-        ctrl.addWidget(QLabel(self.tr("Group 2:")))
         self.roc_group2 = QComboBox()
-        self.roc_group2.currentIndexChanged.connect(
-            lambda _index: self._ensure_distinct_pair_selection(self.roc_group2, self.roc_group1)
-        )
-        ctrl.addWidget(self.roc_group2)
 
         ctrl.addWidget(QLabel(self.tr("Top N:")))
         self.roc_topn = QSpinBox()
@@ -1226,7 +1542,7 @@ class StatsTab(QWidget):
         self.roc_multi.setChecked(True)
         ctrl.addWidget(self.roc_multi)
 
-        btn_run = QPushButton(self.tr("Run ROC Analysis"))
+        btn_run = self._mark_primary_action(QPushButton(self.tr("Run ROC Analysis")))
         btn_run.clicked.connect(self._run_roc)
         ctrl.addWidget(btn_run)
 
@@ -1250,31 +1566,35 @@ class StatsTab(QWidget):
         ctrl2.addStretch()
         layout.addLayout(ctrl2)
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.roc_splitter = QSplitter(Qt.Orientation.Horizontal)
         self.roc_canvas = MplWidget()
-        splitter.addWidget(self.roc_canvas)
+        self.roc_splitter.addWidget(self.roc_canvas)
 
-        right = QWidget()
-        rl = QVBoxLayout(right)
+        self.roc_side_panel = QWidget()
+        rl = QVBoxLayout(self.roc_side_panel)
         self.roc_info = QLabel("")
         rl.addWidget(self.roc_info)
         self.roc_table = QTableWidget()
         rl.addWidget(self.roc_table)
-        right.setMaximumWidth(450)
-        splitter.addWidget(right)
-        layout.addWidget(splitter, stretch=1)
+        self.roc_side_panel.setMaximumWidth(450)
+        self.roc_splitter.addWidget(self.roc_side_panel)
+        self._register_result_splitter(self.roc_splitter, self.roc_side_panel)
+        self._show_canvas_placeholder(
+            self.roc_canvas,
+            self.tr("Run ROC analysis to inspect the curve or AUC ranking here."),
+        )
+        layout.addWidget(self.roc_splitter, stretch=1)
         return w
 
     def _run_roc(self):
         if not self.mw.check_data_ready():
             return
-        if self.roc_group1.count() == 0:
-            self._refresh_roc_groups()
-        g1 = self.roc_group1.currentText()
-        g2 = self.roc_group2.currentText()
-        if g1 == g2:
-            QMessageBox.warning(self, self.tr("Warning"), self.tr("Please choose two different groups."))
+        self._refresh_roc_groups()
+        pair = self._selected_pair(self.roc_pair_combo)
+        if pair is None:
+            QMessageBox.warning(self, self.tr("Warning"), self.tr("At least 2 groups are required for ROC analysis."))
             return
+        g1, g2 = pair
 
         from analysis.roc import run_roc_analysis
         data, labels, qc_meta = self._snapshot_stats_data_or_warn(require_labels=True)
@@ -1324,6 +1644,7 @@ class StatsTab(QWidget):
                 self.roc_table.setItem(i, 2, QTableWidgetItem(f'{row["Sensitivity"]:.3f}'))
                 self.roc_table.setItem(i, 3, QTableWidgetItem(f'{row["Specificity"]:.3f}'))
             self.roc_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+            self._show_result_panel(self.roc_side_panel, self.roc_splitter)
             self._update_roc_plot()
 
         self._run_async(_job, _on_success, self.tr("ROC Error"))
@@ -1343,13 +1664,11 @@ class StatsTab(QWidget):
         self.mw.show_shared_plot(self.roc_canvas.figure)
 
     def _refresh_roc_groups(self):
-        groups = self._available_analysis_groups()
-        self._populate_distinct_group_combos(
-            self.roc_group1,
-            self.roc_group2,
-            groups,
-            (self.roc_group1.currentText(), self.roc_group2.currentText()),
-        )
+        self._sync_pair_combo(self.roc_pair_combo, self.roc_group1, self.roc_group2, self._available_groups())
+
+    def on_data_updated(self) -> None:
+        self._refresh_groups()
+        self._refresh_analysis_context()
 
     def _export_roc_csv(self):
         if self._roc_result is None:
@@ -1388,7 +1707,7 @@ class StatsTab(QWidget):
         self.corr_topn.setValue(50)
         ctrl.addWidget(self.corr_topn)
 
-        btn_run = QPushButton(self.tr("Run Correlation"))
+        btn_run = self._mark_primary_action(QPushButton(self.tr("Run Correlation")))
         btn_run.clicked.connect(self._run_corr)
         ctrl.addWidget(btn_run)
 
@@ -1407,19 +1726,24 @@ class StatsTab(QWidget):
         ctrl2.addStretch()
         layout.addLayout(ctrl2)
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.corr_splitter = QSplitter(Qt.Orientation.Horizontal)
         self.corr_canvas = MplWidget(figsize=(10, 8))
-        splitter.addWidget(self.corr_canvas)
+        self.corr_splitter.addWidget(self.corr_canvas)
 
-        right = QWidget()
-        rl = QVBoxLayout(right)
+        self.corr_side_panel = QWidget()
+        rl = QVBoxLayout(self.corr_side_panel)
         self.corr_info = QLabel("")
         rl.addWidget(self.corr_info)
         self.corr_table = QTableWidget()
         rl.addWidget(self.corr_table)
-        right.setMaximumWidth(400)
-        splitter.addWidget(right)
-        layout.addWidget(splitter, stretch=1)
+        self.corr_side_panel.setMaximumWidth(400)
+        self.corr_splitter.addWidget(self.corr_side_panel)
+        self._register_result_splitter(self.corr_splitter, self.corr_side_panel)
+        self._show_canvas_placeholder(
+            self.corr_canvas,
+            self.tr("Run correlation analysis to inspect the heatmap or network here."),
+        )
+        layout.addWidget(self.corr_splitter, stretch=1)
         return w
 
     def _run_corr(self):
@@ -1473,6 +1797,7 @@ class StatsTab(QWidget):
                 self.corr_table.setItem(i, 1, QTableWidgetItem(str(row["Feature_2"])))
                 self.corr_table.setItem(i, 2, QTableWidgetItem(f'{row["Correlation"]:.4f}'))
             self.corr_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+            self._show_result_panel(self.corr_side_panel, self.corr_splitter)
             self._update_corr_plot()
 
         self._run_async(_job, _on_success, self.tr("Correlation Error"))
@@ -1527,7 +1852,7 @@ class StatsTab(QWidget):
         self.rf_topn.setValue(25)
         ctrl.addWidget(self.rf_topn)
 
-        btn_run = QPushButton(self.tr("Run Random Forest"))
+        btn_run = self._mark_primary_action(QPushButton(self.tr("Run Random Forest")))
         btn_run.clicked.connect(self._run_rf)
         ctrl.addWidget(btn_run)
 
@@ -1550,21 +1875,26 @@ class StatsTab(QWidget):
         ctrl2.addStretch()
         layout.addLayout(ctrl2)
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.rf_splitter = QSplitter(Qt.Orientation.Horizontal)
         self.rf_canvas = MplWidget()
-        splitter.addWidget(self.rf_canvas)
+        self.rf_splitter.addWidget(self.rf_canvas)
 
-        right = QWidget()
-        rl = QVBoxLayout(right)
+        self.rf_side_panel = QWidget()
+        rl = QVBoxLayout(self.rf_side_panel)
         self.rf_info = QTextEdit()
         self.rf_info.setReadOnly(True)
         self.rf_info.setMaximumHeight(120)
         rl.addWidget(self.rf_info)
         self.rf_table = QTableWidget()
         rl.addWidget(self.rf_table)
-        right.setMaximumWidth(350)
-        splitter.addWidget(right)
-        layout.addWidget(splitter, stretch=1)
+        self.rf_side_panel.setMaximumWidth(350)
+        self.rf_splitter.addWidget(self.rf_side_panel)
+        self._register_result_splitter(self.rf_splitter, self.rf_side_panel)
+        self._show_canvas_placeholder(
+            self.rf_canvas,
+            self.tr("Run Random Forest to inspect importance or confusion plots here."),
+        )
+        layout.addWidget(self.rf_splitter, stretch=1)
         return w
 
     def _run_rf(self):
@@ -1615,6 +1945,7 @@ class StatsTab(QWidget):
                 self.rf_table.setItem(i, 0, QTableWidgetItem(str(row["Feature"])))
                 self.rf_table.setItem(i, 1, QTableWidgetItem(f'{row["Importance"]:.6f}'))
             self.rf_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+            self._show_result_panel(self.rf_side_panel, self.rf_splitter)
             self._update_rf_plot()
 
         self._run_async(_job, _on_success, self.tr("Random Forest Error"))
@@ -1669,7 +2000,7 @@ class StatsTab(QWidget):
         self.out_alpha.setValue(0.05)
         ctrl.addWidget(self.out_alpha)
 
-        btn_run = QPushButton(self.tr("Run Outlier Detection"))
+        btn_run = self._mark_primary_action(QPushButton(self.tr("Run Outlier Detection")))
         btn_run.clicked.connect(self._run_outlier)
         ctrl.addWidget(btn_run)
 
@@ -1689,24 +2020,34 @@ class StatsTab(QWidget):
         self.out_plot_type.addItem(self.tr("DModX"), "dmodx")
         self.out_plot_type.currentIndexChanged.connect(self._update_outlier_plot)
         ctrl2.addWidget(self.out_plot_type)
+        ctrl2.addWidget(QLabel(self.tr("Display group:")))
+        self.out_group_combo = QComboBox()
+        self._sync_display_group_combo(self.out_group_combo, [])
+        self.out_group_combo.currentIndexChanged.connect(self._on_outlier_group_changed)
+        ctrl2.addWidget(self.out_group_combo)
         ctrl2.addStretch()
         layout.addLayout(ctrl2)
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.out_splitter = QSplitter(Qt.Orientation.Horizontal)
         self.out_canvas = MplWidget(figsize=(10, 5))
-        splitter.addWidget(self.out_canvas)
+        self.out_splitter.addWidget(self.out_canvas)
 
-        right = QWidget()
-        rl = QVBoxLayout(right)
+        self.out_side_panel = QWidget()
+        rl = QVBoxLayout(self.out_side_panel)
         self.out_info = QTextEdit()
         self.out_info.setReadOnly(True)
         self.out_info.setMaximumHeight(120)
         rl.addWidget(self.out_info)
         self.out_table = QTableWidget()
         rl.addWidget(self.out_table)
-        right.setMaximumWidth(350)
-        splitter.addWidget(right)
-        layout.addWidget(splitter, stretch=1)
+        self.out_side_panel.setMaximumWidth(350)
+        self.out_splitter.addWidget(self.out_side_panel)
+        self._register_result_splitter(self.out_splitter, self.out_side_panel)
+        self._show_canvas_placeholder(
+            self.out_canvas,
+            self.tr("Run outlier detection to inspect score diagnostics here."),
+        )
+        layout.addWidget(self.out_splitter, stretch=1)
         return w
 
     def _run_outlier(self):
@@ -1740,22 +2081,8 @@ class StatsTab(QWidget):
                 self._qc_scope_text(qc_meta["removed_qc"]),
             ]
             self.out_info.setPlainText("\n".join(lines))
-
-            out_df = result.get_outlier_df()
-            n_show = len(out_df)
-            self.out_table.setRowCount(n_show)
-            self.out_table.setColumnCount(4)
-            self.out_table.setHorizontalHeaderLabels([
-                self.tr("Sample"), self.tr("T2"), self.tr("DModX"), self.tr("Outlier"),
-            ])
-            for i in range(n_show):
-                row = out_df.iloc[i]
-                self.out_table.setItem(i, 0, QTableWidgetItem(str(row["Sample"])))
-                self.out_table.setItem(i, 1, QTableWidgetItem(f'{row["T2"]:.3f}'))
-                self.out_table.setItem(i, 2, QTableWidgetItem(f'{row["DModX"]:.4f}'))
-                self.out_table.setItem(i, 3, QTableWidgetItem(
-                    self.tr("Yes") if row["Any_Outlier"] else ""))
-            self.out_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+            self._refresh_outlier_table()
+            self._show_result_panel(self.out_side_panel, self.out_splitter)
             self._update_outlier_plot()
 
         self._run_async(_job, _on_success, self.tr("Outlier Detection Error"))
@@ -1765,19 +2092,55 @@ class StatsTab(QWidget):
             return
         fig = self.out_canvas.figure
         plot_key = self.out_plot_type.currentData()
+        group_filter = self.out_group_combo.currentData()
         if plot_key == "t2":
             from visualization.outlier_plot import plot_outlier_score
             plot_outlier_score(
                 self._outlier_result,
                 labels=self._outlier_labels,
+                group_filter=group_filter,
                 theme=self._current_theme(),
                 fig=fig,
             )
         else:
             from visualization.outlier_plot import plot_dmodx
-            plot_dmodx(self._outlier_result, theme=self._current_theme(), fig=fig)
+            plot_dmodx(
+                self._outlier_result,
+                labels=self._outlier_labels,
+                group_filter=group_filter,
+                theme=self._current_theme(),
+                fig=fig,
+            )
         self.out_canvas.draw()
         self.mw.show_shared_plot(self.out_canvas.figure)
+
+    def _refresh_outlier_table(self) -> None:
+        if self._outlier_result is None:
+            return
+        out_df = self._outlier_result.get_outlier_df()
+        group_filter = self.out_group_combo.currentData()
+        if group_filter is not None and self._outlier_labels is not None:
+            sample_groups = self._outlier_labels.reindex(out_df["Sample"]).astype(str)
+            out_df = out_df.loc[sample_groups.to_numpy() == str(group_filter)].copy()
+
+        n_show = len(out_df)
+        self.out_table.setRowCount(n_show)
+        self.out_table.setColumnCount(4)
+        self.out_table.setHorizontalHeaderLabels([
+            self.tr("Sample"), self.tr("T2"), self.tr("DModX"), self.tr("Outlier"),
+        ])
+        for i in range(n_show):
+            row = out_df.iloc[i]
+            self.out_table.setItem(i, 0, QTableWidgetItem(str(row["Sample"])))
+            self.out_table.setItem(i, 1, QTableWidgetItem(f'{row["T2"]:.3f}'))
+            self.out_table.setItem(i, 2, QTableWidgetItem(f'{row["DModX"]:.4f}'))
+            self.out_table.setItem(i, 3, QTableWidgetItem(
+            self.tr("Yes") if row["Any_Outlier"] else ""))
+        self.out_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+
+    def _on_outlier_group_changed(self) -> None:
+        self._refresh_outlier_table()
+        self._update_outlier_plot()
 
     def _export_outlier_csv(self):
         if self._outlier_result is None:
@@ -1809,7 +2172,7 @@ class StatsTab(QWidget):
         self.oplsda_cv.addItem(self.tr("5-Fold"), "kfold5")
         ctrl.addWidget(self.oplsda_cv)
 
-        btn_run = QPushButton(self.tr("Run OPLS-DA"))
+        btn_run = self._mark_primary_action(QPushButton(self.tr("Run OPLS-DA")))
         btn_run.clicked.connect(self._run_oplsda)
         ctrl.addWidget(btn_run)
 
@@ -1824,8 +2187,8 @@ class StatsTab(QWidget):
         self.oplsda_label_mode = self._build_score_label_mode_combo(self._update_oplsda_plot)
         ctrl.addWidget(self.oplsda_label_mode)
 
-        btn_save = QPushButton(self.tr("Export Figure"))
-        btn_save.clicked.connect(lambda: self._save_figure(self.oplsda_canvas))
+        btn_save = QPushButton(self.tr("Export"))
+        btn_save.clicked.connect(self._export_oplsda_view)
         ctrl.addWidget(btn_save)
 
         btn_csv = QPushButton(self.tr("Export Results CSV"))
@@ -1833,21 +2196,22 @@ class StatsTab(QWidget):
         ctrl.addWidget(btn_csv)
         layout.addLayout(ctrl)
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        self.oplsda_canvas = MplWidget()
-        splitter.addWidget(self.oplsda_canvas)
+        self.oplsda_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.oplsda_widget = PlotlyWidget()
+        self.oplsda_splitter.addWidget(self.oplsda_widget)
 
-        right = QWidget()
-        rl = QVBoxLayout(right)
+        self.oplsda_side_panel = QWidget()
+        rl = QVBoxLayout(self.oplsda_side_panel)
         self.oplsda_info = QTextEdit()
         self.oplsda_info.setReadOnly(True)
         self.oplsda_info.setMaximumHeight(150)
         rl.addWidget(self.oplsda_info)
         self.oplsda_table = QTableWidget()
         rl.addWidget(self.oplsda_table)
-        right.setMaximumWidth(400)
-        splitter.addWidget(right)
-        layout.addWidget(splitter, stretch=1)
+        self.oplsda_side_panel.setMaximumWidth(400)
+        self.oplsda_splitter.addWidget(self.oplsda_side_panel)
+        self._register_result_splitter(self.oplsda_splitter, self.oplsda_side_panel)
+        layout.addWidget(self.oplsda_splitter, stretch=1)
         return w
 
     def _run_oplsda(self):
@@ -1904,6 +2268,7 @@ class StatsTab(QWidget):
                 self.oplsda_table.setItem(i, 2, QTableWidgetItem(f'{row["Importance"]:.4f}'))
             self.oplsda_table.horizontalHeader().setSectionResizeMode(
                 QHeaderView.ResizeMode.Stretch)
+            self._show_result_panel(self.oplsda_side_panel, self.oplsda_splitter)
             self._update_oplsda_plot()
 
         self._run_async(_job, _on_success, self.tr("OPLS-DA Error"))
@@ -1911,21 +2276,24 @@ class StatsTab(QWidget):
     def _update_oplsda_plot(self):
         if self._oplsda_result is None:
             return
-        from visualization.oplsda_plot import plot_oplsda_score, plot_oplsda_splot
-
-        fig = self.oplsda_canvas.figure
         plot_key = self.oplsda_plot_type.currentData()
         if plot_key == "score":
-            plot_oplsda_score(
+            from visualization.oplsda_plot import plot_oplsda_score_interactive
+
+            interactive_fig = plot_oplsda_score_interactive(
                 self._oplsda_result,
                 show_labels=self.oplsda_label_mode.currentData(),
                 theme=self._current_theme(),
-                fig=fig,
             )
-        else:
-            plot_oplsda_splot(self._oplsda_result, theme=self._current_theme(), fig=fig)
-        self.oplsda_canvas.draw()
-        self.mw.show_shared_plot(self.oplsda_canvas.figure)
+            if interactive_fig is not None:
+                self.oplsda_widget.show_figure(interactive_fig, enable_selection_bridge=True)
+                return
+
+        self.oplsda_widget.show_html(
+            "<html><body style='font-family:sans-serif; padding:24px; color:#888;'>"
+            + self.tr("Plotly is required to render the interactive OPLS-DA score plot.")
+            + "</body></html>"
+        )
 
     def _export_oplsda_csv(self):
         if self._oplsda_result is None:
@@ -1969,7 +2337,7 @@ class StatsTab(QWidget):
         self.clust_maxfeat.setSingleStep(100)
         ctrl.addWidget(self.clust_maxfeat)
 
-        btn_run = QPushButton(self.tr("Run Clustering"))
+        btn_run = self._mark_primary_action(QPushButton(self.tr("Run Clustering")))
         btn_run.clicked.connect(self._run_clustering)
         ctrl.addWidget(btn_run)
 
@@ -1986,14 +2354,19 @@ class StatsTab(QWidget):
 
         layout.addLayout(ctrl)
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.clust_splitter = QSplitter(Qt.Orientation.Horizontal)
         self.clust_canvas = MplWidget()
-        splitter.addWidget(self.clust_canvas)
+        self.clust_splitter.addWidget(self.clust_canvas)
         self.clust_info = QTextEdit()
         self.clust_info.setReadOnly(True)
         self.clust_info.setMaximumWidth(300)
-        splitter.addWidget(self.clust_info)
-        layout.addWidget(splitter, stretch=1)
+        self.clust_splitter.addWidget(self.clust_info)
+        self._register_result_splitter(self.clust_splitter, self.clust_info)
+        self._show_canvas_placeholder(
+            self.clust_canvas,
+            self.tr("Run clustering to inspect the dendrogram or summary view here."),
+        )
+        layout.addWidget(self.clust_splitter, stretch=1)
         return w
 
     def _run_clustering(self):
@@ -2036,6 +2409,7 @@ class StatsTab(QWidget):
                 self._qc_scope_text(qc_meta["removed_qc"]),
             ]
             self.clust_info.setPlainText("\n".join(lines))
+            self._show_result_panel(self.clust_info, self.clust_splitter)
             self._update_clustering_plot()
 
         self._run_async(_job, _on_success, self.tr("Clustering Error"))
@@ -2064,3 +2438,29 @@ class StatsTab(QWidget):
         if path:
             canvas.figure.savefig(path, dpi=300, bbox_inches="tight")
             self.mw.status_bar.showMessage(self.tr("Saved figure: {path}").format(path=path))
+
+    def _save_plotly_html(self, widget: PlotlyWidget, title: str, default_name: str) -> None:
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            title,
+            default_name,
+            "HTML (*.html)",
+        )
+        if path:
+            widget.save_html(path)
+            self.mw.status_bar.showMessage(self.tr("Saved interactive chart: {path}").format(path=path))
+
+    def _export_pca_view(self) -> None:
+        if self.pca_plot_type.currentData() == "score" and self.pca_plot_stack.currentWidget() is self.pca_plotly_widget:
+            self._save_plotly_html(self.pca_plotly_widget, self.tr("Export PCA Score Plot"), "pca_score_plot.html")
+            return
+        self._save_figure(self.pca_canvas)
+
+    def _export_plsda_view(self) -> None:
+        if self.pls_plot_type.currentData() == "score" and self.pls_plot_stack.currentWidget() is self.pls_plotly_widget:
+            self._save_plotly_html(self.pls_plotly_widget, self.tr("Export PLS-DA Score Plot"), "plsda_score_plot.html")
+            return
+        self._save_figure(self.pls_canvas)
+
+    def _export_oplsda_view(self) -> None:
+        self._save_plotly_html(self.oplsda_widget, self.tr("Export OPLS-DA Score Plot"), "oplsda_score_plot.html")

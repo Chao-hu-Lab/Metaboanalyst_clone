@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 from matplotlib.patches import Ellipse
 from scipy.stats import chi2
 
+from visualization.interactive_score_plot import build_interactive_score_plot
 from visualization.score_labeling import add_score_labels, finalize_score_labels
 from visualization.theme import apply_publication_style, get_group_colors
 
@@ -172,6 +174,51 @@ def plot_oplsda_score(
     )
     fig.tight_layout()
     return fig
+
+
+def plot_oplsda_score_interactive(
+    oplsda_result,
+    show_labels: str = "outlier",
+    confidence: float = 0.95,
+    theme: str = "light",
+):
+    """Build an interactive Plotly OPLS-DA score plot."""
+    score_df = oplsda_result.get_score_df().copy()
+    backend = getattr(oplsda_result, "backend", "pyopls")
+    total_var = np.var(score_df["T_predictive"].to_numpy(dtype=float)) + np.var(
+        score_df["T_orthogonal"].to_numpy(dtype=float)
+    )
+    var_t = (
+        np.var(score_df["T_predictive"].to_numpy(dtype=float)) / total_var * 100
+        if total_var > 0
+        else 0.0
+    )
+    var_o = (
+        np.var(score_df["T_orthogonal"].to_numpy(dtype=float)) / total_var * 100
+        if total_var > 0
+        else 0.0
+    )
+    y_label = "T score [2]" if backend == "pls_fallback" else "T orthogonal [1]"
+    return build_interactive_score_plot(
+        pd.DataFrame(
+            {
+                "x": score_df["T_predictive"].to_numpy(dtype=float),
+                "y": score_df["T_orthogonal"].to_numpy(dtype=float),
+                "Sample": score_df["Sample"].astype(str),
+                "Group": score_df["Group"].astype(str),
+            }
+        ),
+        x_col="x",
+        y_col="y",
+        sample_col="Sample",
+        group_col="Group",
+        x_label=f"T score [1] ({var_t:.1f} %)",
+        y_label=f"{y_label} ({var_o:.1f} %)",
+        title="OPLS-DA Score Plot",
+        show_labels=show_labels,
+        confidence=confidence,
+        theme=theme,
+    )
 
 
 def plot_oplsda_splot(

@@ -142,8 +142,9 @@ def test_volcano_uses_univariate_matrix_and_row_normalized_fc_bundle(
     _patch_sync_runner(window, monkeypatch)
     captured: dict[str, object] = {}
 
-    window.stats_tab.vol_group1.setCurrentText("A")
-    window.stats_tab.vol_group2.setCurrentText("B")
+    window.stats_tab.vol_pair_combo.setCurrentIndex(
+        window.stats_tab.vol_pair_combo.findText("A vs B")
+    )
 
     def _fake_volcano_analysis(data, labels, **kwargs):
         captured["data"] = data.copy()
@@ -184,8 +185,9 @@ def test_volcano_matrix_source_is_stable_across_test_modes(
     _patch_sync_runner(window, monkeypatch)
     captured: dict[str, object] = {}
 
-    window.stats_tab.vol_group1.setCurrentText("A")
-    window.stats_tab.vol_group2.setCurrentText("B")
+    window.stats_tab.vol_pair_combo.setCurrentIndex(
+        window.stats_tab.vol_pair_combo.findText("A vs B")
+    )
     window.stats_tab.vol_test.setCurrentIndex(window.stats_tab.vol_test.findData(test_key))
 
     def _fake_volcano_analysis(data, labels, **kwargs):
@@ -414,23 +416,15 @@ def test_group_refresh_preserves_existing_pairs_and_keeps_pairs_distinct(qapp) -
     }
 
     window.stats_tab._refresh_groups()
-    window.stats_tab.vol_group1.setCurrentText("B")
-    window.stats_tab.vol_group2.setCurrentText("C")
-    window.stats_tab.roc_group1.setCurrentText("C")
-    window.stats_tab.roc_group2.setCurrentText("A")
+    window.stats_tab.vol_pair_combo.setCurrentIndex(window.stats_tab.vol_pair_combo.findText("B vs C"))
+    window.stats_tab.roc_pair_combo.setCurrentIndex(window.stats_tab.roc_pair_combo.findText("A vs C"))
 
     window.stats_tab._refresh_groups()
 
     assert window.stats_tab.vol_group1.currentText() == "B"
     assert window.stats_tab.vol_group2.currentText() == "C"
-    assert window.stats_tab.roc_group1.currentText() == "C"
-    assert window.stats_tab.roc_group2.currentText() == "A"
-
-    window.stats_tab.vol_group2.setCurrentText("B")
-    assert window.stats_tab.vol_group2.currentText() == "B"
-    assert window.stats_tab.vol_group1.currentText() != window.stats_tab.vol_group2.currentText()
-
-    window.stats_tab.roc_group1.setCurrentText("A")
     assert window.stats_tab.roc_group1.currentText() == "A"
-    assert window.stats_tab.roc_group1.currentText() != window.stats_tab.roc_group2.currentText()
+    assert window.stats_tab.roc_group2.currentText() == "C"
+    assert window.stats_tab.vol_pair_combo.findText("B vs B") == -1
+    assert window.stats_tab.roc_pair_combo.findText("A vs A") == -1
     window.close()

@@ -8,6 +8,7 @@ from typing import Any, Callable, Mapping
 import pandas as pd
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
+    QBoxLayout,
     QComboBox,
     QDockWidget,
     QFrame,
@@ -51,12 +52,12 @@ class VisualTab(QWidget):
         self._init_ui()
 
     def _init_ui(self) -> None:
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(12)
+        self._root_layout = QHBoxLayout(self)
+        self._root_layout.setContentsMargins(0, 0, 0, 0)
+        self._root_layout.setSpacing(12)
 
         self.control_dock = self._create_control_dock()
-        layout.addWidget(self.control_dock)
+        self._root_layout.addWidget(self.control_dock)
 
         self.content_frame = QFrame()
         self.content_frame.setFrameShape(QFrame.Shape.NoFrame)
@@ -81,9 +82,10 @@ class VisualTab(QWidget):
         self.preview_stack.addWidget(self.plotly_widget)
         content_layout.addWidget(self.preview_stack, stretch=1)
 
-        layout.addWidget(self.content_frame, stretch=1)
+        self._root_layout.addWidget(self.content_frame, stretch=1)
 
         self._apply_control_visibility()
+        self._apply_responsive_layout()
         self.redraw_plot()
 
     def _create_control_dock(self) -> QDockWidget:
@@ -214,6 +216,25 @@ class VisualTab(QWidget):
     def retranslateUi(self):
         self.control_dock.setWindowTitle(self.tr("Parameters"))
         self.header_label.setText(self.tr("Visualization Preview"))
+
+    def _apply_responsive_layout(self) -> None:
+        narrow = self.width() < 1080
+        if narrow:
+            self._root_layout.setDirection(QBoxLayout.Direction.TopToBottom)
+            self.control_dock.setMinimumWidth(0)
+            self.control_dock.setMaximumWidth(16777215)
+            self.control_dock.setMinimumHeight(220)
+            self.control_dock.setMaximumHeight(280)
+        else:
+            self._root_layout.setDirection(QBoxLayout.Direction.LeftToRight)
+            self.control_dock.setMinimumWidth(280)
+            self.control_dock.setMaximumWidth(320)
+            self.control_dock.setMinimumHeight(0)
+            self.control_dock.setMaximumHeight(16777215)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._apply_responsive_layout()
 
     def connect_state_changed(self, callback: Callable[..., None]) -> None:
         self.hm_method.currentIndexChanged.connect(callback)

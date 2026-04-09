@@ -169,10 +169,13 @@ def test_stats_tab_score_plots_forward_selected_label_mode(
 
     if result_attr == "_pca_result":
         setattr(stats_tab, result_attr, _make_pca_result())
+        monkeypatch.setattr(stats_tab.pca_plotly_widget, "show_figure", lambda *args, **kwargs: None)
     elif result_attr == "_plsda_result":
         setattr(stats_tab, result_attr, _make_plsda_result())
+        monkeypatch.setattr(stats_tab.pls_plotly_widget, "show_figure", lambda *args, **kwargs: None)
     else:
         setattr(stats_tab, result_attr, _DummyOPLSDAResult())
+        monkeypatch.setattr(stats_tab.oplsda_widget, "show_figure", lambda *args, **kwargs: None)
 
     plot_type_combo = getattr(stats_tab, plot_type_attr)
     score_index = plot_type_combo.findData("score")
@@ -184,12 +187,12 @@ def test_stats_tab_score_plots_forward_selected_label_mode(
 
     def _fake_plot(*args, **kwargs):
         captured["show_labels"] = kwargs.get("show_labels")
-        return kwargs["fig"]
+        return object()
 
     monkeypatch.setattr(module, module.__all__[0] if False else {
-        "visualization.pca_plot": "plot_pca_score",
-        "visualization.plsda_plot": "plot_plsda_score",
-        "visualization.oplsda_plot": "plot_oplsda_score",
+        "visualization.pca_plot": "plot_pca_score_interactive",
+        "visualization.plsda_plot": "plot_plsda_score_interactive",
+        "visualization.oplsda_plot": "plot_oplsda_score_interactive",
     }[module_path], _fake_plot)
 
     getattr(stats_tab, update_method_name)()

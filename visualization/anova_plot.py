@@ -40,7 +40,7 @@ def plot_anova_importance(
     config = COLORS.get(theme, COLORS["light"])
 
     if fig is None:
-        fig, ax = plt.subplots(figsize=(8, max(6, top_n * 0.3)))
+        fig, ax = plt.subplots(figsize=(9.5, max(5.2, top_n * 0.24)))
     else:
         fig.clear()
         ax = fig.add_subplot(111)
@@ -53,7 +53,7 @@ def plot_anova_importance(
 
     ax.barh(range(len(df)), df["neg_log10p"].values, color=bar_colors, height=0.7)
     ax.set_yticks(range(len(df)))
-    ax.set_yticklabels([str(feature)[:25] for feature in df["Feature"]], fontsize=8)
+    ax.set_yticklabels([str(feature)[:18] for feature in df["Feature"]], fontsize=6.5)
     ax.axvline(
         x=-np.log10(anova_result.p_thresh),
         color=palette[1],
@@ -63,11 +63,12 @@ def plot_anova_importance(
         label=f"p = {anova_result.p_thresh}",
     )
     ax.set_xlabel("-log10(adj. p-value)")
+    ax.tick_params(axis="x", labelsize=9)
     method_key = str(getattr(anova_result, "method_key", "anova")).lower()
     title = "Kruskal-Wallis: Important Features" if method_key == "kruskal" else "ANOVA: Important Features"
     ax.set_title(title)
     ax.legend(loc="lower right", fontsize=8)
-    fig.tight_layout()
+    fig.tight_layout(pad=1.0)
     return fig
 
 
@@ -230,6 +231,7 @@ def plot_feature_boxplot(
 
     ax.set_title(str(feature_name), fontsize=11, fontweight="bold")
     ax.set_ylabel("Value", fontsize=10)
+    ax.tick_params(axis="x", labelsize=8)
 
     stat_text = _build_stat_annotation(plot_data, annotation_method=annotation_method)
     fig.tight_layout()
