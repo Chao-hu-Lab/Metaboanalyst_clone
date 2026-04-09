@@ -107,6 +107,24 @@ def get_feature_id_column(raw: pd.DataFrame) -> str:
     return str(raw.columns[0])
 
 
+def infer_group_from_sample_name(name: str) -> str:
+    """Infer a plain-format group label from the sample column name."""
+    name_lower = str(name).lower()
+    if "qc" in name_lower:
+        return "QC"
+    if name_lower.startswith("tumor"):
+        return "Tumor"
+    if name_lower.startswith("normal"):
+        return "Normal"
+    if name_lower.startswith("benignfat"):
+        return "Benignfat"
+    if name_lower.startswith("exposure"):
+        return "Exposure"
+    if name_lower.startswith("control"):
+        return "Control"
+    return "__EXCLUDE__"
+
+
 def detect_sample_type_row_key(raw: pd.DataFrame, feature_column: str | None = None) -> str | None:
     if raw.empty:
         return None

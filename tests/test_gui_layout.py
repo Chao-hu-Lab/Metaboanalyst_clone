@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pandas as pd
 import pytest
-from PySide6.QtCore import QPoint
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtWidgets import QPushButton, QScrollArea
 
 from core.app_config import load_yaml_config
@@ -200,9 +200,12 @@ def test_phase6_preset_bar_buttons_stay_inside_visible_bar(qapp):
 
         for button in (
             window.preset_bar.load_button,
-            window.preset_bar.apply_button,
-            window.preset_bar.save_button,
-            window.preset_bar.reset_button,
+            window.preset_bar.browse_button,
+            window.preset_bar.run_button,
+            window.preset_bar.inspect_button,
+            window.preset_bar.advanced_button,
+            window.preset_bar.more_button,
+            window.preset_bar.open_output_button,
         ):
             center = _widget_center_in_ancestor(button, window.preset_bar)
             assert window.preset_bar.rect().contains(center), button.text()
@@ -322,11 +325,15 @@ def test_phase7_preset_bar_smoke_matrix(
 
         for widget in (
             window.preset_bar.load_button,
-            window.preset_bar.apply_button,
-            window.preset_bar.save_button,
-            window.preset_bar.reset_button,
+            window.preset_bar.browse_button,
+            window.preset_bar.run_button,
+            window.preset_bar.inspect_button,
+            window.preset_bar.advanced_button,
+            window.preset_bar.more_button,
             window.preset_bar.source_value_label,
             window.preset_bar.state_value_label,
+            window.preset_bar.input_value_label,
+            window.preset_bar.data_value_label,
             window.preset_bar.summary_value_label,
             window.preset_bar.ignored_value_label,
         ):
@@ -429,6 +436,76 @@ def test_reset_button_resets_parameters(qapp):
 
     assert visual_tab.scale_spinbox.value() == 100
     assert visual_tab.hm_maxfeat.value() == 500
+    window.close()
+
+
+def test_quick_run_panel_toggles_advanced_workspace(qapp):
+    window = MainWindow()
+
+    assert window._advanced_container.isHidden() is True
+
+    window.quick_run_panel.advanced_button.click()
+    qapp.processEvents()
+
+    assert window._advanced_container.isHidden() is False
+    assert window.quick_run_panel.advanced_button.text() == "Hide Advanced"
+
+    window.quick_run_panel.advanced_button.click()
+    qapp.processEvents()
+
+    assert window._advanced_container.isHidden() is True
+    assert window.quick_run_panel.advanced_button.text() == "Show Advanced"
+    window.close()
+
+
+def test_quick_run_enables_for_cli_compatible_sample_type_input(tmp_path, qapp):
+    window = MainWindow()
+    csv_path = tmp_path / "quick_run_sample_type.csv"
+    pd.DataFrame(
+        {
+            "FeatureID": ["Sample_Type", "100.1/1.1", "200.2/2.2"],
+            "Sample_A": ["Case", 1.0, 3.0],
+            "Sample_B": ["Control", 2.0, 4.0],
+        }
+    ).to_csv(csv_path, index=False)
+
+    window.import_tab._load_file_for_preview(str(csv_path), auto_load=True)
+    qapp.processEvents()
+
+    assert window.current_data is not None
+    assert window.quick_run_panel.run_button.isEnabled() is True
+    assert str(csv_path) in window.quick_run_panel.input_value_label.text()
+    window.close()
+
+
+def test_quick_run_does_not_auto_switch_rows_oriented_input(tmp_path, qapp):
+    window = MainWindow()
+    csv_path = tmp_path / "rows_oriented.csv"
+    pd.DataFrame(
+        {
+            "Sample": ["S1", "S2"],
+            "Group": ["Case", "Control"],
+            "F1": [1.0, 2.0],
+            "F2": [3.0, 4.0],
+        }
+    ).to_csv(csv_path, index=False)
+
+    window.import_tab._load_file_for_preview(str(csv_path), auto_load=True)
+    qapp.processEvents()
+
+    assert window.import_tab.orientation_combo.currentData() == "rows"
+    assert window.quick_run_panel.run_button.isEnabled() is False
+    assert window.current_data is not None
+    window.close()
+
+
+def test_tabs_are_no_longer_sequentially_locked(qapp):
+    window = MainWindow()
+
+    for i in range(window._nav_list.count()):
+        item = window._nav_list.item(i)
+        assert bool(item.flags() & Qt.ItemFlag.ItemIsEnabled)
+
     window.close()
 
 

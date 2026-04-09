@@ -105,7 +105,6 @@ def test_main_window_preset_dirty_state_after_widget_change(qapp) -> None:
     qapp.processEvents()
 
     assert window.preset_bar.state_value_label.text() == "Modified"
-    assert window.preset_bar.apply_button.isEnabled() is True
 
     window.close()
 
@@ -233,5 +232,31 @@ def test_main_window_loading_builtin_preset_marks_builtin_state(qapp) -> None:
     assert window.preset_bar.source_value_label.text() == "builtin://tissue_knn_rsd050_marker_verify"
     assert window.mv_tab.method_combo.currentData() == "knn"
     assert window.stats_tab.vol_test.currentData() == "welch"
+
+    window.close()
+
+
+def test_plain_cols_auto_mapping_matches_cli_group_inference(tmp_path: Path, qapp) -> None:
+    window = MainWindow()
+    csv_path = tmp_path / "plain_cols.csv"
+    pd.DataFrame(
+        {
+            "FeatureID": ["100.1/1.1", "200.2/2.2"],
+            "Tumor_A": [1.0, 3.0],
+            "Normal_B": [2.0, 4.0],
+            "Original_CV%": [10.0, 20.0],
+        }
+    ).to_csv(csv_path, index=False)
+
+    cols_index = window.import_tab.orientation_combo.findData("cols")
+    window.import_tab.orientation_combo.setCurrentIndex(cols_index)
+    window.import_tab._load_file_for_preview(str(csv_path), auto_load=False)
+    window.import_tab._load_into_main()
+
+    assert window.labels is not None
+    assert window.labels.to_dict() == {"Tumor_A": "Tumor", "Normal_B": "Normal"}
+    assert window.import_tab.get_run_input_state() == {
+        "input": {"file": str(csv_path), "format": "plain"}
+    }
 
     window.close()

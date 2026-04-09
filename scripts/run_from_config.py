@@ -32,6 +32,7 @@ from core.input_resolver import (  # noqa: E402
     build_labels_from_sample_info,
     detect_sample_type_row_key,
     get_feature_id_column,
+    infer_group_from_sample_name,
     read_input_table,
     validate_label_consistency,
     validate_sample_info_alignment,
@@ -111,24 +112,6 @@ def resolve_top_vip(plsda_cfg: Mapping[str, Any]) -> int:
 
 
 # ── Data loaders ──────────────────────────────────────────
-
-def assign_group_from_name(name: str) -> str:
-    """Infer group label from sample column name (for 'plain' format)."""
-    name_lower = name.lower()
-    if "qc" in name_lower:
-        return "QC"
-    if name_lower.startswith("tumor"):
-        return "Tumor"
-    if name_lower.startswith("normal"):
-        return "Normal"
-    if name_lower.startswith("benignfat"):
-        return "Benignfat"
-    if name_lower.startswith("exposure"):
-        return "Exposure"
-    if name_lower.startswith("control"):
-        return "Control"
-    return "__EXCLUDE__"
-
 
 def _annotate_feature_table(
     df: pd.DataFrame,
@@ -214,7 +197,7 @@ def load_data(cfg: dict) -> tuple[pd.DataFrame, pd.Series, pd.DataFrame]:
             labels = pd.Series(sample_names, index=sample_names, name="Group")
         else:
             labels = pd.Series(
-                [assign_group_from_name(n) for n in sample_names],
+                [infer_group_from_sample_name(n) for n in sample_names],
                 index=sample_names, name="Group",
             )
 

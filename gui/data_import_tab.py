@@ -19,6 +19,7 @@ from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
+    QDialog,
     QFileDialog,
     QGroupBox,
     QHBoxLayout,
@@ -36,6 +37,7 @@ from core.feature_metadata import default_feature_metadata, extract_feature_meta
 from core.input_resolver import (
     build_labels_from_sample_info,
     detect_sample_type_row_key,
+    infer_group_from_sample_name,
     has_sample_type_row,
     read_input_table,
     validate_label_consistency,
@@ -72,10 +74,6 @@ class DataImportTab(QWidget):
         self.btn_browse = QPushButton()
         self.btn_browse.clicked.connect(self._browse_file)
         file_row.addWidget(self.btn_browse)
-
-        self.btn_preview = QPushButton()
-        self.btn_preview.clicked.connect(self._preview_current_path)
-        file_row.addWidget(self.btn_preview)
 
         self.btn_import_dnp = QPushButton()
         self.btn_import_dnp.clicked.connect(self._import_from_dnp)
@@ -122,31 +120,29 @@ class DataImportTab(QWidget):
         self.btn_load = QPushButton()
         self.btn_load.clicked.connect(self._load_into_main)
         action_row.addWidget(self.btn_load)
+        self.btn_inspect = QPushButton()
+        self.btn_inspect.clicked.connect(self._show_inspect_dialog)
+        action_row.addWidget(self.btn_inspect)
         action_row.addStretch()
         mapping_layout.addLayout(action_row)
 
         mapping_group.setLayout(mapping_layout)
         layout.addWidget(mapping_group)
 
-        preview_group = QGroupBox()
-        preview_layout = QVBoxLayout()
-
-        self.preview_table = QTableView()
-        self.preview_table.setSortingEnabled(True)
-        self.preview_table.setAlternatingRowColors(True)
-        preview_layout.addWidget(self.preview_table, stretch=1)
+        summary_group = QGroupBox()
+        summary_layout = QVBoxLayout()
 
         self.info_text = QTextEdit()
         self.info_text.setReadOnly(True)
-        self.info_text.setMaximumHeight(120)
-        preview_layout.addWidget(self.info_text)
+        self.info_text.setMaximumHeight(180)
+        summary_layout.addWidget(self.info_text)
 
-        preview_group.setLayout(preview_layout)
-        layout.addWidget(preview_group, stretch=1)
+        summary_group.setLayout(summary_layout)
+        layout.addWidget(summary_group, stretch=1)
 
         self.file_group = file_group
         self.mapping_group = mapping_group
-        self.preview_group = preview_group
+        self.preview_group = summary_group
         self.retranslateUi()
 
     # ------------------------------------------------------------------
@@ -156,12 +152,12 @@ class DataImportTab(QWidget):
     def retranslateUi(self):
         self.file_group.setTitle(self.tr("File Selection"))
         self.mapping_group.setTitle(self.tr("Column Mapping"))
-        self.preview_group.setTitle(self.tr("Preview"))
+        self.preview_group.setTitle(self.tr("Detected Input Summary"))
         self.btn_browse.setText(self.tr("Browse..."))
-        self.btn_preview.setText(self.tr("Preview"))
         self.btn_import_dnp.setText(self.tr("Import from DNP"))
         self.orientation_label.setText(self.tr("Data orientation:"))
-        self.btn_load.setText(self.tr("Load Data"))
+        self.btn_load.setText(self.tr("Apply Mapping"))
+        self.btn_inspect.setText(self.tr("Inspect Data"))
         self._update_mapping_labels()
 
     # ------------------------------------------------------------------
@@ -178,7 +174,7 @@ class DataImportTab(QWidget):
         if not path:
             return
         self.path_edit.setText(path)
-        self._load_file_for_preview(path)
+        self._load_file_for_preview(path, auto_load=True)
 
     def _import_from_dnp(self):
         """Import DNP output file and convert to Metaboanalyst format."""
@@ -245,7 +241,7 @@ class DataImportTab(QWidget):
 
             # Load converted file into the import tab
             self.path_edit.setText(result_path)
-            self._load_file_for_preview(result_path)
+            self._load_file_for_preview(result_path, auto_load=True)
 
             QMessageBox.information(
                 self,
@@ -279,9 +275,10 @@ class DataImportTab(QWidget):
         if not path:
             QMessageBox.warning(self, self.tr("Warning"), self.tr("Please choose a file first."))
             return
-        self._load_file_for_preview(path)
+        self._load_file_for_preview(path, auto_load=False)
 
-    def _load_file_for_preview(self, path: str):
+    def _load_file_for_preview(self, path: str, *, auto_load: bool = False):
+        self.path_edit.setText(path)
         self._sample_info_df = None
         self._loaded_sheet_name = None
         try:
@@ -304,7 +301,6 @@ class DataImportTab(QWidget):
             if cols_index >= 0:
                 self.orientation_combo.setCurrentIndex(cols_index)
         self._populate_mapping_options()
-        self._update_preview(df)
 
         sample_info_msg = self.tr("SampleInfo sheet loaded.\nRows: {rows}\nColumns: {cols}").format(
             rows=self._sample_info_df.shape[0],
@@ -323,9 +319,13 @@ class DataImportTab(QWidget):
                 "Raw table loaded.\nRows: {rows}\nColumns: {cols}\n"
                 "{sheet}\n"
                 "{sample_info}\n"
-                "Select orientation and mapping, then click 'Load Data'."
+                "Auto-detected mapping is ready.\n"
+                "Use 'Apply Mapping' only when you need to correct the guess."
             ).format(rows=df.shape[0], cols=df.shape[1], sheet=sheet_msg, sample_info=sample_info_msg)
         )
+        if auto_load:
+            self._attempt_auto_load()
+        self.mw._refresh_preset_bar()
 
     @staticmethod
     def _read_table(path: str):
@@ -335,8 +335,58 @@ class DataImportTab(QWidget):
         source, proxy = create_sortable_model(df)
         self._preview_source_model = source
         self._preview_proxy_model = proxy
-        self.preview_table.setModel(proxy)
-        self.preview_table.setSortingEnabled(True)
+
+    def _show_inspect_dialog(self):
+        if self._raw_df is None:
+            QMessageBox.information(
+                self,
+                self.tr("Inspect Data"),
+                self.tr("No input table is loaded yet."),
+            )
+            return
+        if self._preview_proxy_model is None:
+            self._update_preview(self._raw_df)
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle(self.tr("Input Data Preview"))
+        dialog.resize(920, 640)
+        layout = QVBoxLayout(dialog)
+
+        table = QTableView(dialog)
+        table.setSortingEnabled(True)
+        table.setAlternatingRowColors(True)
+        table.setModel(self._preview_proxy_model)
+        layout.addWidget(table)
+
+        dialog.exec()
+
+    def _attempt_auto_load(self) -> None:
+        try:
+            self._load_into_main(announce_success=False, show_error_dialog=False)
+        except Exception:
+            return
+
+    def current_input_path(self) -> str | None:
+        path = self.path_edit.text().strip()
+        return path or None
+
+    def get_run_input_state(self) -> dict[str, dict[str, str | None]]:
+        path = self.current_input_path()
+        if not path:
+            raise ValueError("No input file selected.")
+        if self._raw_df is None:
+            raise ValueError("Input file is not parsed yet.")
+
+        sample_type_key = detect_sample_type_row_key(self._raw_df)
+        if sample_type_key is not None:
+            return {"input": {"file": path, "format": "sample_type_row"}}
+        if self.orientation_combo.currentData() == "cols":
+            return {"input": {"file": path, "format": "plain"}}
+
+        raise ValueError(
+            "Quick Run currently requires a CLI-compatible worksheet with a Sample_Type row or samples-as-columns layout. "
+            "This file is still available in Advanced settings."
+        )
 
     # ------------------------------------------------------------------
     # Mapping selectors
@@ -395,6 +445,13 @@ class DataImportTab(QWidget):
         id_col = self.sample_combo.currentData()
         if id_col not in self._raw_df.columns:
             return
+        if detect_sample_type_row_key(self._raw_df, feature_column=str(id_col)) is None:
+            self.group_combo.addItem(
+                self.tr("Auto (SampleInfo / sample names)"),
+                "__auto_plain__",
+            )
+            self.group_combo.setCurrentIndex(0)
+            return
 
         keys = self._raw_df[id_col].astype(str).tolist()
         unique_keys = list(dict.fromkeys(keys))
@@ -439,10 +496,20 @@ class DataImportTab(QWidget):
     # Parse + send to MainWindow
     # ------------------------------------------------------------------
 
-    def _load_into_main(self):
+    def _load_into_main(
+        self,
+        *,
+        announce_success: bool = True,
+        show_error_dialog: bool = True,
+    ):
         if self._raw_df is None:
-            QMessageBox.warning(self, self.tr("Warning"), self.tr("Please load and preview a file first."))
-            return
+            if show_error_dialog:
+                QMessageBox.warning(
+                    self,
+                    self.tr("Warning"),
+                    self.tr("Please choose and parse a file first."),
+                )
+            raise ValueError("No parsed input table is available.")
 
         try:
             has_sample_type = detect_sample_type_row_key(self._raw_df) is not None
@@ -471,11 +538,19 @@ class DataImportTab(QWidget):
                         matrix.index,
                         self._sample_info_df,
                         label_name=str(group_col),
-                    )
+                )
                 validate_sample_info_alignment(matrix.index, self._sample_info_df)
         except Exception as exc:
-            QMessageBox.critical(self, self.tr("Import Error"), str(exc))
-            return
+            self.info_text.setPlainText(
+                self.tr(
+                    "Input parsed, but automatic mapping needs review.\n"
+                    "Reason: {err}\n"
+                    "Adjust the mapping controls below and click 'Apply Mapping'."
+                ).format(err=str(exc))
+            )
+            if show_error_dialog:
+                QMessageBox.critical(self, self.tr("Import Error"), str(exc))
+            raise
 
         self.mw.set_data(
             matrix,
@@ -485,7 +560,6 @@ class DataImportTab(QWidget):
             group_col=group_col,
             sample_info=self._sample_info_df,
         )
-        self.mw.show_shared_table(matrix)
         self.info_text.setPlainText(
             self.tr(
                 "Dataset loaded into pipeline.\n"
@@ -497,6 +571,13 @@ class DataImportTab(QWidget):
                 groups=", ".join(sorted(set(labels.astype(str)))),
             )
         )
+        if announce_success:
+            self.mw.status_bar.showMessage(
+                self.tr("Input ready: {samples} samples, {features} features").format(
+                    samples=matrix.shape[0],
+                    features=matrix.shape[1],
+                )
+            )
 
     def _parse_samples_as_rows(self):
         df = self._raw_df.copy()
@@ -547,6 +628,35 @@ class DataImportTab(QWidget):
         sample_columns = [col for col in identify_sample_columns(df) if col != id_col]
         if not sample_columns:
             raise ValueError(self.tr("No sample columns found."))
+
+        if group_key == "__auto_plain__":
+            feature_rows = df.copy()
+            feature_index = pd.Index(
+                self._make_unique(feature_rows[id_col].astype(str).tolist()),
+                name="Feature",
+            )
+            matrix = feature_rows.loc[:, sample_columns].apply(pd.to_numeric, errors="coerce").T
+            matrix.index = pd.Index([str(col) for col in sample_columns], name=self.tr("Sample"))
+            matrix.columns = feature_index
+            matrix = matrix.dropna(axis=1, how="all")
+            if matrix.empty:
+                raise ValueError(self.tr("No numeric feature columns found after transpose."))
+            feature_metadata = extract_feature_metadata(
+                feature_rows.reset_index(drop=True),
+                feature_index,
+            )
+            if self._sample_info_df is not None and not self._sample_info_df.empty:
+                labels = build_labels_from_sample_info(matrix.index, self._sample_info_df, label_name="Group")
+            else:
+                labels = pd.Series(
+                    [infer_group_from_sample_name(str(col)) for col in sample_columns],
+                    index=matrix.index,
+                    name="Group",
+                )
+                keep_mask = labels != "__EXCLUDE__"
+                matrix = matrix.loc[keep_mask]
+                labels = labels.loc[keep_mask]
+            return matrix, labels, feature_metadata, str(id_col), "Group"
 
         id_values = df[id_col].astype(str)
         group_rows = df[id_values == str(group_key)]
