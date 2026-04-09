@@ -96,6 +96,57 @@ class StatsTab(QWidget):
         scroll.setWidget(panel)
         return scroll
 
+    def _available_analysis_groups(self) -> list[str]:
+        if self.mw.labels is None or self.mw.current_data is None:
+            return []
+
+        labels = align_labels_to_data(self.mw.current_data, self.mw.labels)
+        _, labels_no_qc, _ = exclude_qc_samples(self.mw.current_data, labels)
+        if labels_no_qc is None:
+            return []
+        return sorted(set(labels_no_qc.astype(str)))
+
+    def _populate_distinct_group_combos(
+        self,
+        combo1: QComboBox,
+        combo2: QComboBox,
+        groups: list[str],
+        previous_pair: tuple[str, str] | None = None,
+    ) -> None:
+        prev1, prev2 = previous_pair or (combo1.currentText(), combo2.currentText())
+        for combo in (combo1, combo2):
+            was_blocked = combo.blockSignals(True)
+            combo.clear()
+            for group in groups:
+                combo.addItem(str(group))
+            combo.blockSignals(was_blocked)
+
+        if not groups:
+            return
+
+        first = prev1 if prev1 in groups else groups[0]
+        remaining = [group for group in groups if group != first]
+        second = prev2 if prev2 in remaining else (remaining[0] if remaining else first)
+
+        for combo, value in ((combo1, first), (combo2, second)):
+            was_blocked = combo.blockSignals(True)
+            combo.setCurrentText(value)
+            combo.blockSignals(was_blocked)
+
+    def _ensure_distinct_pair_selection(self, primary: QComboBox, secondary: QComboBox) -> None:
+        groups = [primary.itemText(i) for i in range(primary.count())]
+        current = primary.currentText()
+        if not current or current != secondary.currentText():
+            return
+
+        replacement = next((group for group in groups if group != current), None)
+        if replacement is None:
+            return
+
+        was_blocked = secondary.blockSignals(True)
+        secondary.setCurrentText(replacement)
+        secondary.blockSignals(was_blocked)
+
     def retranslateUi(self):
         if not hasattr(self, "sub_tabs"):
             return
@@ -754,9 +805,15 @@ class StatsTab(QWidget):
         ctrl1 = QHBoxLayout()
         ctrl1.addWidget(QLabel(self.tr("Group 1:")))
         self.vol_group1 = QComboBox()
+        self.vol_group1.currentIndexChanged.connect(
+            lambda _index: self._ensure_distinct_pair_selection(self.vol_group1, self.vol_group2)
+        )
         ctrl1.addWidget(self.vol_group1)
         ctrl1.addWidget(QLabel(self.tr("Group 2:")))
         self.vol_group2 = QComboBox()
+        self.vol_group2.currentIndexChanged.connect(
+            lambda _index: self._ensure_distinct_pair_selection(self.vol_group2, self.vol_group1)
+        )
         ctrl1.addWidget(self.vol_group2)
 
         ctrl1.addWidget(QLabel(self.tr("FC threshold:")))
@@ -819,22 +876,19 @@ class StatsTab(QWidget):
         return w
 
     def _refresh_groups(self):
-        if self.mw.labels is None or self.mw.current_data is None:
-            return
-
-        labels = align_labels_to_data(self.mw.current_data, self.mw.labels)
-        _, labels_no_qc, _ = exclude_qc_samples(self.mw.current_data, labels)
-        if labels_no_qc is None:
-            return
-        groups = sorted(set(labels_no_qc.astype(str)))
-
-        for combo in [self.vol_group1, self.vol_group2, self.roc_group1, self.roc_group2]:
-            combo.clear()
-            for g in groups:
-                combo.addItem(str(g))
-        if len(groups) >= 2:
-            self.vol_group2.setCurrentIndex(1)
-            self.roc_group2.setCurrentIndex(1)
+        groups = self._available_analysis_groups()
+        self._populate_distinct_group_combos(
+            self.vol_group1,
+            self.vol_group2,
+            groups,
+            (self.vol_group1.currentText(), self.vol_group2.currentText()),
+        )
+        self._populate_distinct_group_combos(
+            self.roc_group1,
+            self.roc_group2,
+            groups,
+            (self.roc_group1.currentText(), self.roc_group2.currentText()),
+        )
 
     def _run_volcano(self):
         if not self.mw.check_data_ready():
@@ -960,6 +1014,7 @@ class StatsTab(QWidget):
         feat_ctrl.addWidget(QLabel(self.tr("Feature:")))
         self.anova_feat_combo = QComboBox()
         self.anova_feat_combo.setMinimumWidth(200)
+        self.anova_feat_combo.currentIndexChanged.connect(self._on_anova_feature_changed)
         feat_ctrl.addWidget(self.anova_feat_combo)
         btn_feat = QPushButton(self.tr("Plot Feature Boxplot"))
         btn_feat.clicked.connect(self._draw_feature_boxplot)
@@ -983,6 +1038,7 @@ class StatsTab(QWidget):
         self.anova_info = QLabel("")
         rl.addWidget(self.anova_info)
         self.anova_table = QTableWidget()
+        self.anova_table.itemSelectionChanged.connect(self._sync_anova_feature_from_table)
         rl.addWidget(self.anova_table)
         right.setMaximumWidth(400)
         splitter.addWidget(right)
@@ -1060,6 +1116,8 @@ class StatsTab(QWidget):
                 self.anova_table.setItem(i, 2, QTableWidgetItem(f'{row["pvalue_adj"]:.2e}'))
             self.anova_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
 
+            previous_feature = self.anova_feat_combo.currentData()
+            combo_was_blocked = self.anova_feat_combo.blockSignals(True)
             self.anova_feat_combo.clear()
             sig_feats = result_sorted[result_sorted["significant"]]["Feature"].tolist()
             other_feats = result_sorted[~result_sorted["significant"]]["Feature"].tolist()
@@ -1067,8 +1125,40 @@ class StatsTab(QWidget):
                 self.anova_feat_combo.addItem(f"* {feat}", feat)
             for feat in other_feats[:50]:
                 self.anova_feat_combo.addItem(str(feat), feat)
+            self.anova_feat_combo.blockSignals(combo_was_blocked)
+
+            if self.anova_feat_combo.count():
+                target_index = (
+                    self.anova_feat_combo.findData(previous_feature)
+                    if previous_feature is not None
+                    else 0
+                )
+                if target_index < 0:
+                    target_index = 0
+                self.anova_feat_combo.setCurrentIndex(target_index)
+                self._draw_feature_boxplot()
 
         self._run_async(_job, _on_success, self.tr("ANOVA Error"))
+
+    def _on_anova_feature_changed(self, _index: int) -> None:
+        self._draw_feature_boxplot()
+
+    def _sync_anova_feature_from_table(self) -> None:
+        current_row = self.anova_table.currentRow()
+        if current_row < 0:
+            return
+        feature_item = self.anova_table.item(current_row, 0)
+        if feature_item is None:
+            return
+
+        target_index = self.anova_feat_combo.findData(feature_item.text())
+        if target_index < 0 or target_index == self.anova_feat_combo.currentIndex():
+            return
+
+        was_blocked = self.anova_feat_combo.blockSignals(True)
+        self.anova_feat_combo.setCurrentIndex(target_index)
+        self.anova_feat_combo.blockSignals(was_blocked)
+        self._draw_feature_boxplot()
 
     def _draw_feature_boxplot(self):
         if self._anova_result is None or not self.mw.check_data_ready():
@@ -1115,9 +1205,15 @@ class StatsTab(QWidget):
         ctrl = QHBoxLayout()
         ctrl.addWidget(QLabel(self.tr("Group 1:")))
         self.roc_group1 = QComboBox()
+        self.roc_group1.currentIndexChanged.connect(
+            lambda _index: self._ensure_distinct_pair_selection(self.roc_group1, self.roc_group2)
+        )
         ctrl.addWidget(self.roc_group1)
         ctrl.addWidget(QLabel(self.tr("Group 2:")))
         self.roc_group2 = QComboBox()
+        self.roc_group2.currentIndexChanged.connect(
+            lambda _index: self._ensure_distinct_pair_selection(self.roc_group2, self.roc_group1)
+        )
         ctrl.addWidget(self.roc_group2)
 
         ctrl.addWidget(QLabel(self.tr("Top N:")))
@@ -1247,19 +1343,13 @@ class StatsTab(QWidget):
         self.mw.show_shared_plot(self.roc_canvas.figure)
 
     def _refresh_roc_groups(self):
-        if self.mw.labels is None or self.mw.current_data is None:
-            return
-        labels = align_labels_to_data(self.mw.current_data, self.mw.labels)
-        _, labels_no_qc, _ = exclude_qc_samples(self.mw.current_data, labels)
-        if labels_no_qc is None:
-            return
-        groups = sorted(set(labels_no_qc.astype(str)))
-        for combo in [self.roc_group1, self.roc_group2]:
-            combo.clear()
-            for g in groups:
-                combo.addItem(str(g))
-        if len(groups) >= 2:
-            self.roc_group2.setCurrentIndex(1)
+        groups = self._available_analysis_groups()
+        self._populate_distinct_group_combos(
+            self.roc_group1,
+            self.roc_group2,
+            groups,
+            (self.roc_group1.currentText(), self.roc_group2.currentText()),
+        )
 
     def _export_roc_csv(self):
         if self._roc_result is None:

@@ -67,6 +67,19 @@ def _make_positive_raw_df() -> tuple[pd.DataFrame, pd.Series]:
     return raw_df, labels
 
 
+def _make_three_group_bundle() -> tuple[pd.DataFrame, pd.Series]:
+    index = pd.Index(["S1", "S2", "S3", "S4", "S5", "S6"], name="Sample")
+    labels = pd.Series(["A", "A", "B", "B", "C", "C"], index=index, name="Group")
+    data = pd.DataFrame(
+        {
+            "F1": [1.0, 1.1, 2.0, 2.1, 3.0, 3.1],
+            "F2": [10.0, 10.2, 20.0, 20.2, 30.0, 30.2],
+        },
+        index=index,
+    )
+    return data, labels
+
+
 def _patch_sync_runner(window: MainWindow, monkeypatch: pytest.MonkeyPatch) -> None:
     def _run_sync(
         job_fn: Callable[[], object],
@@ -386,4 +399,39 @@ def test_run_pipeline_until_norm_bundle_excludes_qc_and_keeps_indices_aligned(qa
     pdt.assert_index_equal(bundle["volcano_fc_data"].index, expected_index)
     pdt.assert_index_equal(bundle["labels"].index, expected_index)
     assert "QC" not in set(bundle["labels"].astype(str))
+    window.close()
+
+
+def test_group_refresh_preserves_existing_pairs_and_keeps_pairs_distinct(qapp) -> None:
+    window = MainWindow()
+    data, labels = _make_three_group_bundle()
+    window.current_data = data.copy()
+    window.labels = labels.copy()
+    window._stats_matrix_bundle = {
+        "multivariate_data": data.copy(),
+        "univariate_data": data.copy(),
+        "volcano_fc_data": data.copy(),
+        "labels": labels.copy(),
+    }
+
+    window.stats_tab._refresh_groups()
+    window.stats_tab.vol_group1.setCurrentText("B")
+    window.stats_tab.vol_group2.setCurrentText("C")
+    window.stats_tab.roc_group1.setCurrentText("C")
+    window.stats_tab.roc_group2.setCurrentText("A")
+
+    window.stats_tab._refresh_groups()
+
+    assert window.stats_tab.vol_group1.currentText() == "B"
+    assert window.stats_tab.vol_group2.currentText() == "C"
+    assert window.stats_tab.roc_group1.currentText() == "C"
+    assert window.stats_tab.roc_group2.currentText() == "A"
+
+    window.stats_tab.vol_group2.setCurrentText("B")
+    assert window.stats_tab.vol_group2.currentText() == "B"
+    assert window.stats_tab.vol_group1.currentText() != window.stats_tab.vol_group2.currentText()
+
+    window.stats_tab.roc_group1.setCurrentText("A")
+    assert window.stats_tab.roc_group1.currentText() == "A"
+    assert window.stats_tab.roc_group1.currentText() != window.stats_tab.roc_group2.currentText()
     window.close()

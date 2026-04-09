@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 from core.input_resolver import resolve_primary_sheet_name_from_names
-from scripts.run_from_config import _export_significant_features_excel, load_data
+from scripts.run_from_config import _export_significant_features_excel, load_data, resolve_top_vip
 
 
 def _write_excel_with_sample_info(
@@ -59,6 +59,12 @@ def test_load_data_accepts_featureid_column_for_sample_type_row(tmp_path: Path):
     assert list(data.columns) == ["100.1/1.1", "200.2/2.2"]
     assert labels.to_dict() == {"Sample_A": "Exposure", "Sample_B": "Normal"}
     assert feature_metadata["is_Presence_Absence_Marker"].tolist() == [False, False]
+
+
+def test_resolve_top_vip_respects_configured_value() -> None:
+    assert resolve_top_vip({"top_vip": 5}) == 5
+    assert resolve_top_vip({}) == 15
+    assert resolve_top_vip({"top_vip": 0}) == 1
 
 
 def test_load_data_sample_type_row_excludes_non_sample_columns_even_if_labeled(

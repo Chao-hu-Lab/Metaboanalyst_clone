@@ -106,6 +106,11 @@ def resolve_volcano_parametric_equal_var(volcano_cfg: Mapping[str, Any]) -> bool
     return equal_var
 
 
+def resolve_top_vip(plsda_cfg: Mapping[str, Any]) -> int:
+    """Return the configured VIP count while keeping a sane positive lower bound."""
+    return max(1, int(plsda_cfg.get("top_vip", 15)))
+
+
 # ── Data loaders ──────────────────────────────────────────
 
 def assign_group_from_name(name: str) -> str:
@@ -711,7 +716,7 @@ def run_analysis(cfg: dict):
             plsda_pairs = []
 
         n_comp = plsda_cfg.get("n_components", 2)
-        top_vip = max(int(plsda_cfg.get("top_vip", 15)), 20)
+        top_vip = resolve_top_vip(plsda_cfg)
 
         try:
             all_plsda_result = run_plsda(processed, final_labels, n_components=n_comp)
