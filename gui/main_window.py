@@ -12,7 +12,6 @@ from contextlib import redirect_stdout
 from contextlib import contextmanager
 import io
 import logging
-import os
 from pathlib import Path
 from typing import Mapping
 
@@ -22,6 +21,7 @@ from PySide6.QtCore import (
     QEvent,
     QLibraryInfo,
     QLocale,
+    QUrl,
     QSignalBlocker,
     QSettings,
     QSize,
@@ -29,7 +29,7 @@ from PySide6.QtCore import (
     Qt,
     QTranslator,
 )
-from PySide6.QtGui import QAction, QIcon, QUndoCommand, QUndoStack
+from PySide6.QtGui import QAction, QDesktopServices, QIcon, QUndoCommand, QUndoStack
 from PySide6.QtWidgets import (
     QApplication,
     QDockWidget,
@@ -82,6 +82,7 @@ from gui.widgets.worker import PipelineWorker
 from visualization.theme_manager import ThemeManager
 
 logger = logging.getLogger("pipeline")
+GUI_THEME_OPTIONS = ("light", "dark")
 
 try:
     import qtawesome as qta
@@ -191,11 +192,13 @@ class MainWindow(QMainWindow):
         self._app_translator = QTranslator()
         self._qt_translator = QTranslator()
         self._current_locale = "en"
-        self._current_theme = self._settings.value("theme", "light", type=str)
         app = QApplication.instance()
+        saved_theme = self._settings.value("theme", "light", type=str)
+        self._current_theme = self._normalize_gui_theme(saved_theme, app)
         if app is not None:
             apply_flat_theme(app, self._current_theme)
-        visual_theme = self._current_theme if self._current_theme in ThemeManager.SUPPORTED_THEMES else "light"
+        self._settings.setValue("theme", self._current_theme)
+        visual_theme = self._current_theme
         self.theme_manager = ThemeManager(default_theme=visual_theme)
 
         self._setup_ui()
@@ -218,6 +221,14 @@ class MainWindow(QMainWindow):
     @staticmethod
     def _default_pipeline_params() -> dict:
         return default_pipeline_params()
+
+    @staticmethod
+    def _normalize_gui_theme(theme_name: str, app: QApplication | None) -> str:
+        if theme_name in GUI_THEME_OPTIONS:
+            return theme_name
+        if app is not None:
+            return apply_flat_theme(app, theme_name)
+        return "light"
 
     # ------------------------------------------------------------------
     # UI
@@ -413,7 +424,7 @@ class MainWindow(QMainWindow):
         self._theme_toolbar_label = QLabel(self.tr("Theme:"))
         self.theme_combo = QComboBox()
         self.theme_combo.setObjectName("theme_combo")
-        self.theme_combo.addItems(self.theme_manager.get_supported_themes())
+        self.theme_combo.addItems(list(GUI_THEME_OPTIONS))
         self.theme_combo.setCurrentText(self.theme_manager.current_theme)
         self.theme_combo.currentTextChanged.connect(self._on_theme_combo_changed)
 
@@ -425,16 +436,17 @@ class MainWindow(QMainWindow):
 
     def _apply_selected_theme(self, theme_name: str):
         app = QApplication.instance()
+        resolved_theme = self._normalize_gui_theme(theme_name, app)
         font_size = self._settings.value("font_size", 11, type=int)
         if app is not None:
-            apply_flat_theme(app, theme_name, font_size)
+            apply_flat_theme(app, resolved_theme, font_size)
 
-        self._current_theme = theme_name
-        self._settings.setValue("theme", theme_name)
+        self._current_theme = resolved_theme
+        self._settings.setValue("theme", resolved_theme)
 
-        if hasattr(self, "theme_combo") and self.theme_combo.currentText() != theme_name:
+        if hasattr(self, "theme_combo") and self.theme_combo.currentText() != resolved_theme:
             blocker = QSignalBlocker(self.theme_combo)
-            self.theme_combo.setCurrentText(theme_name)
+            self.theme_combo.setCurrentText(resolved_theme)
             del blocker
 
     def _create_log_dock(self):
@@ -706,6 +718,7 @@ class MainWindow(QMainWindow):
         data_text = self._describe_loaded_data()
         result_text = self._describe_last_run_result()
         can_run, _reason = self._can_run_full_analysis()
+        output_exists = self._last_run_output_dir is not None and Path(self._last_run_output_dir).exists()
 
         self.quick_run_panel.source_value_label.setText(source_text)
         self.quick_run_panel.state_value_label.setText(state_text)
@@ -714,9 +727,11 @@ class MainWindow(QMainWindow):
         self.quick_run_panel.summary_value_label.setText(" | ".join(summary_parts))
         self.quick_run_panel.ignored_value_label.setText(ignored_text)
         self.quick_run_panel.result_value_label.setText(result_text)
+        self.quick_run_panel.summary_row.setVisible(bool(summary_parts))
+        self.quick_run_panel.ignored_row.setVisible(bool(ignored_fields))
         self.quick_run_panel.run_button.setEnabled(can_run)
         self.quick_run_panel.inspect_button.setEnabled(self.import_tab._raw_df is not None)
-        self.quick_run_panel.open_output_button.setEnabled(self._last_run_output_dir is not None)
+        self.quick_run_panel.open_output_button.setEnabled(output_exists)
         self._refresh_advanced_button_text()
         self._rebuild_quick_action_menu()
 
@@ -860,8 +875,8 @@ class MainWindow(QMainWindow):
 
     def _describe_last_run_result(self) -> str:
         if self._last_run_output_dir is None:
-            return self.tr("No analysis run yet")
-        return self.tr("Latest output: {path}").format(path=self._last_run_output_dir)
+            return self.tr("Run an analysis to populate the output folder shortcut.")
+        return self._last_run_output_dir
 
     def _can_run_full_analysis(self) -> tuple[bool, str]:
         try:
@@ -899,14 +914,11 @@ class MainWindow(QMainWindow):
         config_dict = app_config.to_dict(include_runtime=True)
         capture = io.StringIO()
         with redirect_stdout(capture):
-            run_analysis(config_dict)
-        input_file = str(config_dict["input"]["file"])
-        input_stem = Path(input_file).stem
-        resolved_suffix = str(config_dict["output"]["suffix"])
-        output_dir = Path.cwd() / "results" / f"{input_stem}{resolved_suffix}"
+            result = run_analysis(config_dict)
+        output_dir = str(result.get("output_dir", "")) if isinstance(result, Mapping) else ""
         return {
             "log": capture.getvalue(),
-            "output_dir": str(output_dir),
+            "output_dir": output_dir,
         }
 
     def _run_full_analysis_async(self) -> None:
@@ -968,7 +980,15 @@ class MainWindow(QMainWindow):
                 ),
             )
             return
-        os.startfile(self._last_run_output_dir)
+        output_path = Path(self._last_run_output_dir).resolve()
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(output_path))):
+            QMessageBox.warning(
+                self,
+                self.tr("Open Output Folder"),
+                self.tr("Unable to open the output folder:\n{path}").format(
+                    path=str(output_path)
+                ),
+            )
 
     def _on_data_state_changed(self):
         self._refresh_preset_bar()

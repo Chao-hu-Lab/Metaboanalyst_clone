@@ -31,14 +31,14 @@ class SettingsDialog(QDialog):
         theme_layout = QHBoxLayout()
         theme_layout.addWidget(QLabel(self.tr("主題:")))
         self.theme_combo = QComboBox()
-        self.theme_combo.addItem(self.tr("自動 (跟隨系統)"), "auto")
         self.theme_combo.addItem(self.tr("淺色模式"), "light")
         self.theme_combo.addItem(self.tr("深色模式"), "dark")
-        self.theme_combo.addItem(self.tr("色盲友善"), "colorblind")
         for i in range(self.theme_combo.count()):
             if self.theme_combo.itemData(i) == self._current_theme:
                 self.theme_combo.setCurrentIndex(i)
                 break
+        else:
+            self.theme_combo.setCurrentIndex(0)
         theme_layout.addWidget(self.theme_combo)
         theme_group.setLayout(theme_layout)
         layout.addWidget(theme_group)

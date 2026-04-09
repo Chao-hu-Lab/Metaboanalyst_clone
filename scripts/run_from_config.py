@@ -454,7 +454,7 @@ def _export_significant_features_excel(
 
 # ── Main analysis ─────────────────────────────────────────
 
-def run_analysis(cfg: dict):
+def run_analysis(cfg: dict) -> dict[str, str]:
     """Execute the full analysis pipeline from a config dict."""
 
     data, labels, feature_metadata = load_data(cfg)
@@ -921,6 +921,7 @@ def run_analysis(cfg: dict):
     for f in sorted(os.listdir(output_dir)):
         size = os.path.getsize(os.path.join(output_dir, f))
         print(f"  {f:40s} ({size / 1024:.0f} KB)")
+    return {"output_dir": output_dir}
 
 
 # ── CLI entry point ───────────────────────────────────────

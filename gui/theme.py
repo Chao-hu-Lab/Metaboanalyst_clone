@@ -91,6 +91,50 @@ QStatusBar {{
     background-color: {c["surface"]};
     border-top: 1px solid {c["border"]};
 }}
+QFrame#quick_run_panel {{
+    background-color: {c["bg"]};
+    border-top: 1px solid {c["border"]};
+}}
+QFrame#quick_run_panel QWidget {{
+    background-color: transparent;
+}}
+QFrame#quick_run_primary_card {{
+    background-color: {c["surface"]};
+    border: 1px solid {c["border"]};
+    border-radius: 12px;
+}}
+QFrame#quick_run_secondary_card {{
+    background-color: {c["surface_alt"]};
+    border: 1px solid {c["border"]};
+    border-radius: 12px;
+}}
+QLabel#quick_run_title {{
+    font-size: {font_size + 2}pt;
+    font-weight: 700;
+    color: {c["text"]};
+}}
+QLabel#quick_run_hint {{
+    color: {c["muted"]};
+}}
+QLabel#quick_run_meta_label, QLabel#quick_run_state_label {{
+    color: {c["muted"]};
+    font-weight: 600;
+}}
+QLabel#quick_run_primary_value, QLabel#quick_run_secondary_value {{
+    color: {c["text"]};
+}}
+QLabel#quick_run_warning_value {{
+    color: {c["accent"]};
+    font-weight: 600;
+}}
+QLabel#quick_run_state_value {{
+    background-color: {c["selection"]};
+    color: {c["accent"]};
+    border: 1px solid {c["accent"]};
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-weight: 700;
+}}
 QDockWidget {{
     border: 1px solid {c["border"]};
 }}
@@ -141,6 +185,53 @@ QPushButton:default:hover {{
     background-color: {c["accent_hover"]};
     border-color: {c["accent_hover"]};
     color: #FFFFFF;
+}}
+QPushButton#quick_run_primary_button {{
+    background-color: {c["accent"]};
+    border-color: {c["accent"]};
+    color: #FFFFFF;
+    font-weight: 700;
+    padding: 8px 18px;
+}}
+QPushButton#quick_run_primary_button:hover {{
+    background-color: {c["accent_hover"]};
+    border-color: {c["accent_hover"]};
+    color: #FFFFFF;
+}}
+QPushButton#quick_run_primary_button:default {{
+    background-color: {c["accent"]};
+    border-color: {c["accent"]};
+    color: #FFFFFF;
+}}
+QPushButton#quick_run_primary_button:pressed {{
+    background-color: {c["accent_pressed"]};
+    border-color: {c["accent_pressed"]};
+}}
+QPushButton#quick_run_primary_button:disabled {{
+    background-color: {c["border"]};
+    border-color: {c["border"]};
+    color: {c["muted"]};
+}}
+QPushButton#quick_run_secondary_button {{
+    background-color: {c["surface"]};
+    border-color: {c["border"]};
+    font-weight: 600;
+}}
+QPushButton#quick_run_subtle_button {{
+    background-color: transparent;
+    border-color: transparent;
+    color: {c["muted"]};
+    padding: 6px 10px;
+}}
+QPushButton#quick_run_subtle_button:hover {{
+    background-color: {c["selection"]};
+    border-color: {c["selection"]};
+    color: {c["accent"]};
+}}
+QPushButton#quick_run_subtle_button:checked {{
+    background-color: {c["selection"]};
+    border-color: {c["selection"]};
+    color: {c["accent"]};
 }}
 QPushButton:disabled {{
     color: {c["muted"]};

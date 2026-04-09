@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import pandas as pd
 import pytest
 from PySide6.QtCore import QPoint, Qt
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QPushButton, QScrollArea
 
 from core.app_config import load_yaml_config
 from gui.main_window import MainWindow
+from gui.settings_dialog import SettingsDialog
 
 pytestmark = [pytest.mark.gui, pytest.mark.integration]
 
@@ -29,8 +32,15 @@ def test_theme_combo_box_exists(qapp):
     items = [window.theme_combo.itemText(i) for i in range(window.theme_combo.count())]
     assert "light" in items
     assert "dark" in items
-    assert "colorblind" in items
+    assert "colorblind" not in items
     window.close()
+
+
+def test_settings_dialog_theme_options_match_gui_modes(qapp):
+    dialog = SettingsDialog(current_theme="dark")
+    items = [dialog.theme_combo.itemData(i) for i in range(dialog.theme_combo.count())]
+    assert items == ["light", "dark"]
+    dialog.close()
 
 
 def _widget_center_in_ancestor(widget, ancestor) -> QPoint:
@@ -506,6 +516,24 @@ def test_tabs_are_no_longer_sequentially_locked(qapp):
         item = window._nav_list.item(i)
         assert bool(item.flags() & Qt.ItemFlag.ItemIsEnabled)
 
+    window.close()
+
+
+def test_open_output_folder_uses_desktop_services(tmp_path, qapp, monkeypatch):
+    window = MainWindow()
+    window._last_run_output_dir = str(tmp_path)
+
+    opened = {}
+
+    def fake_open_url(url):
+        opened["url"] = url
+        return True
+
+    monkeypatch.setattr(QDesktopServices, "openUrl", fake_open_url)
+
+    window._open_output_folder()
+
+    assert Path(opened["url"].toLocalFile()) == tmp_path
     window.close()
 
 
