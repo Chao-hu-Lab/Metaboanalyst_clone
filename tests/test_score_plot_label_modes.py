@@ -10,6 +10,7 @@ import pandas as pd
 import pytest
 
 from gui.main_window import MainWindow
+from tests.gui_layout_support import close_window
 from visualization.oplsda_plot import plot_oplsda_score
 from visualization.pca_plot import plot_pca_score
 from visualization.plsda_plot import plot_plsda_score
@@ -198,4 +199,4 @@ def test_stats_tab_score_plots_forward_selected_label_mode(
     getattr(stats_tab, update_method_name)()
 
     assert captured["show_labels"] == "all"
-    window.close()
+    close_window(window, qapp)

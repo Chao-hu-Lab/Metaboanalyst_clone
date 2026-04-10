@@ -308,17 +308,34 @@ def test_stats_tab_passes_active_theme_to_plot_helpers(qapp, monkeypatch) -> Non
     close_window(window, qapp)
 
 
-def test_stats_tab_pca_plot_update_no_longer_requires_removed_shared_preview(qapp, monkeypatch) -> None:
+def test_stats_tab_pca_score_plot_falls_back_to_matplotlib_canvas_when_interactive_unavailable(
+    qapp, monkeypatch
+) -> None:
     import visualization.pca_plot as pca_plot
 
     window = MainWindow()
-    stats_tab = window.stats_tab
-    stats_tab._pca_result = object()
+    try:
+        stats_tab = window.stats_tab
+        stats_tab._pca_result = object()
+        captured: dict[str, object] = {}
 
-    def fake_plot_pca_score(*args, **kwargs):
-        return kwargs.get("fig")
+        monkeypatch.setattr(pca_plot, "plot_pca_score_interactive", lambda *args, **kwargs: None)
 
-    monkeypatch.setattr(pca_plot, "plot_pca_score", fake_plot_pca_score)
-    stats_tab.pca_plot_type.setCurrentIndex(stats_tab.pca_plot_type.findData("score"))
-    stats_tab._update_pca_plot()
-    close_window(window, qapp)
+        def fake_plot_pca_score(*args, **kwargs):
+            fig = kwargs.get("fig")
+            captured["fig"] = fig
+            return fig
+
+        monkeypatch.setattr(pca_plot, "plot_pca_score", fake_plot_pca_score)
+        monkeypatch.setattr(stats_tab.pca_canvas, "draw", lambda: captured.setdefault("drawn", True))
+        monkeypatch.setattr(window, "show_shared_plot", lambda fig: captured.setdefault("shared", fig))
+
+        stats_tab.pca_plot_type.setCurrentIndex(stats_tab.pca_plot_type.findData("score"))
+        stats_tab._update_pca_plot()
+
+        assert captured["fig"] is stats_tab.pca_canvas.figure
+        assert captured["drawn"] is True
+        assert captured["shared"] is stats_tab.pca_canvas.figure
+        assert stats_tab.pca_plot_stack.currentWidget() is stats_tab.pca_canvas
+    finally:
+        close_window(window, qapp)
