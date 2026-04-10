@@ -1,4 +1,8 @@
 import pandas as pd
+import pytest
+
+
+pytestmark = pytest.mark.pr_smoke
 
 
 def _make_matrix_df():

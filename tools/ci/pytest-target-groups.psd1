@@ -20,6 +20,9 @@
         "tests\test_run_from_config_input_formats.py"
         "tests\test_sample_interface.py"
     )
+    "webengine-smoke" = @(
+        "tests\test_plotly_widget_webengine.py"
+    )
     "repo-regression-core" = @(
         "tests\test_analysis_edgecases.py"
         "tests\test_app_config.py"

@@ -166,8 +166,29 @@ jobs:
         run: |
           .\tools\ci\run_pytest_targets.ps1 -GroupNames @("slow-gui") -PytestArgs @("-vv", "-s")
 
+  test-webengine-311:
+    name: Embedded WebEngine Smoke (Python 3.11)
+    if: github.event_name != 'pull_request'
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 45
+
+    steps:
+      - uses: Chao-hu-Lab/shared-workflows/.github/actions/setup-python@078fc7c1cccf64884d230df8a1d84f034c9a41eb
+        with:
+          python-version: "3.11"
+          submodules: "false"
+          install-args: "-r requirements.txt pytest"
+
+      - name: Run embedded WebEngine smoke targets
+        shell: pwsh
+        env:
+          METABO_DISABLE_WEBENGINE: "0"
+        run: |
+          .\tools\ci\run_pytest_targets.ps1 -GroupNames @("webengine-smoke")
+
   test-compat-312:
     name: Compatibility Smoke (Python 3.12)
+    if: github.event_name != 'pull_request'
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 90
 

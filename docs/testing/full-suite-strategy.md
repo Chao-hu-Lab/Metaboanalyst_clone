@@ -142,9 +142,10 @@ Current policy:
 2. Pull requests fan out into domain-oriented smoke shards and then report back through that legacy regression check name via an aggregate job
 3. On non-PR events, Python 3.11 still runs broader repository regression shards on the self-hosted Windows runner
 4. The known slow GUI smoke cases live in `tests\test_gui_phase7_slow.py` and stay outside the default PR path
-5. Python 3.12 runs a targeted compatibility smoke subset
-6. `ruff` is kept as a low-noise guardrail using `--select=F,E9`
-7. Shard membership lives in `tools\ci\pytest-target-groups.psd1`, so workflow YAML does not become the only source of truth for repository test topology
+5. Embedded `QWebEngineView` coverage runs in its own non-PR smoke lane so PR GUI smoke can stay on the lighter browser-fallback path
+6. Python 3.12 runs a targeted compatibility smoke subset on non-PR events only
+7. `ruff` is kept as a low-noise guardrail using `--select=F,E9`
+8. Shard membership lives in `tools\ci\pytest-target-groups.psd1`, so workflow YAML does not become the only source of truth for repository test topology
 
 Why:
 
@@ -153,4 +154,5 @@ Why:
 - shard boundaries follow repository domains rather than one giant sequential loop
 - the Phase 7 GUI smoke matrix remains valuable, but it should not dominate every PR check
 - splitting slow GUI smoke into its own lane makes progress visible and failures easier to interpret
+- embedded WebEngine behavior still gets checked, but no longer competes with routine PR feedback on every branch update
 - keeping shard membership in a repo-local manifest makes it easier to evolve CI without rewriting job logic
