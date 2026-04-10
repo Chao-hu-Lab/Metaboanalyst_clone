@@ -1,0 +1,4 @@
+interface:
+  display_name: "Run CMD Contract"
+  short_description: "Map natural-language xlsx + yaml execution requests to run.cmd"
+  default_prompt: "Use $run-cmd-contract to execute this repository's pipeline when the user phrases the task as input workbook plus YAML config."
