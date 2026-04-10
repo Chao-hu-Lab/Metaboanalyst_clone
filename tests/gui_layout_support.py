@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPoint
-from PySide6.QtWidgets import QScrollArea
+import gc
+
+from PySide6.QtCore import QCoreApplication, QEvent, QPoint
+from PySide6.QtWidgets import QApplication, QScrollArea, QWidget
 
 import pandas as pd
 
@@ -69,9 +71,12 @@ def restore_window_font(qapp, original_font) -> None:
     qapp.processEvents()
 
 
-def close_window(window: MainWindow, qapp) -> None:
+def close_window(window: QWidget, qapp: QApplication) -> None:
     window.close()
+    window.deleteLater()
+    QCoreApplication.sendPostedEvents(None, int(QEvent.Type.DeferredDelete))
     qapp.processEvents()
+    gc.collect()
 
 
 def assert_widget_center_inside(widget, ancestor) -> None:

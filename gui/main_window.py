@@ -152,9 +152,13 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         self.setWindowTitle("PyMetaboAnalyst")
         self.resize(1360, 860)
         self.setMinimumSize(1024, 680)
+        self._cleanup_complete = False
+        self._initial_log_dock_timer: QTimer | None = None
+        self._log_handler: QLogHandler | None = None
 
         self._settings = QSettings("PyMetaboAnalyst", "PyMetaboAnalyst")
 
@@ -481,7 +485,10 @@ class MainWindow(QMainWindow):
         self._log_dock.setWidget(self.log_widget)
         self._log_dock.setAllowedAreas(Qt.DockWidgetArea.BottomDockWidgetArea)
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self._log_dock)
-        QTimer.singleShot(0, self._apply_initial_log_dock_size)
+        self._initial_log_dock_timer = QTimer(self)
+        self._initial_log_dock_timer.setSingleShot(True)
+        self._initial_log_dock_timer.timeout.connect(self._apply_initial_log_dock_size)
+        self._initial_log_dock_timer.start(0)
 
         self._log_handler = QLogHandler()
         self._log_handler.log_signal.connect(self.log_widget.appendPlainText)
@@ -489,9 +496,52 @@ class MainWindow(QMainWindow):
         logger.setLevel(logging.INFO)
 
     def _apply_initial_log_dock_size(self) -> None:
-        if not hasattr(self, "_log_dock") or not self._log_dock.isVisible():
+        dock = getattr(self, "_log_dock", None)
+        if dock is None:
             return
-        self.resizeDocks([self._log_dock], [120], Qt.Orientation.Vertical)
+        try:
+            if not dock.isVisible():
+                return
+        except RuntimeError:
+            return
+        self.resizeDocks([dock], [120], Qt.Orientation.Vertical)
+
+    def _cleanup_ui_resources(self) -> None:
+        if self._cleanup_complete:
+            return
+
+        self._cleanup_complete = True
+
+        if self._initial_log_dock_timer is not None:
+            self._initial_log_dock_timer.stop()
+            self._initial_log_dock_timer = None
+
+        if hasattr(self, "theme_manager"):
+            self.theme_manager.unregister_callback(self._apply_selected_theme)
+
+        for worker in list(self._active_workers):
+            if hasattr(worker, "cancel"):
+                worker.cancel()
+        if hasattr(self, "stats_tab") and hasattr(self.stats_tab, "cancel_running"):
+            self.stats_tab.cancel_running()
+
+        handler = self._log_handler
+        if handler is None:
+            return
+
+        try:
+            if hasattr(self, "log_widget"):
+                handler.log_signal.disconnect(self.log_widget.appendPlainText)
+        except (RuntimeError, TypeError):
+            pass
+
+        logger.removeHandler(handler)
+        handler.close()
+        self._log_handler = None
+
+    def closeEvent(self, event) -> None:
+        self._cleanup_ui_resources()
+        super().closeEvent(event)
 
     def _setup_statusbar(self):
         self.status_bar = QStatusBar()

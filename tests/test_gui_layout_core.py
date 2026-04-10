@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -12,6 +13,7 @@ from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QBoxLayout, QPushButton, QScrollArea
 
 from gui.main_window import MainWindow
+from gui.widgets.log_handler import QLogHandler
 from gui.settings_dialog import SettingsDialog
 from tests.gui_layout_support import (
     assert_widget_center_inside,
@@ -39,6 +41,21 @@ def test_theme_combo_box_exists(qapp) -> None:
     assert "dark" in items
     assert "colorblind" not in items
     close_window(window, qapp)
+
+
+def test_main_window_close_removes_pipeline_log_handler(qapp) -> None:
+    pipeline_logger = logging.getLogger("pipeline")
+    baseline = sum(isinstance(handler, QLogHandler) for handler in pipeline_logger.handlers)
+
+    window = MainWindow()
+    opened = sum(isinstance(handler, QLogHandler) for handler in pipeline_logger.handlers)
+
+    assert opened == baseline + 1
+
+    close_window(window, qapp)
+
+    closed = sum(isinstance(handler, QLogHandler) for handler in pipeline_logger.handlers)
+    assert closed == baseline
 
 
 def test_settings_dialog_theme_options_match_gui_modes(qapp) -> None:
