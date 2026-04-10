@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 from matplotlib.figure import Figure
 from matplotlib.patches import Ellipse
 from scipy.stats import chi2
 
+from visualization.interactive_score_plot import build_interactive_score_plot
 from visualization.score_labeling import add_score_labels, finalize_score_labels
 from visualization.theme import apply_publication_style, get_group_colors
 
@@ -128,3 +130,44 @@ def plot_plsda_score(
     ax.axvline(0, color="grey", linewidth=0.5, linestyle=":")
     fig.tight_layout()
     return fig
+
+
+def plot_plsda_score_interactive(
+    plsda_result,
+    comp_x: int = 0,
+    comp_y: int = 1,
+    show_labels: str = "outlier",
+    confidence: float = 0.95,
+    theme: str = "light",
+):
+    """Build an interactive Plotly PLS-DA score plot."""
+    scores = plsda_result.scores
+    labels = plsda_result.labels
+    sample_names = np.asarray(
+        getattr(plsda_result, "sample_names", [f"S{i+1}" for i in range(len(scores))]),
+        dtype=object,
+    )
+    ev = plsda_result.explained_variance
+    score_df = pd.DataFrame(
+        {
+            "x": scores[:, comp_x],
+            "y": scores[:, comp_y],
+            "Sample": sample_names.astype(str),
+            "Group": labels.values if hasattr(labels, "values") else np.asarray(labels).astype(str),
+        }
+    )
+    x_label = f"Comp{comp_x + 1} ({ev[comp_x] * 100:.1f}%)" if len(ev) > comp_x else f"Comp{comp_x + 1}"
+    y_label = f"Comp{comp_y + 1} ({ev[comp_y] * 100:.1f}%)" if len(ev) > comp_y else f"Comp{comp_y + 1}"
+    return build_interactive_score_plot(
+        score_df,
+        x_col="x",
+        y_col="y",
+        sample_col="Sample",
+        group_col="Group",
+        x_label=x_label,
+        y_label=y_label,
+        title="PLS-DA Score Plot",
+        show_labels=show_labels,
+        confidence=confidence,
+        theme=theme,
+    )

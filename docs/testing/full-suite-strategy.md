@@ -79,14 +79,14 @@ If `uv run pytest tests -q` times out:
 
 ## Known slow files
 
-The following file is known to dominate full-suite runtime in the current
-Windows harness environment:
+The following Phase 7 GUI smoke coverage is known to dominate runtime in the
+current Windows harness environment:
 
-- `tests\test_gui_layout.py`
+- `tests\test_gui_phase7_slow.py`
 
-Observed runtime during the April 2026 verification pass:
+Observed runtime during the April 2026 verification pass before the split:
 
-- `tests\test_gui_layout.py`: about 14 minutes
+- the old `tests\test_gui_layout.py` deep-smoke segment: about 14 minutes
 
 This number may vary by machine, but the general lesson remains:
 
@@ -138,14 +138,21 @@ The repository CI intentionally does **not** run the same monolithic command on 
 
 Current policy:
 
-1. Python 3.11 runs the repository regression suite file-by-file with `-m "not slow"`
-2. The known slow GUI smoke cases are split into a dedicated Python 3.11 job outside the default PR path
-3. Python 3.12 runs a targeted compatibility smoke subset
-4. `ruff` is kept as a low-noise guardrail using `--select=F,E9`
+1. Python 3.11 keeps the legacy `Full Regression (Python 3.11)` check name for branch protection compatibility
+2. Pull requests fan out into domain-oriented smoke shards and then report back through that legacy regression check name via an aggregate job
+3. On non-PR events, Python 3.11 still runs broader repository regression shards on the self-hosted Windows runner
+4. The known slow GUI smoke cases live in `tests\test_gui_phase7_slow.py` and stay outside the default PR path
+5. Embedded `QWebEngineView` coverage runs in its own non-PR smoke lane so PR GUI smoke can stay on the lighter browser-fallback path
+6. Python 3.12 runs a targeted compatibility smoke subset on non-PR events only
+7. `ruff` is kept as a low-noise guardrail using `--select=F,E9`
+8. Shard membership lives in `tools\ci\pytest-target-groups.psd1`, so workflow YAML does not become the only source of truth for repository test topology
 
 Why:
 
 - PR feedback needs to stay within a practical wall-clock budget
-- file-by-file execution still localizes failures instead of hiding them in one giant run
+- the required regression check name remains stable even though PR and non-PR execution depth now differs
+- shard boundaries follow repository domains rather than one giant sequential loop
 - the Phase 7 GUI smoke matrix remains valuable, but it should not dominate every PR check
 - splitting slow GUI smoke into its own lane makes progress visible and failures easier to interpret
+- embedded WebEngine behavior still gets checked, but no longer competes with routine PR feedback on every branch update
+- keeping shard membership in a repo-local manifest makes it easier to evolve CI without rewriting job logic

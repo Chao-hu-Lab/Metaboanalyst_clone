@@ -10,6 +10,12 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 import logging
+import json
+import subprocess
+import sys
+import tempfile
+import threading
+import time
 from pathlib import Path
 from typing import Mapping
 
@@ -19,13 +25,16 @@ from PySide6.QtCore import (
     QEvent,
     QLibraryInfo,
     QLocale,
+    QUrl,
     QSignalBlocker,
     QSettings,
     QSize,
+    QTimer,
+    QThreadPool,
     Qt,
     QTranslator,
 )
-from PySide6.QtGui import QAction, QIcon, QUndoCommand, QUndoStack
+from PySide6.QtGui import QAction, QDesktopServices, QIcon, QUndoCommand, QUndoStack
 from PySide6.QtWidgets import (
     QApplication,
     QDockWidget,
@@ -42,10 +51,10 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QComboBox,
+    QScrollArea,
     QSplitter,
     QStackedWidget,
     QStatusBar,
-    QTableView,
     QVBoxLayout,
     QWidget,
 )
@@ -74,13 +83,12 @@ from gui.stats_tab import StatsTab
 from gui.theme import apply_flat_theme
 from gui.visual_tab import VisualTab
 from gui.widgets.log_handler import QLogHandler
-from gui.widgets.mpl_canvas import MplWidget
-from gui.widgets.pandas_model import create_sortable_model
-from gui.widgets.preset_bar import PresetBar
-from gui.widgets.worker import PipelineWorker
+from gui.widgets.quick_run_panel import QuickRunPanel
+from gui.widgets.worker import CancelledError, PipelineWorker
 from visualization.theme_manager import ThemeManager
 
 logger = logging.getLogger("pipeline")
+GUI_THEME_OPTIONS = ("light", "dark")
 
 try:
     import qtawesome as qta
@@ -144,9 +152,13 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         self.setWindowTitle("PyMetaboAnalyst")
         self.resize(1360, 860)
         self.setMinimumSize(1024, 680)
+        self._cleanup_complete = False
+        self._initial_log_dock_timer: QTimer | None = None
+        self._log_handler: QLogHandler | None = None
 
         self._settings = QSettings("PyMetaboAnalyst", "PyMetaboAnalyst")
 
@@ -171,6 +183,9 @@ class MainWindow(QMainWindow):
         self._builtin_preset_refs: list[PresetReference] = []
         self._local_preset_refs: list[PresetReference] = []
         self._preset_load_menu: QMenu | None = None
+        self._quick_action_menu: QMenu | None = None
+        self._last_run_output_dir: str | None = None
+        self._last_run_log: str = ""
 
         # Workflow stage:
         # 0: no data, 1: import done, 2: missing done, 3: filter done, 4: norm done
@@ -187,11 +202,13 @@ class MainWindow(QMainWindow):
         self._app_translator = QTranslator()
         self._qt_translator = QTranslator()
         self._current_locale = "en"
-        self._current_theme = self._settings.value("theme", "light", type=str)
         app = QApplication.instance()
+        saved_theme = self._settings.value("theme", "light", type=str)
+        self._current_theme = self._normalize_gui_theme(saved_theme, app)
         if app is not None:
             apply_flat_theme(app, self._current_theme)
-        visual_theme = self._current_theme if self._current_theme in ThemeManager.SUPPORTED_THEMES else "light"
+        self._settings.setValue("theme", self._current_theme)
+        visual_theme = self._current_theme
         self.theme_manager = ThemeManager(default_theme=visual_theme)
 
         self._setup_ui()
@@ -214,6 +231,14 @@ class MainWindow(QMainWindow):
     @staticmethod
     def _default_pipeline_params() -> dict:
         return default_pipeline_params()
+
+    @staticmethod
+    def _normalize_gui_theme(theme_name: str, app: QApplication | None) -> str:
+        if theme_name in GUI_THEME_OPTIONS:
+            return theme_name
+        if app is not None:
+            return apply_flat_theme(app, theme_name)
+        return "light"
 
     # ------------------------------------------------------------------
     # UI
@@ -262,31 +287,12 @@ class MainWindow(QMainWindow):
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.addWidget(self._nav_list)
 
-        self._preview_title = QLabel()
-        self._preview_plot = MplWidget(figsize=(8, 6))
-        self._preview_table = QTableView()
-        self._preview_table.setSortingEnabled(True)
-        self._preview_table.setAlternatingRowColors(True)
-
-        self._preview_stack = QStackedWidget()
-        self._preview_stack.addWidget(self._preview_table)
-        self._preview_stack.addWidget(self._preview_plot)
-        self._preview_stack.setCurrentWidget(self._preview_table)
-
-        right_panel = QWidget()
-        right_layout = QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(8, 8, 8, 8)
-        right_layout.addWidget(self._preview_title)
-        right_layout.addWidget(self._preview_stack, stretch=1)
-
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(left_panel)
         splitter.addWidget(self._page_stack)
-        splitter.addWidget(right_panel)
-        splitter.setSizes([200, 420, 740])
+        splitter.setSizes([220, 940])
         splitter.setCollapsible(0, False)
         splitter.setCollapsible(1, False)
-        splitter.setCollapsible(2, False)
 
         # Wrap splitter with pipeline navigation bar
         central = QWidget()
@@ -294,10 +300,33 @@ class MainWindow(QMainWindow):
         central_layout.setContentsMargins(0, 0, 0, 0)
         central_layout.setSpacing(0)
         central_layout.addWidget(self._create_pipeline_nav())
-        self.preset_bar = PresetBar(self)
-        central_layout.addWidget(self.preset_bar)
-        central_layout.addWidget(splitter, stretch=1)
+        self._workflow_scroll = QScrollArea(self)
+        self._workflow_scroll.setObjectName("workflow_scroll")
+        self._workflow_scroll.setWidgetResizable(True)
+        self._workflow_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        central_layout.addWidget(self._workflow_scroll, stretch=1)
+
+        workflow_content = QWidget(self._workflow_scroll)
+        workflow_layout = QVBoxLayout(workflow_content)
+        workflow_layout.setContentsMargins(0, 0, 0, 0)
+        workflow_layout.setSpacing(0)
+
+        self.quick_run_panel = QuickRunPanel(workflow_content)
+        self.preset_bar = self.quick_run_panel
+        workflow_layout.addWidget(self.quick_run_panel)
+
+        self._advanced_container = QWidget(workflow_content)
+        advanced_layout = QVBoxLayout(self._advanced_container)
+        advanced_layout.setContentsMargins(0, 0, 0, 0)
+        advanced_layout.addWidget(splitter)
+        self._advanced_container.setVisible(False)
+        workflow_layout.addWidget(self._advanced_container, stretch=1)
+        self._workflow_scroll.setWidget(workflow_content)
         self.setCentralWidget(central)
+
+    def show_shared_plot(self, figure) -> None:
+        """Compatibility shim for deprecated shared-preview callbacks."""
+        _ = figure
 
     def _create_pipeline_nav(self) -> QFrame:
         """Create pipeline navigation bar showing overall workflow position."""
@@ -421,7 +450,7 @@ class MainWindow(QMainWindow):
         self._theme_toolbar_label = QLabel(self.tr("Theme:"))
         self.theme_combo = QComboBox()
         self.theme_combo.setObjectName("theme_combo")
-        self.theme_combo.addItems(self.theme_manager.get_supported_themes())
+        self.theme_combo.addItems(list(GUI_THEME_OPTIONS))
         self.theme_combo.setCurrentText(self.theme_manager.current_theme)
         self.theme_combo.currentTextChanged.connect(self._on_theme_combo_changed)
 
@@ -433,33 +462,86 @@ class MainWindow(QMainWindow):
 
     def _apply_selected_theme(self, theme_name: str):
         app = QApplication.instance()
+        resolved_theme = self._normalize_gui_theme(theme_name, app)
         font_size = self._settings.value("font_size", 11, type=int)
         if app is not None:
-            apply_flat_theme(app, theme_name, font_size)
+            apply_flat_theme(app, resolved_theme, font_size)
 
-        self._current_theme = theme_name
-        self._settings.setValue("theme", theme_name)
+        self._current_theme = resolved_theme
+        self._settings.setValue("theme", resolved_theme)
 
-        if hasattr(self, "theme_combo") and self.theme_combo.currentText() != theme_name:
+        if hasattr(self, "theme_combo") and self.theme_combo.currentText() != resolved_theme:
             blocker = QSignalBlocker(self.theme_combo)
-            self.theme_combo.setCurrentText(theme_name)
+            self.theme_combo.setCurrentText(resolved_theme)
             del blocker
 
     def _create_log_dock(self):
         self.log_widget = QPlainTextEdit()
         self.log_widget.setReadOnly(True)
         self.log_widget.setMaximumBlockCount(2000)
-        self.log_widget.setMaximumHeight(180)
+        self.log_widget.setMaximumHeight(140)
 
         self._log_dock = QDockWidget(self.tr("Processing Log"), self)
         self._log_dock.setWidget(self.log_widget)
         self._log_dock.setAllowedAreas(Qt.DockWidgetArea.BottomDockWidgetArea)
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self._log_dock)
+        self._initial_log_dock_timer = QTimer(self)
+        self._initial_log_dock_timer.setSingleShot(True)
+        self._initial_log_dock_timer.timeout.connect(self._apply_initial_log_dock_size)
+        self._initial_log_dock_timer.start(0)
 
         self._log_handler = QLogHandler()
         self._log_handler.log_signal.connect(self.log_widget.appendPlainText)
         logger.addHandler(self._log_handler)
         logger.setLevel(logging.INFO)
+
+    def _apply_initial_log_dock_size(self) -> None:
+        dock = getattr(self, "_log_dock", None)
+        if dock is None:
+            return
+        try:
+            if not dock.isVisible():
+                return
+        except RuntimeError:
+            return
+        self.resizeDocks([dock], [120], Qt.Orientation.Vertical)
+
+    def _cleanup_ui_resources(self) -> None:
+        if self._cleanup_complete:
+            return
+
+        self._cleanup_complete = True
+
+        if self._initial_log_dock_timer is not None:
+            self._initial_log_dock_timer.stop()
+            self._initial_log_dock_timer = None
+
+        if hasattr(self, "theme_manager"):
+            self.theme_manager.unregister_callback(self._apply_selected_theme)
+
+        for worker in list(self._active_workers):
+            if hasattr(worker, "cancel"):
+                worker.cancel()
+        if hasattr(self, "stats_tab") and hasattr(self.stats_tab, "cancel_running"):
+            self.stats_tab.cancel_running()
+
+        handler = self._log_handler
+        if handler is None:
+            return
+
+        try:
+            if hasattr(self, "log_widget"):
+                handler.log_signal.disconnect(self.log_widget.appendPlainText)
+        except (RuntimeError, TypeError):
+            pass
+
+        logger.removeHandler(handler)
+        handler.close()
+        self._log_handler = None
+
+    def closeEvent(self, event) -> None:
+        self._cleanup_ui_resources()
+        super().closeEvent(event)
 
     def _setup_statusbar(self):
         self.status_bar = QStatusBar()
@@ -479,9 +561,11 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage(self.tr("Ready"))
 
     def _connect_preset_watchers(self) -> None:
-        self.preset_bar.apply_button.clicked.connect(self._apply_current_preset)
-        self.preset_bar.save_button.clicked.connect(self._save_preset_yaml)
-        self.preset_bar.reset_button.clicked.connect(self._reset_preset_to_defaults)
+        self.quick_run_panel.browse_button.clicked.connect(self.import_tab._browse_file)
+        self.quick_run_panel.inspect_button.clicked.connect(self.import_tab._show_inspect_dialog)
+        self.quick_run_panel.run_button.clicked.connect(self._run_full_analysis_async)
+        self.quick_run_panel.advanced_button.clicked.connect(self._toggle_advanced_visibility)
+        self.quick_run_panel.open_output_button.clicked.connect(self._open_output_folder)
         for tab in (
             self.mv_tab,
             self.filter_tab,
@@ -529,7 +613,25 @@ class MainWindow(QMainWindow):
         browse_action.triggered.connect(self._load_config_yaml)
 
         self._preset_load_menu = menu
-        self.preset_bar.load_button.setMenu(menu)
+        self.quick_run_panel.load_button.setMenu(menu)
+
+    def _rebuild_quick_action_menu(self) -> None:
+        menu = QMenu(self)
+        save_action = menu.addAction(self.tr("Save Current Settings As Preset..."))
+        save_action.triggered.connect(self._save_preset_yaml)
+        reset_action = menu.addAction(self.tr("Reset Current Settings To Defaults"))
+        reset_action.triggered.connect(self._reset_preset_to_defaults)
+        if self._active_preset_config is not None:
+            reapply_action = menu.addAction(self.tr("Re-apply Loaded Preset"))
+            reapply_action.triggered.connect(self._apply_current_preset)
+        menu.addSeparator()
+        load_yaml_action = menu.addAction(self.tr("Browse YAML..."))
+        load_yaml_action.triggered.connect(self._load_config_yaml)
+        import_dnp_action = menu.addAction(self.tr("Import From DNP..."))
+        import_dnp_action.triggered.connect(self.import_tab._import_from_dnp)
+
+        self._quick_action_menu = menu
+        self.quick_run_panel.more_button.setMenu(menu)
 
     def _load_preset_reference(self, reference: PresetReference) -> list[str]:
         try:
@@ -690,16 +792,26 @@ class MainWindow(QMainWindow):
             ignored_text = ", ".join(ignored_fields)
         else:
             ignored_text = self.tr("None")
+        input_text = self.import_tab.current_input_path() or self.tr("Not selected")
+        data_text = self._describe_loaded_data()
+        result_text = self._describe_last_run_result()
+        can_run, _reason = self._can_run_full_analysis()
+        output_exists = self._last_run_output_dir is not None and Path(self._last_run_output_dir).exists()
 
-        self.preset_bar.source_value_label.setText(source_text)
-        self.preset_bar.state_value_label.setText(state_text)
-        self.preset_bar.summary_value_label.setText(" | ".join(summary_parts))
-        self.preset_bar.ignored_value_label.setText(ignored_text)
-        self.preset_bar.apply_button.setEnabled(
-            self._active_preset_config is not None and (is_dirty or bool(pending_paths))
-        )
-        self.preset_bar.reset_button.setEnabled(True)
-        self.preset_bar.save_button.setEnabled(True)
+        self.quick_run_panel.source_value_label.setText(source_text)
+        self.quick_run_panel.state_value_label.setText(state_text)
+        self.quick_run_panel.input_value_label.setText(input_text)
+        self.quick_run_panel.data_value_label.setText(data_text)
+        self.quick_run_panel.summary_value_label.setText(" | ".join(summary_parts))
+        self.quick_run_panel.ignored_value_label.setText(ignored_text)
+        self.quick_run_panel.result_value_label.setText(result_text)
+        self.quick_run_panel.summary_row.setVisible(bool(summary_parts))
+        self.quick_run_panel.ignored_row.setVisible(bool(ignored_fields))
+        self.quick_run_panel.run_button.setEnabled(can_run)
+        self.quick_run_panel.inspect_button.setEnabled(self.import_tab._raw_df is not None)
+        self.quick_run_panel.open_output_button.setEnabled(output_exists)
+        self._refresh_advanced_button_text()
+        self._rebuild_quick_action_menu()
 
     # ------------------------------------------------------------------
     # i18n
@@ -709,7 +821,6 @@ class MainWindow(QMainWindow):
         """Handle sidebar navigation item selection."""
         if 0 <= index < self._page_stack.count():
             self._page_stack.setCurrentIndex(index)
-            self._sync_shared_preview_from_active_tab(index)
 
     def _retranslate_tabs(self):
         labels = [
@@ -741,8 +852,6 @@ class MainWindow(QMainWindow):
         self.act_lang_en.setText(self.tr("English"))
         self.font_menu.setTitle(self.tr("Font Size"))
         self.act_about.setText(self.tr("About"))
-
-        self._preview_title.setText(self.tr("Live Preview"))
         if hasattr(self, "_theme_toolbar_label"):
             self._theme_toolbar_label.setText(self.tr("Theme:"))
         if hasattr(self, "main_toolbar"):
@@ -754,7 +863,9 @@ class MainWindow(QMainWindow):
         self._retranslate_menus()
         self._retranslate_pipeline_nav()
         self._rebuild_preset_load_menu()
-        self.preset_bar.retranslateUi()
+        self.quick_run_panel.retranslateUi()
+        self._rebuild_quick_action_menu()
+        self._refresh_advanced_button_text()
         self._log_dock.setWindowTitle(self.tr("Processing Log"))
         self.status_bar.showMessage(self.tr("Ready"))
 
@@ -817,8 +928,7 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _update_tab_states(self):
-        enabled = [True, self._stage >= 1, self._stage >= 2,
-                   self._stage >= 3, self._stage >= 4, self._stage >= 4]
+        enabled = [True] * len(self._tab_widgets)
         for i, en in enumerate(enabled):
             if i < self._nav_list.count():
                 item = self._nav_list.item(i)
@@ -828,45 +938,225 @@ class MainWindow(QMainWindow):
                 else:
                     item.setFlags(flags & ~(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable))
 
-    def _show_preview_table(self):
-        self._preview_stack.setCurrentWidget(self._preview_table)
+    def _describe_loaded_data(self) -> str:
+        if self.current_data is None:
+            return self.tr("No dataset loaded")
+        group_summary = self.tr("No group labels")
+        if self.labels is not None:
+            counts = self.labels.astype(str).value_counts()
+            group_summary = ", ".join(f"{group}:{count}" for group, count in counts.items())
+        return self.tr("Samples: {samples} | Features: {features} | Groups: {groups}").format(
+            samples=self.current_data.shape[0],
+            features=self.current_data.shape[1],
+            groups=group_summary,
+        )
 
-    def _show_preview_plot(self):
-        self._preview_stack.setCurrentWidget(self._preview_plot)
+    def _describe_last_run_result(self) -> str:
+        if self._last_run_output_dir is None:
+            return self.tr("Run an analysis to populate the output folder shortcut.")
+        return self._last_run_output_dir
 
-    def _sync_shared_preview_from_active_tab(self, index: int):
-        widget = self._page_stack.widget(index)
-        if widget is None:
+    def _can_run_full_analysis(self) -> tuple[bool, str]:
+        try:
+            self.import_tab.get_run_input_state()
+        except ValueError as exc:
+            return False, str(exc)
+        return True, ""
+
+    def _refresh_advanced_button_text(self) -> None:
+        if not self._advanced_container.isHidden():
+            self.quick_run_panel.advanced_button.setChecked(True)
+            self.quick_run_panel.advanced_button.setText(self.tr("Hide Advanced"))
             return
-        plot_widgets = widget.findChildren(MplWidget)
-        if plot_widgets:
-            self.show_shared_plot(plot_widgets[0].figure)
-            return
-        if self.current_data is not None:
-            self.show_shared_table(self.current_data)
+        self.quick_run_panel.advanced_button.setChecked(False)
+        self.quick_run_panel.advanced_button.setText(self.tr("Show Advanced"))
 
-    def show_shared_table(self, df: pd.DataFrame):
-        if df is None or df.empty:
+    def _toggle_advanced_visibility(self) -> None:
+        self._advanced_container.setVisible(self._advanced_container.isHidden())
+        self._refresh_advanced_button_text()
+
+    def _append_run_log(self, text: str) -> None:
+        if not text.strip():
+            return
+        for line in text.rstrip().splitlines():
+            self.log_widget.appendPlainText(line)
+
+    def _build_current_run_config(self) -> AppConfig:
+        run_config = self._build_current_gui_preset_config().to_dict(include_runtime=False)
+        self._merge_config_fragment(run_config, self.import_tab.get_run_input_state())
+        return AppConfig.from_mapping(run_config, require_required_sections=False)
+
+    def _execute_full_analysis(
+        self,
+        app_config: AppConfig,
+        worker: PipelineWorker | None = None,
+    ) -> dict[str, str]:
+        project_root = Path(__file__).resolve().parent.parent
+        config_dict = app_config.to_dict(include_runtime=True)
+        temp_config_path: str | None = None
+        process: subprocess.Popen[str] | None = None
+        captured_chunks: list[str] = []
+        reader_thread: threading.Thread | None = None
+
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                suffix=".yaml",
+                prefix="quick_run_",
+                dir=project_root,
+                delete=False,
+                encoding="utf-8",
+            ) as handle:
+                handle.write(dump_yaml(config_dict, include_runtime=False))
+                temp_config_path = handle.name
+
+            process = subprocess.Popen(
+                [sys.executable, str(project_root / "scripts" / "run_from_config.py"), temp_config_path],
+                cwd=project_root,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+            )
+
+            def _read_stdout() -> None:
+                assert process is not None and process.stdout is not None
+                for line in process.stdout:
+                    captured_chunks.append(line)
+
+            reader_thread = threading.Thread(target=_read_stdout, daemon=True)
+            reader_thread.start()
+
+            while process.poll() is None:
+                if worker is not None and worker.is_cancelled():
+                    process.terminate()
+                    try:
+                        process.wait(timeout=2)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait(timeout=2)
+                    raise CancelledError()
+                time.sleep(0.15)
+
+            if reader_thread is not None:
+                reader_thread.join(timeout=2)
+            captured_output = "".join(captured_chunks)
+            if process.returncode != 0:
+                raise RuntimeError(captured_output.strip() or "Quick run failed.")
+
+            output_dir = ""
+            sentinel = "__RESULT_JSON__:"
+            for line in captured_output.splitlines():
+                if line.startswith(sentinel):
+                    try:
+                        output_dir = str(json.loads(line[len(sentinel):].strip()))
+                    except json.JSONDecodeError:
+                        output_dir = line[len(sentinel):].strip()
+                    break
+            if not output_dir:
+                saved_lines = [
+                    line.split("Saved to", 1)[1].strip()
+                    for line in captured_output.splitlines()
+                    if "Saved to" in line
+                ]
+                output_dir = saved_lines[-1] if saved_lines else ""
+
+            return {
+                "log": captured_output,
+                "output_dir": output_dir,
+            }
+        finally:
+            if process is not None and process.poll() is None:
+                process.kill()
+            if reader_thread is not None and reader_thread.is_alive():
+                reader_thread.join(timeout=1)
+            if temp_config_path:
+                try:
+                    Path(temp_config_path).unlink(missing_ok=True)
+                except OSError:
+                    logger.debug("Failed to remove temporary quick-run config: %s", temp_config_path, exc_info=True)
+
+    def _run_full_analysis_async(self) -> None:
+        can_run, reason = self._can_run_full_analysis()
+        if not can_run:
+            QMessageBox.information(self, self.tr("Quick Run Unavailable"), reason)
             return
 
-        preview_df = df.iloc[:400, :120]
-        source, proxy = create_sortable_model(preview_df)
-        self._preview_source_model = source
-        self._preview_proxy_model = proxy
-        self._preview_table.setModel(proxy)
-        self._preview_table.setSortingEnabled(True)
-        self._show_preview_table()
+        app_config = self._build_current_run_config()
+        self.quick_run_panel.run_button.setEnabled(False)
+        self.status_bar.showMessage(self.tr("Running full analysis..."))
+        self.show_progress(True)
+        worker: PipelineWorker | None = None
 
-    def show_shared_plot(self, fig):
-        if fig is None:
+        def _job():
+            assert worker is not None
+            return self._execute_full_analysis(app_config, worker)
+
+        worker = PipelineWorker(_job)
+        self._active_workers.add(worker)
+
+        def _handle_result(payload):
+            self._on_full_run_success(payload)
+
+        def _handle_error(error_text: str):
+            self.quick_run_panel.run_button.setEnabled(True)
+            if error_text == "Cancelled":
+                self.status_bar.showMessage(self.tr("Quick run cancelled."))
+                return
+            QMessageBox.critical(self, self.tr("Quick Run Failed"), error_text)
+
+        def _handle_finished():
+            self.show_progress(False)
+            self._active_workers.discard(worker)
+            self.quick_run_panel.run_button.setEnabled(True)
+            self._refresh_preset_bar()
+
+        worker.signals.result.connect(_handle_result)
+        worker.signals.error.connect(_handle_error)
+        worker.signals.finished.connect(_handle_finished)
+        QThreadPool.globalInstance().start(worker)
+
+    def _on_full_run_success(self, payload: Mapping[str, str]) -> None:
+        output_dir = payload.get("output_dir", "")
+        run_log = payload.get("log", "")
+        self._last_run_output_dir = output_dir or None
+        self._last_run_log = run_log
+        self._append_run_log(run_log)
+        self.status_bar.showMessage(
+            self.tr("Analysis complete: {path}").format(path=output_dir)
+        )
+        logger.info("Quick run completed. Output directory: %s", output_dir)
+        self._refresh_preset_bar()
+
+    def _open_output_folder(self) -> None:
+        if self._last_run_output_dir is None:
+            QMessageBox.information(
+                self,
+                self.tr("Open Output Folder"),
+                self.tr("No completed analysis output is available yet."),
+            )
             return
-        self._preview_plot.canvas.figure = fig
-        self._preview_plot.canvas.draw()
-        self._show_preview_plot()
+        if not Path(self._last_run_output_dir).exists():
+            QMessageBox.warning(
+                self,
+                self.tr("Open Output Folder"),
+                self.tr("Output folder does not exist anymore:\n{path}").format(
+                    path=self._last_run_output_dir
+                ),
+            )
+            return
+        output_path = Path(self._last_run_output_dir).resolve()
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(output_path))):
+            QMessageBox.warning(
+                self,
+                self.tr("Open Output Folder"),
+                self.tr("Unable to open the output folder:\n{path}").format(
+                    path=str(output_path)
+                ),
+            )
 
     def _on_data_state_changed(self):
-        if self.current_data is not None:
-            self.show_shared_table(self.current_data)
+        self._refresh_preset_bar()
 
     def clear_stats_matrix_bundle(self) -> None:
         self._stats_matrix_bundle = None
@@ -1021,18 +1311,18 @@ class MainWindow(QMainWindow):
         *,
         factor_column_applied: bool,
     ) -> list[str]:
-        applied_sections = ["pipeline"]
+        applied_sections = [self.tr("pipeline")]
         if "groups" in config.source_sections:
-            applied_sections.append("groups (stored for later phases)")
+            applied_sections.append(self.tr("groups (stored for later phases)"))
         if "analysis" in config.source_sections:
-            applied_sections.append("analysis (stored for later phases)")
+            applied_sections.append(self.tr("analysis (stored for later phases)"))
         if "output" in config.source_sections:
-            applied_sections.append("output (stored for later phases)")
+            applied_sections.append(self.tr("output (stored for later phases)"))
         if "spec_norm" in config.source_sections:
             if factor_column_applied:
-                applied_sections.append("spec_norm")
+                applied_sections.append(self.tr("spec_norm"))
             else:
-                applied_sections.append("spec_norm (stored for later phases)")
+                applied_sections.append(self.tr("spec_norm (stored for later phases)"))
         return applied_sections
 
     def _apply_loaded_config(
@@ -1253,8 +1543,8 @@ class MainWindow(QMainWindow):
                 self.filter_tab.on_data_updated()
             if hasattr(self.norm_tab, "on_data_updated"):
                 self.norm_tab.on_data_updated()
-            if hasattr(self.stats_tab, "_refresh_groups"):
-                self.stats_tab._refresh_groups()
+            if hasattr(self.stats_tab, "on_data_updated"):
+                self.stats_tab.on_data_updated()
 
         if should_preserve_preset:
             self._apply_config_to_widgets(preserved_preset_config)
@@ -1332,8 +1622,8 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage(msg)
         logger.info(msg)
 
-        if self._stage >= 4 and hasattr(self.stats_tab, "_refresh_groups"):
-            self.stats_tab._refresh_groups()
+        if hasattr(self.stats_tab, "on_data_updated"):
+            self.stats_tab.on_data_updated()
 
     def check_data_ready(self) -> bool:
         if self.current_data is None:
@@ -1363,8 +1653,16 @@ class MainWindow(QMainWindow):
         self.progress_bar.setValue(value)
 
     def _on_cancel_clicked(self):
+        cancelled = False
+        for worker in list(self._active_workers):
+            if hasattr(worker, "cancel"):
+                worker.cancel()
+                cancelled = True
         if hasattr(self.stats_tab, "cancel_running"):
             self.stats_tab.cancel_running()
+            cancelled = True
+        if cancelled:
+            self.status_bar.showMessage(self.tr("Cancelling..."))
 
     # ------------------------------------------------------------------
     # File / dialog actions

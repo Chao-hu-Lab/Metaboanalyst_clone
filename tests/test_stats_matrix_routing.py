@@ -15,8 +15,9 @@ import analysis.plsda as plsda_module
 import analysis.univariate as univariate_module
 from core.pipeline import MetaboAnalystPipeline
 from gui.main_window import MainWindow
+from tests.gui_layout_support import close_window
 
-pytestmark = [pytest.mark.gui, pytest.mark.integration]
+pytestmark = [pytest.mark.gui, pytest.mark.integration, pytest.mark.pr_smoke]
 
 
 def _make_stats_matrices() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Series]:
@@ -131,7 +132,7 @@ def test_multivariate_stats_use_multivariate_matrix_bundle(
         check_dtype=False,
         check_names=False,
     )
-    window.close()
+    close_window(window, qapp)
 
 
 def test_volcano_uses_univariate_matrix_and_row_normalized_fc_bundle(
@@ -142,8 +143,9 @@ def test_volcano_uses_univariate_matrix_and_row_normalized_fc_bundle(
     _patch_sync_runner(window, monkeypatch)
     captured: dict[str, object] = {}
 
-    window.stats_tab.vol_group1.setCurrentText("A")
-    window.stats_tab.vol_group2.setCurrentText("B")
+    window.stats_tab.vol_pair_combo.setCurrentIndex(
+        window.stats_tab.vol_pair_combo.findText("A vs B")
+    )
 
     def _fake_volcano_analysis(data, labels, **kwargs):
         captured["data"] = data.copy()
@@ -171,7 +173,7 @@ def test_volcano_uses_univariate_matrix_and_row_normalized_fc_bundle(
         check_dtype=False,
         check_names=False,
     )
-    window.close()
+    close_window(window, qapp)
 
 
 @pytest.mark.parametrize("test_key", ["student", "welch", "wilcoxon"])
@@ -184,8 +186,9 @@ def test_volcano_matrix_source_is_stable_across_test_modes(
     _patch_sync_runner(window, monkeypatch)
     captured: dict[str, object] = {}
 
-    window.stats_tab.vol_group1.setCurrentText("A")
-    window.stats_tab.vol_group2.setCurrentText("B")
+    window.stats_tab.vol_pair_combo.setCurrentIndex(
+        window.stats_tab.vol_pair_combo.findText("A vs B")
+    )
     window.stats_tab.vol_test.setCurrentIndex(window.stats_tab.vol_test.findData(test_key))
 
     def _fake_volcano_analysis(data, labels, **kwargs):
@@ -206,7 +209,7 @@ def test_volcano_matrix_source_is_stable_across_test_modes(
         check_dtype=False,
         check_names=False,
     )
-    window.close()
+    close_window(window, qapp)
 
 
 def test_anova_uses_univariate_matrix_bundle(
@@ -238,7 +241,7 @@ def test_anova_uses_univariate_matrix_bundle(
         check_dtype=False,
         check_names=False,
     )
-    window.close()
+    close_window(window, qapp)
 
 
 @pytest.mark.parametrize("test_key", ["anova", "kruskal"])
@@ -270,7 +273,7 @@ def test_anova_matrix_source_is_stable_across_test_modes(
         check_dtype=False,
         check_names=False,
     )
-    window.close()
+    close_window(window, qapp)
 
 
 def test_run_pipeline_until_norm_builds_stats_matrix_bundle_from_pipeline(qapp) -> None:
@@ -316,7 +319,7 @@ def test_run_pipeline_until_norm_builds_stats_matrix_bundle_from_pipeline(qapp) 
         check_names=False,
     )
     assert bundle["removed_qc"] == 0
-    window.close()
+    close_window(window, qapp)
 
 
 @pytest.mark.parametrize(
@@ -361,7 +364,7 @@ def test_run_pipeline_until_norm_builds_bundle_for_preprocessing_variants(
         check_dtype=False,
         check_names=False,
     )
-    window.close()
+    close_window(window, qapp)
 
 
 def test_run_pipeline_until_norm_bundle_excludes_qc_and_keeps_indices_aligned(qapp) -> None:
@@ -398,7 +401,7 @@ def test_run_pipeline_until_norm_bundle_excludes_qc_and_keeps_indices_aligned(qa
     pdt.assert_index_equal(bundle["volcano_fc_data"].index, expected_index)
     pdt.assert_index_equal(bundle["labels"].index, expected_index)
     assert "QC" not in set(bundle["labels"].astype(str))
-    window.close()
+    close_window(window, qapp)
 
 
 def test_group_refresh_preserves_existing_pairs_and_keeps_pairs_distinct(qapp) -> None:
@@ -414,23 +417,15 @@ def test_group_refresh_preserves_existing_pairs_and_keeps_pairs_distinct(qapp) -
     }
 
     window.stats_tab._refresh_groups()
-    window.stats_tab.vol_group1.setCurrentText("B")
-    window.stats_tab.vol_group2.setCurrentText("C")
-    window.stats_tab.roc_group1.setCurrentText("C")
-    window.stats_tab.roc_group2.setCurrentText("A")
+    window.stats_tab.vol_pair_combo.setCurrentIndex(window.stats_tab.vol_pair_combo.findText("B vs C"))
+    window.stats_tab.roc_pair_combo.setCurrentIndex(window.stats_tab.roc_pair_combo.findText("A vs C"))
 
     window.stats_tab._refresh_groups()
 
     assert window.stats_tab.vol_group1.currentText() == "B"
     assert window.stats_tab.vol_group2.currentText() == "C"
-    assert window.stats_tab.roc_group1.currentText() == "C"
-    assert window.stats_tab.roc_group2.currentText() == "A"
-
-    window.stats_tab.vol_group2.setCurrentText("B")
-    assert window.stats_tab.vol_group2.currentText() == "B"
-    assert window.stats_tab.vol_group1.currentText() != window.stats_tab.vol_group2.currentText()
-
-    window.stats_tab.roc_group1.setCurrentText("A")
     assert window.stats_tab.roc_group1.currentText() == "A"
-    assert window.stats_tab.roc_group1.currentText() != window.stats_tab.roc_group2.currentText()
-    window.close()
+    assert window.stats_tab.roc_group2.currentText() == "C"
+    assert window.stats_tab.vol_pair_combo.findText("B vs B") == -1
+    assert window.stats_tab.roc_pair_combo.findText("A vs A") == -1
+    close_window(window, qapp)

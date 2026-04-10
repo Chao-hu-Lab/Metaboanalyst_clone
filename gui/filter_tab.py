@@ -106,6 +106,7 @@ class FilterTab(QWidget):
 
         self.qc_check.toggled.connect(self.qc_thresh_spin.setEnabled)
         self.btn_run = QPushButton(self.tr("Apply Filtering Step"))
+        self.btn_run.setProperty("variant", "primary")
         self.btn_run.setMinimumWidth(220)
         self.btn_run.clicked.connect(self._run)
         param_layout.addWidget(self.btn_run, 3, 0, 1, 2)
@@ -121,6 +122,7 @@ class FilterTab(QWidget):
         log_layout.addWidget(self.log_text)
         self.log_group.setLayout(log_layout)
         layout.addWidget(self.log_group, stretch=1)
+        self.log_group.setVisible(False)
         layout.addStretch()
 
     def retranslateUi(self):
@@ -270,6 +272,23 @@ class FilterTab(QWidget):
         labels = payload.get("labels")
         self.btn_run.setEnabled(True)
         self.log_text.setPlainText("\n".join(pipeline_log))
+        if hasattr(self.mw, "_append_run_log"):
+            cutoff_text = (
+                self.tr("auto")
+                if self.auto_check.isChecked()
+                else f"{self.cutoff_spin.value():.2f}"
+            )
+            self.mw._append_run_log(
+                self.tr(
+                    "[Filtering] method={method}, cutoff={cutoff}, qc_rsd={qc}, output shape={samples} x {features}"
+                ).format(
+                    method=self.method_combo.currentText(),
+                    cutoff=cutoff_text,
+                    qc=self.tr("on") if self.qc_check.isChecked() and self.qc_check.isEnabled() else self.tr("off"),
+                    samples=df.shape[0],
+                    features=df.shape[1],
+                )
+            )
         self.mw.update_data(
             df,
             self.tr("Filtering"),

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Mapping
 
-from PySide6.QtCore import QSignalBlocker, Qt
+from PySide6.QtCore import QSignalBlocker
 from PySide6.QtWidgets import (
     QComboBox,
     QGridLayout,
@@ -16,7 +16,6 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
-    QSplitter,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -27,14 +26,40 @@ from core.sample_info import build_aligned_factors, detect_factor_columns
 from ms_core.processing.scaling import SCALING_METHODS
 from ms_core.processing.transformation import TRANSFORM_METHODS
 from gui.state_binding import ApplyStateResult, apply_combo_data
-from gui.widgets.mpl_canvas import MplWidget
+
+
+_ROW_NORM_ZH_LABELS = {
+    "None": "不做正規化",
+    "SumNorm": "依列總和正規化",
+    "MedianNorm": "依列中位數正規化",
+    "SamplePQN": "使用參考樣本的 PQN",
+    "GroupPQN": "使用參考群組的 PQN",
+    "CompNorm": "依內標準正規化",
+    "QuantileNorm": "分位數正規化",
+    "SpecNorm": "依外部因子正規化",
+}
+
+_TRANSFORM_EN_LABELS = {
+    "None": "No transformation",
+    "LogNorm": "Generalized Log2 (glog2)",
+    "Log10Norm": "Generalized Log10 (glog10)",
+    "SrNorm": "Generalized square root (gsqrt)",
+    "CrNorm": "Cube root",
+}
+
+_SCALING_EN_LABELS = {
+    "None": "No scaling",
+    "MeanCenter": "Mean centering",
+    "AutoNorm": "Auto scaling (Z-score)",
+    "ParetoNorm": "Pareto scaling",
+    "RangeNorm": "Range scaling",
+}
 
 
 class NormTab(QWidget):
     def __init__(self, main_window):
         super().__init__()
         self.mw = main_window
-        self._before_df = None
         self._init_ui()
 
     def _init_ui(self):
@@ -70,8 +95,6 @@ class NormTab(QWidget):
         settings_layout.addWidget(self.row_label, 0, 0)
         self.row_combo = QComboBox()
         self.row_combo.setMinimumWidth(220)
-        for key, label in ROW_NORM_METHODS.items():
-            self.row_combo.addItem(label, key)
         self.row_combo.currentIndexChanged.connect(self._on_row_method_changed)
         settings_layout.addWidget(self.row_combo, 0, 1, 1, 2)
 
@@ -95,8 +118,6 @@ class NormTab(QWidget):
         settings_layout.addWidget(self.trans_label, 3, 0)
         self.trans_combo = QComboBox()
         self.trans_combo.setMinimumWidth(220)
-        for key, label in TRANSFORM_METHODS.items():
-            self.trans_combo.addItem(label, key)
         settings_layout.addWidget(self.trans_combo, 3, 1, 1, 2)
 
         self.scale_label = QLabel(self.tr("3. Scaling:"))
@@ -104,11 +125,10 @@ class NormTab(QWidget):
         settings_layout.addWidget(self.scale_label, 4, 0)
         self.scale_combo = QComboBox()
         self.scale_combo.setMinimumWidth(220)
-        for key, label in SCALING_METHODS.items():
-            self.scale_combo.addItem(label, key)
         settings_layout.addWidget(self.scale_combo, 4, 1, 1, 2)
 
         self.btn_run = QPushButton(self.tr("Apply Full Normalization Pipeline"))
+        self.btn_run.setProperty("variant", "primary")
         self.btn_run.setMinimumWidth(240)
         self.btn_run.clicked.connect(self._run)
         settings_layout.addWidget(self.btn_run, 5, 1)
@@ -121,27 +141,16 @@ class NormTab(QWidget):
         self.settings_group.setLayout(settings_layout)
         layout.addWidget(self.settings_group)
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.setChildrenCollapsible(False)
-
         self.log_group = QGroupBox(self.tr("Processing Log"))
         log_layout = QVBoxLayout()
         self.log_text = QTextEdit()
         self.log_text.setReadOnly(True)
         log_layout.addWidget(self.log_text)
         self.log_group.setLayout(log_layout)
-        self.log_group.setMaximumWidth(420)
-        splitter.addWidget(self.log_group)
-
-        self.preview_group = QGroupBox(self.tr("Before / After Preview"))
-        preview_layout = QVBoxLayout()
-        self.preview_canvas = MplWidget(figsize=(10, 7))
-        preview_layout.addWidget(self.preview_canvas)
-        self.preview_group.setLayout(preview_layout)
-        splitter.addWidget(self.preview_group)
-
-        layout.addWidget(splitter, stretch=1)
+        layout.addWidget(self.log_group, stretch=1)
+        self.log_group.setVisible(False)
         layout.addStretch()
+        self._reload_method_labels()
         self._refresh_factor_controls()
         self._on_row_method_changed()
 
@@ -149,7 +158,6 @@ class NormTab(QWidget):
         self.info_group.setTitle(self.tr("Current Data"))
         self.settings_group.setTitle(self.tr("Normalization Pipeline"))
         self.log_group.setTitle(self.tr("Processing Log"))
-        self.preview_group.setTitle(self.tr("Before / After Preview"))
         self.row_label.setText(self.tr("1. Row normalization:"))
         self.factor_label.setText(self.tr("SampleInfo factor column:"))
         self.factor_refresh_btn.setText(self.tr("Refresh SampleInfo"))
@@ -157,8 +165,46 @@ class NormTab(QWidget):
         self.scale_label.setText(self.tr("3. Scaling:"))
         self.btn_run.setText(self.tr("Apply Full Normalization Pipeline"))
         self.btn_reset.setText(self.tr("Reset to Filtered Data"))
+        self._reload_method_labels()
         self._refresh_factor_controls()
         self._on_row_method_changed()
+
+    def _is_zh_locale(self) -> bool:
+        locale_code = getattr(self.mw, "_current_locale", "en")
+        return str(locale_code).lower().startswith("zh")
+
+    def _row_norm_display_labels(self) -> dict[str, str]:
+        if self._is_zh_locale():
+            return _ROW_NORM_ZH_LABELS
+        return ROW_NORM_METHODS
+
+    def _transform_display_labels(self) -> dict[str, str]:
+        if self._is_zh_locale():
+            return TRANSFORM_METHODS
+        return _TRANSFORM_EN_LABELS
+
+    def _scaling_display_labels(self) -> dict[str, str]:
+        if self._is_zh_locale():
+            return SCALING_METHODS
+        return _SCALING_EN_LABELS
+
+    @staticmethod
+    def _reload_combo_items(combo: QComboBox, labels: Mapping[str, str]) -> None:
+        current_value = combo.currentData()
+        blocker = QSignalBlocker(combo)
+        combo.clear()
+        for key, label in labels.items():
+            combo.addItem(label, key)
+        if current_value is not None:
+            index = combo.findData(current_value)
+            if index >= 0:
+                combo.setCurrentIndex(index)
+        del blocker
+
+    def _reload_method_labels(self) -> None:
+        self._reload_combo_items(self.row_combo, self._row_norm_display_labels())
+        self._reload_combo_items(self.trans_combo, self._transform_display_labels())
+        self._reload_combo_items(self.scale_combo, self._scaling_display_labels())
 
     def connect_state_changed(self, callback: Callable[..., None]) -> None:
         self.row_combo.currentIndexChanged.connect(callback)
@@ -373,7 +419,6 @@ class NormTab(QWidget):
                 self.tr("Running full pipeline (normalization stage)...")
             )
 
-        self._before_df = self.mw.current_data.copy()
         self.btn_run.setEnabled(False)
         self.mw.set_pipeline_params(**params)
         self.mw.run_pipeline_async(
@@ -389,28 +434,24 @@ class NormTab(QWidget):
         self.mw.set_stats_matrix_bundle(payload.get("stats_matrix_bundle"))
         self.btn_run.setEnabled(True)
         self.log_text.setPlainText("\n".join(pipeline_log))
+        if hasattr(self.mw, "_append_run_log"):
+            self.mw._append_run_log(
+                self.tr(
+                    "[Normalization] row={row}, transform={transform}, scaling={scaling}, output shape={samples} x {features}"
+                ).format(
+                    row=self.row_combo.currentText(),
+                    transform=self.trans_combo.currentText(),
+                    scaling=self.scale_combo.currentText(),
+                    samples=df.shape[0],
+                    features=df.shape[1],
+                )
+            )
         self.mw.update_data(
             df,
             self.tr("Normalization"),
             step_key="norm",
             labels=labels,
         )
-
-        if self.mw.labels is None or self._before_df is None:
-            return
-        try:
-            from visualization.norm_preview import plot_norm_comparison
-
-            plot_norm_comparison(
-                self._before_df,
-                df,
-                self.mw.labels,
-                fig=self.preview_canvas.figure,
-            )
-            self.preview_canvas.draw()
-            self.mw.show_shared_plot(self.preview_canvas.figure)
-        except Exception:
-            pass
 
     def _on_pipeline_error(self, error_text: str):
         self.btn_run.setEnabled(True)

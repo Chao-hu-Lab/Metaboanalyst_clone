@@ -17,10 +17,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test-regression-311:
-    name: Full Regression (Python 3.11)
+  pr-gui-shell-311:
+    if: github.event_name == 'pull_request'
+    name: PR GUI Shell Smoke (Python 3.11)
     runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 120
+    timeout-minutes: 60
 
     steps:
       - uses: Chao-hu-Lab/shared-workflows/.github/actions/setup-python@078fc7c1cccf64884d230df8a1d84f034c9a41eb
@@ -29,19 +30,123 @@ jobs:
           submodules: "false"
           install-args: "-r requirements.txt pytest"
 
-      - name: Run not-slow regression file-by-file
+      - name: Run GUI shell smoke targets
         shell: pwsh
         run: |
-          $ErrorActionPreference = "Stop"
-          $files = Get-ChildItem -Path "tests" -Filter "test_*.py" | Sort-Object Name
+          .\tools\ci\run_pytest_targets.ps1 -GroupNames @("pr-gui-shell")
 
-          foreach ($file in $files) {
-              Write-Host "=== RUNNING $($file.Name) ==="
-              uv run pytest $file.FullName -q -m "not slow"
-              if ($LASTEXITCODE -ne 0) {
-                  throw "Test file failed: $($file.Name)"
-              }
-          }
+  pr-stats-311:
+    if: github.event_name == 'pull_request'
+    name: PR Statistics Smoke (Python 3.11)
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 60
+
+    steps:
+      - uses: Chao-hu-Lab/shared-workflows/.github/actions/setup-python@078fc7c1cccf64884d230df8a1d84f034c9a41eb
+        with:
+          python-version: "3.11"
+          submodules: "false"
+          install-args: "-r requirements.txt pytest"
+
+      - name: Run Step 5 and plotting smoke targets
+        shell: pwsh
+        run: |
+          .\tools\ci\run_pytest_targets.ps1 -GroupNames @("pr-stats")
+
+  pr-runtime-311:
+    if: github.event_name == 'pull_request'
+    name: PR Runtime and Input Smoke (Python 3.11)
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 60
+
+    steps:
+      - uses: Chao-hu-Lab/shared-workflows/.github/actions/setup-python@078fc7c1cccf64884d230df8a1d84f034c9a41eb
+        with:
+          python-version: "3.11"
+          submodules: "false"
+          install-args: "-r requirements.txt pytest"
+
+      - name: Run input and runtime smoke targets
+        shell: pwsh
+        run: |
+          .\tools\ci\run_pytest_targets.ps1 -GroupNames @("pr-runtime")
+
+  test-regression-311:
+    name: Full Regression (Python 3.11)
+    if: always() && github.event_name == 'pull_request'
+    needs:
+      - pr-gui-shell-311
+      - pr-stats-311
+      - pr-runtime-311
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Aggregate PR regression shard results
+        shell: bash
+        run: |
+          echo "pr-gui-shell-311=${{ needs.pr-gui-shell-311.result }}"
+          echo "pr-stats-311=${{ needs.pr-stats-311.result }}"
+          echo "pr-runtime-311=${{ needs.pr-runtime-311.result }}"
+          if [[ "${{ needs.pr-gui-shell-311.result }}" != "success" || \
+                "${{ needs.pr-stats-311.result }}" != "success" || \
+                "${{ needs.pr-runtime-311.result }}" != "success" ]]; then
+            echo "One or more PR regression shards failed."
+            exit 1
+          fi
+
+  repo-regression-core-311:
+    if: github.event_name != 'pull_request'
+    name: Repository Regression Core (Python 3.11)
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 90
+
+    steps:
+      - uses: Chao-hu-Lab/shared-workflows/.github/actions/setup-python@078fc7c1cccf64884d230df8a1d84f034c9a41eb
+        with:
+          python-version: "3.11"
+          submodules: "false"
+          install-args: "-r requirements.txt pytest"
+
+      - name: Run core regression targets
+        shell: pwsh
+        run: |
+          .\tools\ci\run_pytest_targets.ps1 -GroupNames @("repo-regression-core")
+
+  repo-regression-gui-311:
+    if: github.event_name != 'pull_request'
+    name: Repository Regression GUI (Python 3.11)
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 90
+
+    steps:
+      - uses: Chao-hu-Lab/shared-workflows/.github/actions/setup-python@078fc7c1cccf64884d230df8a1d84f034c9a41eb
+        with:
+          python-version: "3.11"
+          submodules: "false"
+          install-args: "-r requirements.txt pytest"
+
+      - name: Run GUI regression targets
+        shell: pwsh
+        run: |
+          .\tools\ci\run_pytest_targets.ps1 -GroupNames @("repo-regression-gui")
+
+  repo-regression-stats-311:
+    if: github.event_name != 'pull_request'
+    name: Repository Regression Statistics (Python 3.11)
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 90
+
+    steps:
+      - uses: Chao-hu-Lab/shared-workflows/.github/actions/setup-python@078fc7c1cccf64884d230df8a1d84f034c9a41eb
+        with:
+          python-version: "3.11"
+          submodules: "false"
+          install-args: "-r requirements.txt pytest"
+
+      - name: Run statistics regression targets
+        shell: pwsh
+        run: |
+          .\tools\ci\run_pytest_targets.ps1 -GroupNames @("repo-regression-stats")
 
   test-slow-gui-311:
     name: Slow GUI Smoke (Python 3.11)
@@ -56,26 +161,34 @@ jobs:
           submodules: "false"
           install-args: "-r requirements.txt pytest"
 
-      - name: Run slow GUI smoke cases with visible progress
+      - name: Run slow GUI smoke targets
         shell: pwsh
         run: |
-          $ErrorActionPreference = "Stop"
-          $slowTargets = @(
-              "tests\test_gui_layout.py::test_phase7_preset_bar_smoke_matrix",
-              "tests\test_gui_layout.py::test_phase7_scroll_areas_reach_critical_controls",
-              "tests\test_gui_layout.py::test_phase7_preset_apply_keeps_norm_controls_visible_after_data_mapping"
-          )
+          .\tools\ci\run_pytest_targets.ps1 -GroupNames @("slow-gui") -PytestArgs @("-vv", "-s")
 
-          foreach ($target in $slowTargets) {
-              Write-Host "=== RUNNING $target ==="
-              uv run pytest $target -vv -s
-              if ($LASTEXITCODE -ne 0) {
-                  throw "Slow GUI smoke failed: $target"
-              }
-          }
+  test-webengine-311:
+    name: Embedded WebEngine Smoke (Python 3.11)
+    if: github.event_name != 'pull_request'
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 45
+
+    steps:
+      - uses: Chao-hu-Lab/shared-workflows/.github/actions/setup-python@078fc7c1cccf64884d230df8a1d84f034c9a41eb
+        with:
+          python-version: "3.11"
+          submodules: "false"
+          install-args: "-r requirements.txt pytest"
+
+      - name: Run embedded WebEngine smoke targets
+        shell: pwsh
+        env:
+          METABO_DISABLE_WEBENGINE: "0"
+        run: |
+          .\tools\ci\run_pytest_targets.ps1 -GroupNames @("webengine-smoke")
 
   test-compat-312:
     name: Compatibility Smoke (Python 3.12)
+    if: github.event_name != 'pull_request'
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 90
 
@@ -89,32 +202,7 @@ jobs:
       - name: Run compatibility smoke tests
         shell: pwsh
         run: |
-          $ErrorActionPreference = "Stop"
-          $smokeTargets = @(
-              "tests\test_config_load.py",
-              "tests\test_core.py",
-              "tests\test_paired_analysis.py",
-              "tests\test_run_from_config_input_formats.py",
-              "tests\test_sample_interface.py",
-              "tests\test_plot_toolbar.py"
-          )
-
-          $files = foreach ($target in $smokeTargets) {
-              if (-not (Test-Path $target)) {
-                  throw "Compatibility smoke target not found: $target"
-              }
-
-              (Get-Item $target).FullName
-          }
-
-          foreach ($file in $files) {
-              $name = Split-Path $file -Leaf
-              Write-Host "=== RUNNING $name ==="
-              uv run pytest $file -q
-              if ($LASTEXITCODE -ne 0) {
-                  throw "Compatibility smoke failed: $name"
-              }
-          }
+          .\tools\ci\run_pytest_targets.ps1 -GroupNames @("compat-312")
 
   lint:
     runs-on: ubuntu-latest

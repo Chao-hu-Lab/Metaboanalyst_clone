@@ -190,10 +190,19 @@ def plot_volcano_interactive(
                 mode="markers+text" if name != "Not significant" else "markers",
                 marker=dict(color=color, size=8 if name != "Not significant" else 6, opacity=0.85 if name != "Not significant" else 0.5),
                 name=name,
+                customdata=subset["Feature"].astype(str).tolist(),
                 text=[feature if str(feature) in top_features else "" for feature in subset["Feature"]],
                 textposition="top center",
                 hovertext=hover_text,
                 hovertemplate="%{hovertext}<extra></extra>",
+                selected=dict(
+                    marker=dict(
+                        size=10,
+                        color=color,
+                        opacity=1.0,
+                    )
+                ),
+                unselected=dict(marker=dict(opacity=0.72)),
             )
         )
 

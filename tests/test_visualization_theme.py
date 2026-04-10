@@ -8,9 +8,12 @@ without requiring a display (uses matplotlib's Agg backend).
 import matplotlib
 matplotlib.use("Agg")  # non-interactive backend, safe in CI
 
+import pytest
 import matplotlib.pyplot as plt
 
 from visualization.theme import COLORS, apply_publication_style, get_group_colors
+
+pytestmark = [pytest.mark.pr_smoke]
 
 
 # ---------------------------------------------------------------------------

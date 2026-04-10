@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 from matplotlib.figure import Figure
 from matplotlib.patches import Ellipse
 from scipy.stats import chi2
 
+from visualization.interactive_score_plot import build_interactive_score_plot
 from visualization.score_labeling import add_score_labels, finalize_score_labels
 from visualization.theme import apply_publication_style, get_group_colors
 from visualization.vip_plot import _format_mzrt_label
@@ -127,6 +129,45 @@ def plot_pca_score(
     ax.axvline(0, color="grey", linewidth=0.5, linestyle=":")
     fig.tight_layout()
     return fig
+
+
+def plot_pca_score_interactive(
+    pca_result,
+    pc_x: int = 0,
+    pc_y: int = 1,
+    show_labels: str = "outlier",
+    confidence: float = 0.95,
+    theme: str = "light",
+):
+    """Build an interactive Plotly PCA score plot."""
+    scores = pca_result.scores
+    labels = pca_result.labels
+    sample_names = np.asarray(
+        getattr(pca_result, "sample_names", [f"S{i+1}" for i in range(len(scores))]),
+        dtype=object,
+    )
+    var_ratio = pca_result.explained_variance_ratio
+    score_df = pd.DataFrame(
+        {
+            "x": scores[:, pc_x],
+            "y": scores[:, pc_y],
+            "Sample": sample_names.astype(str),
+            "Group": labels.values if hasattr(labels, "values") else np.asarray(labels).astype(str),
+        }
+    )
+    return build_interactive_score_plot(
+        score_df,
+        x_col="x",
+        y_col="y",
+        sample_col="Sample",
+        group_col="Group",
+        x_label=f"PC{pc_x + 1} ({var_ratio[pc_x] * 100:.1f}%)",
+        y_label=f"PC{pc_y + 1} ({var_ratio[pc_y] * 100:.1f}%)",
+        title="PCA Score Plot",
+        show_labels=show_labels,
+        confidence=confidence,
+        theme=theme,
+    )
 
 
 def plot_pca_scree(

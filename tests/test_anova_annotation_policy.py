@@ -7,8 +7,9 @@ import pytest
 
 from analysis.anova import ANOVAResult
 from gui.main_window import MainWindow
+from tests.gui_layout_support import close_window
 
-pytestmark = [pytest.mark.gui, pytest.mark.integration]
+pytestmark = [pytest.mark.gui, pytest.mark.integration, pytest.mark.pr_smoke]
 
 
 def _patch_sync_runner(window: MainWindow, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -83,7 +84,7 @@ def test_stats_tab_kruskal_uses_h_statistic_header_and_boxplot_metadata(
 
     assert captured["feature_name"] == "FeatA"
     assert captured["kwargs"]["annotation_method"] == "mannwhitney"
-    window.close()
+    close_window(window, qapp)
 
 
 def test_stats_tab_anova_feature_combo_change_redraws_boxplot(
@@ -142,4 +143,4 @@ def test_stats_tab_anova_feature_combo_change_redraws_boxplot(
     window.stats_tab.anova_feat_combo.setCurrentIndex(window.stats_tab.anova_feat_combo.findData("FeatB"))
 
     assert draw_calls == ["FeatB"]
-    window.close()
+    close_window(window, qapp)

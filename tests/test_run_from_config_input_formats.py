@@ -4,7 +4,21 @@ import pandas as pd
 import pytest
 
 from core.input_resolver import resolve_primary_sheet_name_from_names
-from scripts.run_from_config import _export_significant_features_excel, load_data, resolve_top_vip
+from scripts.run_from_config import (
+    _export_significant_features_excel,
+    _save_plotly_html,
+    load_data,
+    resolve_top_vip,
+)
+
+pytestmark = [pytest.mark.integration, pytest.mark.pr_smoke]
+
+try:
+    import plotly.graph_objects as go
+
+    HAS_PLOTLY = True
+except ImportError:
+    HAS_PLOTLY = False
 
 
 def _write_excel_with_sample_info(
@@ -375,6 +389,20 @@ def test_load_data_raises_when_sample_type_row_disagrees_with_sample_info(tmp_pa
                 },
             }
         )
+
+
+@pytest.mark.skipif(not HAS_PLOTLY, reason="plotly not installed")
+def test_save_plotly_html_writes_standalone_document(tmp_path: Path):
+    fig = go.Figure(data=go.Scatter(x=[1, 2], y=[3, 4]))
+    html_path = tmp_path / "interactive_plot.html"
+
+    saved = _save_plotly_html(fig, str(html_path))
+
+    assert saved is True
+    assert html_path.exists()
+    content = html_path.read_text(encoding="utf-8")
+    assert "<html" in content.lower()
+    assert "plotly" in content.lower()
 
 
 def test_resolve_primary_sheet_name_prefers_filename_hint_with_priority():
