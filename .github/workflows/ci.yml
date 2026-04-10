@@ -5,15 +5,18 @@ on:
     branches: ["main"]
   pull_request:
     branches: ["main"]
+  workflow_dispatch:
+  schedule:
+    - cron: "0 17 * * 0"
 
 permissions:
   contents: read
 
 jobs:
-  test-full-311:
-    name: Full Regression (Python 3.11)
+  test-regression-311:
+    name: Regression (Python 3.11, not slow)
     runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 180
+    timeout-minutes: 120
 
     steps:
       - uses: Chao-hu-Lab/shared-workflows/.github/actions/setup-python@078fc7c1cccf64884d230df8a1d84f034c9a41eb
@@ -22,7 +25,7 @@ jobs:
           submodules: "false"
           install-args: "-r requirements.txt pytest"
 
-      - name: Run full suite file-by-file
+      - name: Run not-slow regression file-by-file
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -30,9 +33,40 @@ jobs:
 
           foreach ($file in $files) {
               Write-Host "=== RUNNING $($file.Name) ==="
-              uv run pytest $file.FullName -q
+              uv run pytest $file.FullName -q -m "not slow"
               if ($LASTEXITCODE -ne 0) {
                   throw "Test file failed: $($file.Name)"
+              }
+          }
+
+  test-slow-gui-311:
+    name: Slow GUI Smoke (Python 3.11)
+    if: github.event_name != 'pull_request'
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 90
+
+    steps:
+      - uses: Chao-hu-Lab/shared-workflows/.github/actions/setup-python@078fc7c1cccf64884d230df8a1d84f034c9a41eb
+        with:
+          python-version: "3.11"
+          submodules: "false"
+          install-args: "-r requirements.txt pytest"
+
+      - name: Run slow GUI smoke cases with visible progress
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $slowTargets = @(
+              "tests\test_gui_layout.py::test_phase7_preset_bar_smoke_matrix",
+              "tests\test_gui_layout.py::test_phase7_scroll_areas_reach_critical_controls",
+              "tests\test_gui_layout.py::test_phase7_preset_apply_keeps_norm_controls_visible_after_data_mapping"
+          )
+
+          foreach ($target in $slowTargets) {
+              Write-Host "=== RUNNING $target ==="
+              uv run pytest $target -vv -s
+              if ($LASTEXITCODE -ne 0) {
+                  throw "Slow GUI smoke failed: $target"
               }
           }
 
