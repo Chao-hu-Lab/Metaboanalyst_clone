@@ -21,7 +21,6 @@ pytestmark = [pytest.mark.gui, pytest.mark.integration]
 
 def _make_stats_matrices() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Series]:
     index = pd.Index(["S1", "S2", "S3", "S4"], name="Sample")
-    columns = ["F1", "F2", "F3"]
     labels = pd.Series(["A", "A", "B", "B"], index=index, name="Group")
 
     current_data = pd.DataFrame(

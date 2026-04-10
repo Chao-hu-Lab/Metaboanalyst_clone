@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any, Iterator
+from typing import Iterator
 
 from PySide6.QtCore import QSignalBlocker
 from PySide6.QtWidgets import QAbstractButton, QComboBox, QDoubleSpinBox, QSpinBox, QWidget
