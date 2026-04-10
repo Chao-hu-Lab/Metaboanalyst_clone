@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   test-regression-311:
-    name: Regression (Python 3.11, not slow)
+    name: Full Regression (Python 3.11)
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 120
 
