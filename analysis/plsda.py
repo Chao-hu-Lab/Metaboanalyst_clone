@@ -18,7 +18,7 @@ class PLSDAResult:
     """PLS-DA 分析結果容器"""
 
     def __init__(self, scores, vips, feature_names, labels, pls_model,
-                 explained_variance, q2=None):
+                 explained_variance, q2=None, sample_names=None):
         self.scores = scores          # n_samples x n_components
         self.vips = vips              # n_features
         self.feature_names = feature_names
@@ -26,6 +26,11 @@ class PLSDAResult:
         self.model = pls_model
         self.explained_variance = explained_variance
         self.q2 = q2
+        self.sample_names = (
+            list(sample_names)
+            if sample_names is not None
+            else [f"S{i+1}" for i in range(scores.shape[0])]
+        )
 
     def get_vip_df(self) -> pd.DataFrame:
         df = pd.DataFrame({
@@ -146,4 +151,5 @@ def run_plsda(
         pls_model=pls,
         explained_variance=np.array(explained),
         q2=q2,
+        sample_names=list(data.index),
     )

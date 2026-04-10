@@ -1,0 +1,82 @@
+input:
+  file: ""
+  format: plain
+
+groups:
+  include:
+    - Exposure
+    - Normal
+    - Control
+  pair_id_pattern: BC\d+
+  paired_resolution:
+    scope: paired_only
+    on_duplicate: prefer_override
+    on_unresolved: warn_keep_first
+    overrides:
+      Exposure:
+        BC2286: TumorBC2286_DNA
+        BC2304: TumorBC2304_DNA
+  volcano_pairs:
+    - groups:
+        - Exposure
+        - Normal
+      paired: true
+    - groups:
+        - Exposure
+        - Control
+      paired: false
+    - groups:
+        - Normal
+        - Control
+      paired: false
+  oplsda_pairs:
+    - groups:
+        - Exposure
+        - Normal
+      paired: true
+    - groups:
+        - Exposure
+        - Control
+      paired: false
+    - groups:
+        - Normal
+        - Control
+      paired: false
+
+pipeline:
+  missing_thresh: 1.0
+  impute_method: knn
+  qc_rsd_enabled: true
+  qc_rsd_threshold: 0.5
+  filter_method: None
+  filter_cutoff: 0
+  row_norm: None
+  transform: Log10Norm
+  scaling: ParetoNorm
+
+analysis:
+  pca:
+    n_components: 3
+  plsda:
+    n_components: 2
+    top_vip: 15
+  anova:
+    p_thresh: 0.05
+    nonpar: false
+    use_fdr: true
+    posthoc: true
+  volcano:
+    log2_fc_thresh: 1.0
+    p_thresh: 0.05
+    use_fdr: true
+    parametric_test_default: welch
+  heatmap:
+    max_features: 50
+    top_by: var
+    method: ward
+    metric: euclidean
+    scale: row
+
+output:
+  suffix: _tissue_knn_rsd050_marker_verify
+  auto_timestamp: true

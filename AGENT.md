@@ -95,6 +95,18 @@ uv run pytest tests/ -v --tb=short -x
 # CI-style full regression
 Get-ChildItem tests -Filter "test_*.py" | Sort-Object Name | ForEach-Object { uv run pytest $_.FullName -q }
 
+# Preferred stable wrapper (Windows)
+scripts\run_pipeline.cmd -Config configs\Tissue_knn_rsd050_marker_verify.yaml -Input "C:\path\to\input.xlsx"
+
+# Run pipeline from YAML
+python scripts/run_from_config.py <config.yaml>
+
+# Run pipeline with an explicit input workbook override
+python scripts/run_from_config.py <config.yaml> --input "<path-to-input.xlsx>"
+
+# Run pipeline with an input override and output suffix override
+python scripts/run_from_config.py <config.yaml> --input "<path-to-input.xlsx>" --suffix "_custom"
+
 # Build exe locally (Windows)
 pyinstaller packaging/pymetabo.spec --clean --noconfirm
 
@@ -103,6 +115,119 @@ pyinstaller packaging/pymetabo_release.spec --clean --noconfirm
 
 # Lint
 ruff check . --select=F,E9
+```
+
+## CLI Quick Reference
+
+Use this section first whenever the user asks to "run a config", "use this xlsx with that yaml", or otherwise execute the analysis pipeline from the terminal.
+
+### Natural-Language Execution Contract
+
+When the user writes a request in the form:
+
+- `用 <input.xlsx> 跑 <config.yaml>`
+- `幫我用 <input.xlsx> 跑 <config.yaml>`
+- `拿這個 xlsx 跑那個 yaml`
+
+interpret it as:
+
+- `input workbook` = the spreadsheet path
+- `config` = the yaml path
+
+and execute it directly without re-discovering project structure.
+
+Default command mapping:
+
+```bash
+run.cmd "<input.xlsx>" "<config.yaml>"
+```
+
+If the user also asks for a custom output suffix:
+
+```bash
+run.cmd "<input.xlsx>" "<config.yaml>" -Suffix "_custom"
+```
+
+Do not spend time re-finding the CLI entry point, config parameter name, or input parameter name for this request pattern unless the wrapper is missing or broken.
+
+### Fastest Human-Style Entry Point
+
+For requests phrased with input first and config second, prefer:
+
+```bash
+run.cmd "<input.xlsx>" "<config.yaml>"
+```
+
+- This mirrors the way the user naturally asks for runs.
+- Internally it maps to `scripts\run_pipeline.cmd -Config <yaml> -Input <xlsx>`.
+- Use this first for one-off execution requests from chat.
+
+### Preferred Stable Command
+
+Prefer this wrapper unless there is a specific reason to call the Python entry point directly:
+
+```bash
+scripts\run_pipeline.cmd -Config <config.yaml> -Input "<input.xlsx>" [-Suffix "_tag"]
+```
+
+- This wrapper resolves relative paths from the repo root.
+- It validates that the config and input files exist before starting Python.
+- It forwards arguments to `scripts/run_from_config.py`.
+- The `.cmd` wrapper delegates to `scripts/run_pipeline.py`, which is more reliable than raw shell argument forwarding on Windows.
+
+### Canonical CLI Entry Point
+
+Always use:
+
+```bash
+python scripts/run_from_config.py <config.yaml> [--input "<input.xlsx>"] [--suffix "_tag"]
+```
+
+- Script entry point: `scripts/run_from_config.py`
+- Required positional argument: `config`
+- Optional input override: `--input` or `-i`
+- Optional output suffix override: `--suffix` or `-s`
+
+### Parameter Mapping
+
+- If the user gives only a YAML config path:
+  - Prefer `scripts\run_pipeline.cmd -Config <config.yaml>`
+- If the user gives an XLSX path first and a YAML path second in natural language:
+  - Run `run.cmd "<input.xlsx>" "<config.yaml>"`
+- If the YAML already has `input.file` filled and the user does not request a different file:
+  - Use the YAML as-is
+- If the YAML has `input.file: ""` or the user explicitly provides a workbook path:
+  - Pass the workbook with `-Input "<input.xlsx>"` on the wrapper, or `--input "<input.xlsx>"` on the Python entry point
+- If the user wants a distinct output folder name without editing YAML:
+  - Pass `-Suffix "_something"` on the wrapper, or `--suffix "_something"` on the Python entry point
+
+### Standard Operating Procedure
+
+1. Confirm `scripts/run_pipeline.cmd` exists and use it first.
+2. Fall back to `scripts/run_from_config.py` only if wrapper debugging is needed.
+3. Prefer CLI overrides instead of editing YAML for one-off runs.
+4. Treat spreadsheet inputs such as `.xlsx`, `.xlsm`, `.csv`, and `.tsv` as data sources for `--input` when the user provides them explicitly.
+5. If the user says "用這個 xlsx 跑這個 yaml", map that to `run.cmd "<input.xlsx>" "<config.yaml>"` without re-discovering the interface.
+6. After the run, report:
+   - the exact config used
+   - the exact input file used
+   - the final output directory
+   - key high-level metrics from stdout
+
+### Known CLI Contract
+
+From `scripts/run_from_config.py`:
+
+- `config`: required YAML path
+- `--input` / `-i`: overrides `cfg["input"]["file"]`
+- `--suffix` / `-s`: overrides `cfg["output"]["suffix"]`
+
+Do not re-discover this in later sessions unless the script changes.
+
+### Example
+
+```bash
+run.cmd "C:\Users\user\Desktop\Data_Normalization_project_v2\.worktrees\refactor-step4-pqn-only\output\run_20260331_190146\Step4_Normalized_PQN.xlsx" "configs\Tissue_knn_rsd050_marker_verify.yaml"
 ```
 
 ## Commit Message Convention

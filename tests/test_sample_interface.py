@@ -8,6 +8,7 @@ def _make_matrix_df():
             "Breast_Cancer_Tissue_pooled_QC_1": ["QC", 1.0, 2.0],
             "TumorBC2286_DNAandRNA": ["Exposure", 3.0, 4.0],
             "NormalBC2257_DNA": ["Normal", 5.0, 6.0],
+            "is_Presence_Absence_Marker": ["is_Presence_Absence_Marker", True, False],
             "Original_CV%": [None, 10.0, 20.0],
             "QC_CV%": [None, 11.0, 22.0],
         }

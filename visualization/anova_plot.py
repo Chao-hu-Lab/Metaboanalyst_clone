@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.figure import Figure
-from scipy.stats import f_oneway, ttest_ind
+from scipy.stats import f_oneway, kruskal, mannwhitneyu, ttest_ind
 
 from visualization.theme import COLORS, apply_publication_style, get_group_colors
 
@@ -63,18 +63,41 @@ def plot_anova_importance(
         label=f"p = {anova_result.p_thresh}",
     )
     ax.set_xlabel("-log10(adj. p-value)")
-    ax.set_title("ANOVA: Important Features")
+    method_key = str(getattr(anova_result, "method_key", "anova")).lower()
+    title = "Kruskal-Wallis: Important Features" if method_key == "kruskal" else "ANOVA: Important Features"
+    ax.set_title(title)
     ax.legend(loc="lower right", fontsize=8)
     fig.tight_layout()
     return fig
 
 
-def _build_stat_annotation(plot_data: pd.DataFrame) -> str:
+def _build_stat_annotation(
+    plot_data: pd.DataFrame,
+    annotation_method: str | None = None,
+) -> str:
     grouped_values = []
     for _, group_df in plot_data.groupby("Group"):
         values = pd.to_numeric(group_df["Value"], errors="coerce").dropna().values
         if len(values) > 0:
             grouped_values.append(values)
+
+    if annotation_method == "mannwhitney":
+        if len(grouped_values) != 2 or min(len(grouped_values[0]), len(grouped_values[1])) < 2:
+            return ""
+        u_stat, p_val = mannwhitneyu(grouped_values[0], grouped_values[1], alternative="two-sided")
+        return f"P = {p_val:.2e}\nMann-Whitney U = {u_stat:.4f}"
+
+    if annotation_method == "kruskal":
+        if len(grouped_values) < 2 or any(len(values) < 2 for values in grouped_values):
+            return ""
+        h_stat, p_val = kruskal(*grouped_values)
+        return f"P = {p_val:.2e}\nKruskal-Wallis H = {h_stat:.4f}"
+
+    if annotation_method == "anova":
+        if len(grouped_values) < 2 or any(len(values) < 2 for values in grouped_values):
+            return ""
+        f_stat, p_val = f_oneway(*grouped_values)
+        return f"P = {p_val:.2e}\nANOVA F = {f_stat:.4f}"
 
     if len(grouped_values) == 2:
         if min(len(grouped_values[0]), len(grouped_values[1])) < 2:
@@ -151,6 +174,7 @@ def plot_feature_boxplot(
     df: pd.DataFrame,
     labels,
     feature_name: str,
+    annotation_method: str | None = None,
     theme: str = "light",
     fig: Figure | None = None,
 ) -> Figure:
@@ -165,6 +189,9 @@ def plot_feature_boxplot(
         Group labels aligned to the rows of ``df``.
     feature_name : str
         Feature column to visualize.
+    annotation_method : str or None, default=None
+        Explicit statistical annotation mode. When ``None``, fall back to the
+        legacy heuristic based on group count.
     theme : str, default="light"
         Visualization theme name.
     fig : Figure or None, default=None
@@ -185,7 +212,10 @@ def plot_feature_boxplot(
         ax = fig.add_subplot(111)
 
     labels_arr = labels.values if hasattr(labels, "values") else np.asarray(labels)
-    plot_data = pd.DataFrame({"Group": labels_arr, "Value": df[feature_name].values})
+    feature_values = df[feature_name]
+    if isinstance(feature_values, pd.DataFrame):
+        feature_values = feature_values.iloc[:, 0]
+    plot_data = pd.DataFrame({"Group": labels_arr, "Value": feature_values.to_numpy()})
 
     groups = sorted(plot_data["Group"].unique())
     data_by_group = [
@@ -201,12 +231,12 @@ def plot_feature_boxplot(
     ax.set_title(str(feature_name), fontsize=11, fontweight="bold")
     ax.set_ylabel("Value", fontsize=10)
 
-    stat_text = _build_stat_annotation(plot_data)
+    stat_text = _build_stat_annotation(plot_data, annotation_method=annotation_method)
+    fig.tight_layout()
     if stat_text:
-        fig.subplots_adjust(top=0.82)
         fig.text(
             0.02,
-            0.97,
+            0.98,
             stat_text,
             va="top",
             ha="left",
@@ -217,8 +247,7 @@ def plot_feature_boxplot(
                 "alpha": 0.95,
                 "edgecolor": config["grid"],
             },
+            zorder=5,
         )
-    else:
-        fig.tight_layout()
 
     return fig

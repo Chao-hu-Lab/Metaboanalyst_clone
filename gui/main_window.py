@@ -8,7 +8,10 @@ Main window:
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 import logging
+from pathlib import Path
+from typing import Mapping
 
 import pandas as pd
 from PySide6.QtCore import (
@@ -33,6 +36,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPlainTextEdit,
     QProgressBar,
@@ -46,7 +50,20 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from core.app_config import (
+    AppConfig,
+    PresetReference,
+    default_pipeline_params,
+    dump_yaml,
+    get_local_preset_dir,
+    list_builtin_presets,
+    list_local_presets,
+    load_preset_reference,
+    load_yaml_config,
+)
+from core.param_specs import build_default_config
 from core.pipeline import MetaboAnalystPipeline
+from core.qc import align_labels_to_data, exclude_qc_samples
 from core.utils import get_resource_path
 from gui.data_import_tab import DataImportTab
 from gui.filter_tab import FilterTab
@@ -59,6 +76,7 @@ from gui.visual_tab import VisualTab
 from gui.widgets.log_handler import QLogHandler
 from gui.widgets.mpl_canvas import MplWidget
 from gui.widgets.pandas_model import create_sortable_model
+from gui.widgets.preset_bar import PresetBar
 from gui.widgets.worker import PipelineWorker
 from visualization.theme_manager import ThemeManager
 
@@ -137,11 +155,22 @@ class MainWindow(QMainWindow):
         self.current_data: pd.DataFrame | None = None
         self.raw_labels: pd.Series | None = None
         self.labels = None
+        self.raw_feature_metadata: pd.DataFrame | None = None
         self.sample_info: pd.DataFrame | None = None
         self.sample_col: str | None = None
         self.group_col: str | None = None
         self._filtered_data: pd.DataFrame | None = None
         self._filtered_labels: pd.Series | None = None
+        self._stats_matrix_bundle: dict[str, object] | None = None
+        self._preset_tracking_depth = 0
+        self._active_preset_config: AppConfig | None = None
+        self._active_preset_path: str | None = None
+        self._active_preset_kind: str | None = None
+        self._last_preset_apply_sections: list[str] = []
+        self._last_preset_unsupported_paths: list[str] = []
+        self._builtin_preset_refs: list[PresetReference] = []
+        self._local_preset_refs: list[PresetReference] = []
+        self._preset_load_menu: QMenu | None = None
 
         # Workflow stage:
         # 0: no data, 1: import done, 2: missing done, 3: filter done, 4: norm done
@@ -166,11 +195,14 @@ class MainWindow(QMainWindow):
         self.theme_manager = ThemeManager(default_theme=visual_theme)
 
         self._setup_ui()
+        self._reload_preset_repository()
+        self._connect_preset_watchers()
         self._create_menu_bar()
         self._create_main_toolbar()
         self._create_log_dock()
         self._setup_statusbar()
         self._update_tab_states()
+        self._refresh_preset_bar()
         self.theme_manager.register_callback(self._apply_selected_theme)
         self._apply_selected_theme(self.theme_manager.current_theme)
 
@@ -181,19 +213,7 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _default_pipeline_params() -> dict:
-        return {
-            "missing_thresh": 0.5,
-            "impute_method": "min",
-            "filter_method": "iqr",
-            "filter_cutoff": None,
-            "qc_rsd_enabled": False,
-            "qc_rsd_threshold": 0.2,
-            "row_norm": "None",
-            "transform": "None",
-            "scaling": "None",
-            "factors": None,
-            "factor_source": None,
-        }
+        return default_pipeline_params()
 
     # ------------------------------------------------------------------
     # UI
@@ -274,6 +294,8 @@ class MainWindow(QMainWindow):
         central_layout.setContentsMargins(0, 0, 0, 0)
         central_layout.setSpacing(0)
         central_layout.addWidget(self._create_pipeline_nav())
+        self.preset_bar = PresetBar(self)
+        central_layout.addWidget(self.preset_bar)
         central_layout.addWidget(splitter, stretch=1)
         self.setCentralWidget(central)
 
@@ -456,6 +478,229 @@ class MainWindow(QMainWindow):
 
         self.status_bar.showMessage(self.tr("Ready"))
 
+    def _connect_preset_watchers(self) -> None:
+        self.preset_bar.apply_button.clicked.connect(self._apply_current_preset)
+        self.preset_bar.save_button.clicked.connect(self._save_preset_yaml)
+        self.preset_bar.reset_button.clicked.connect(self._reset_preset_to_defaults)
+        for tab in (
+            self.mv_tab,
+            self.filter_tab,
+            self.norm_tab,
+            self.stats_tab,
+            self.visual_tab,
+        ):
+            if hasattr(tab, "connect_state_changed"):
+                tab.connect_state_changed(self._on_preset_controls_changed)
+
+    def _reload_preset_repository(self) -> None:
+        self._builtin_preset_refs = list_builtin_presets()
+        self._local_preset_refs = list_local_presets()
+        self._rebuild_preset_load_menu()
+
+    def _populate_preset_submenu(
+        self,
+        menu: QMenu,
+        presets: list[PresetReference],
+    ) -> None:
+        if not presets:
+            empty_action = menu.addAction(self.tr("None"))
+            empty_action.setEnabled(False)
+            return
+
+        for preset in presets:
+            action = menu.addAction(preset.label)
+            if preset.description:
+                action.setToolTip(preset.description)
+                action.setStatusTip(preset.description)
+            action.triggered.connect(
+                lambda _checked=False, preset_ref=preset: self._load_preset_reference(preset_ref)
+            )
+
+    def _rebuild_preset_load_menu(self) -> None:
+        menu = QMenu(self)
+        built_in_menu = menu.addMenu(self.tr("Built-in Presets"))
+        self._populate_preset_submenu(built_in_menu, self._builtin_preset_refs)
+
+        local_menu = menu.addMenu(self.tr("Local Presets"))
+        self._populate_preset_submenu(local_menu, self._local_preset_refs)
+
+        menu.addSeparator()
+        browse_action = menu.addAction(self.tr("Browse YAML..."))
+        browse_action.triggered.connect(self._load_config_yaml)
+
+        self._preset_load_menu = menu
+        self.preset_bar.load_button.setMenu(menu)
+
+    def _load_preset_reference(self, reference: PresetReference) -> list[str]:
+        try:
+            config = load_preset_reference(reference, require_required_sections=False)
+        except Exception as exc:
+            QMessageBox.warning(self, self.tr("Load Error"), str(exc))
+            return []
+        display_path = reference.source_uri if reference.kind == "builtin" else str(reference.path)
+        return self._load_preset_config(config, display_path)
+
+    @contextmanager
+    def _suspend_preset_tracking(self):
+        self._preset_tracking_depth += 1
+        try:
+            yield
+        finally:
+            self._preset_tracking_depth -= 1
+
+    def _on_preset_controls_changed(self, *_args) -> None:
+        if self._preset_tracking_depth > 0:
+            return
+        self.pipeline_params = self._read_pipeline_state_from_tabs()
+        self._refresh_preset_bar()
+
+    @staticmethod
+    def _default_app_config() -> AppConfig:
+        return AppConfig.from_mapping(
+            build_default_config(include_runtime=False),
+            require_required_sections=False,
+        )
+
+    @staticmethod
+    def _is_builtin_preset_path(path: str | None) -> bool:
+        if not path:
+            return False
+        normalized = path.replace("\\", "/")
+        return normalized.startswith("builtin://") or "/resources/presets/" in normalized
+
+    def _infer_preset_kind(self, path: str | None) -> str | None:
+        if path is None:
+            return None
+        return "Built-in Preset" if self._is_builtin_preset_path(path) else "Local Preset"
+
+    @staticmethod
+    def _merge_config_fragment(target: dict, fragment: dict) -> None:
+        for key, value in fragment.items():
+            if isinstance(value, dict) and isinstance(target.get(key), dict):
+                MainWindow._merge_config_fragment(target[key], value)
+            else:
+                target[key] = value
+
+    def _collect_tab_state_fragments(self) -> list[dict[str, object]]:
+        fragments: list[dict[str, object]] = []
+        for tab in (
+            self.mv_tab,
+            self.filter_tab,
+            self.norm_tab,
+            self.stats_tab,
+            self.visual_tab,
+        ):
+            if hasattr(tab, "read_state"):
+                fragment = tab.read_state()
+                if fragment:
+                    fragments.append(fragment)
+        return fragments
+
+    def _read_pipeline_state_from_tabs(self) -> dict:
+        merged = self._default_pipeline_params()
+        for fragment in self._collect_tab_state_fragments():
+            pipeline_fragment = fragment.get("pipeline")
+            if isinstance(pipeline_fragment, dict):
+                merged.update(pipeline_fragment)
+        return merged
+
+    def _build_current_gui_preset_config(self) -> AppConfig:
+        if self._active_preset_config is not None:
+            raw_config = self._active_preset_config.to_dict(include_runtime=False)
+        else:
+            raw_config = build_default_config(include_runtime=False)
+
+        for fragment in self._collect_tab_state_fragments():
+            self._merge_config_fragment(raw_config, fragment)
+        return AppConfig.from_mapping(raw_config, require_required_sections=False)
+
+    def _collect_pending_preset_paths(self, config: AppConfig | None) -> list[str]:
+        if config is None:
+            return []
+
+        pending: list[str] = []
+        factor_column = config.spec_norm.get("factor_column")
+        if factor_column is not None:
+            factor_text = str(factor_column)
+            if self.norm_tab.factor_combo.findData(factor_text) < 0 and self.norm_tab.factor_combo.findText(factor_text) < 0:
+                pending.append("spec_norm.factor_column")
+        return pending
+
+    def _collect_ignored_preset_fields(self, config: AppConfig | None) -> list[str]:
+        ignored: set[str] = set(self._last_preset_unsupported_paths)
+        if config is not None and config.extras:
+            ignored.update(config.extras.keys())
+        return sorted(ignored)
+
+    @staticmethod
+    def _remove_dotted_path(mapping: dict, path: str) -> None:
+        parts = path.split(".")
+        current = mapping
+        for part in parts[:-1]:
+            next_value = current.get(part)
+            if not isinstance(next_value, dict):
+                return
+            current = next_value
+        current.pop(parts[-1], None)
+
+    def _refresh_preset_bar(self) -> None:
+        current_config = self._build_current_gui_preset_config()
+        default_config = self._default_app_config()
+        pending_paths = self._collect_pending_preset_paths(self._active_preset_config)
+        ignored_fields = self._collect_ignored_preset_fields(self._active_preset_config)
+
+        if self._active_preset_config is not None:
+            source_text = self._active_preset_path or self.tr("In-memory preset")
+            baseline_config = self._active_preset_config
+        else:
+            source_text = self.tr("Not loaded")
+            baseline_config = default_config
+
+        current_state = current_config.to_dict(include_runtime=False)
+        baseline_state = baseline_config.to_dict(include_runtime=False)
+        for pending_path in pending_paths:
+            self._remove_dotted_path(current_state, pending_path)
+            self._remove_dotted_path(baseline_state, pending_path)
+        for unsupported_path in self._last_preset_unsupported_paths:
+            self._remove_dotted_path(current_state, unsupported_path)
+            self._remove_dotted_path(baseline_state, unsupported_path)
+        is_dirty = current_state != baseline_state
+
+        if self._active_preset_config is not None:
+            if is_dirty:
+                state_text = "Modified"
+            elif pending_paths:
+                state_text = "Pending Data Mapping"
+            else:
+                state_text = self._active_preset_kind or "Local Preset"
+        else:
+            state_text = "Unsaved"
+
+        summary_parts: list[str] = []
+        if self._last_preset_apply_sections:
+            summary_parts.append(", ".join(self._last_preset_apply_sections))
+        else:
+            summary_parts.append(self.tr("Defaults only"))
+        if pending_paths:
+            summary_parts.append(
+                self.tr("Pending: {paths}").format(paths=", ".join(pending_paths))
+            )
+
+        if ignored_fields:
+            ignored_text = ", ".join(ignored_fields)
+        else:
+            ignored_text = self.tr("None")
+
+        self.preset_bar.source_value_label.setText(source_text)
+        self.preset_bar.state_value_label.setText(state_text)
+        self.preset_bar.summary_value_label.setText(" | ".join(summary_parts))
+        self.preset_bar.ignored_value_label.setText(ignored_text)
+        self.preset_bar.apply_button.setEnabled(
+            self._active_preset_config is not None and (is_dirty or bool(pending_paths))
+        )
+        self.preset_bar.reset_button.setEnabled(True)
+        self.preset_bar.save_button.setEnabled(True)
+
     # ------------------------------------------------------------------
     # i18n
     # ------------------------------------------------------------------
@@ -508,6 +753,8 @@ class MainWindow(QMainWindow):
         self._retranslate_tabs()
         self._retranslate_menus()
         self._retranslate_pipeline_nav()
+        self._rebuild_preset_load_menu()
+        self.preset_bar.retranslateUi()
         self._log_dock.setWindowTitle(self.tr("Processing Log"))
         self.status_bar.showMessage(self.tr("Ready"))
 
@@ -515,10 +762,12 @@ class MainWindow(QMainWindow):
             widget = self._page_stack.widget(i)
             if hasattr(widget, "retranslateUi"):
                 widget.retranslateUi()
+        self._refresh_preset_bar()
 
     def changeEvent(self, event):
         if event and event.type() == QEvent.Type.LanguageChange:
-            self.retranslateUi()
+            with self._suspend_preset_tracking():
+                self.retranslateUi()
         super().changeEvent(event)
 
     def switch_language(self, locale_code: str):
@@ -544,7 +793,8 @@ class MainWindow(QMainWindow):
         self._settings.setValue("language", locale_code)
 
         self._update_plot_fonts(locale_code)
-        self.retranslateUi()
+        with self._suspend_preset_tracking():
+            self.retranslateUi()
         logger.info("Language switched to %s", locale_code)
 
     @staticmethod
@@ -618,12 +868,257 @@ class MainWindow(QMainWindow):
         if self.current_data is not None:
             self.show_shared_table(self.current_data)
 
+    def clear_stats_matrix_bundle(self) -> None:
+        self._stats_matrix_bundle = None
+
+    def set_stats_matrix_bundle(self, bundle: Mapping[str, object] | None) -> None:
+        if bundle is None:
+            self._stats_matrix_bundle = None
+            return
+
+        stored: dict[str, object] = {}
+        for key, value in bundle.items():
+            if hasattr(value, "copy"):
+                stored[key] = value.copy()
+            else:
+                stored[key] = value
+        self._stats_matrix_bundle = stored
+
+    def get_stats_matrix_bundle(self) -> dict[str, object] | None:
+        if self._stats_matrix_bundle is None:
+            return None
+
+        bundle_copy: dict[str, object] = {}
+        for key, value in self._stats_matrix_bundle.items():
+            if hasattr(value, "copy"):
+                bundle_copy[key] = value.copy()
+            else:
+                bundle_copy[key] = value
+        return bundle_copy
+
+    def _build_stats_matrix_bundle(
+        self,
+        pipeline: MetaboAnalystPipeline,
+    ) -> dict[str, object] | None:
+        labels = pipeline.processed_labels
+        if labels is None:
+            return None
+
+        multivariate = pipeline.processed.copy()
+        univariate = pipeline.steps["transformed"].copy()
+        volcano_fc = pipeline.steps["row_normed"].copy()
+        aligned_labels = align_labels_to_data(multivariate, labels)
+        multivariate, filtered_labels, removed_qc = exclude_qc_samples(
+            multivariate,
+            aligned_labels,
+        )
+        if filtered_labels is None:
+            return None
+
+        keep_index = multivariate.index
+        univariate = univariate.reindex(keep_index)
+        volcano_fc = volcano_fc.reindex(keep_index)
+
+        return {
+            "multivariate_data": multivariate,
+            "univariate_data": univariate,
+            "volcano_fc_data": volcano_fc,
+            "labels": filtered_labels.copy(),
+            "removed_qc": int(removed_qc),
+        }
+
     # ------------------------------------------------------------------
     # Pipeline orchestration (single source of truth)
     # ------------------------------------------------------------------
 
     def set_pipeline_params(self, **kwargs):
         self.pipeline_params.update(kwargs)
+        self._refresh_preset_bar()
+
+    @staticmethod
+    def _set_combo_value(combo: QComboBox, value: object) -> bool:
+        if value is None:
+            return False
+        index = combo.findData(value)
+        if index < 0:
+            index = combo.findData(str(value))
+        if index < 0:
+            index = combo.findText(str(value))
+        if index < 0:
+            return False
+
+        blocker = QSignalBlocker(combo)
+        combo.setCurrentIndex(index)
+        del blocker
+        return True
+
+    def _apply_pipeline_params_to_widgets(self):
+        params = dict(self.pipeline_params)
+
+        if hasattr(self, "mv_tab"):
+            blocker = QSignalBlocker(self.mv_tab.thresh_spin)
+            self.mv_tab.thresh_spin.setValue(float(params["missing_thresh"]))
+            del blocker
+            self._set_combo_value(self.mv_tab.method_combo, params["impute_method"])
+
+        if hasattr(self, "filter_tab"):
+            self._set_combo_value(self.filter_tab.method_combo, params["filter_method"])
+            auto_cutoff = params["filter_cutoff"] is None
+            blocker = QSignalBlocker(self.filter_tab.auto_check)
+            self.filter_tab.auto_check.setChecked(auto_cutoff)
+            del blocker
+            self.filter_tab._toggle_auto(auto_cutoff)
+            if params["filter_cutoff"] is not None:
+                blocker = QSignalBlocker(self.filter_tab.cutoff_spin)
+                self.filter_tab.cutoff_spin.setValue(float(params["filter_cutoff"]))
+                del blocker
+            blocker = QSignalBlocker(self.filter_tab.qc_check)
+            self.filter_tab.qc_check.setChecked(bool(params["qc_rsd_enabled"]))
+            del blocker
+            blocker = QSignalBlocker(self.filter_tab.qc_thresh_spin)
+            self.filter_tab.qc_thresh_spin.setValue(float(params["qc_rsd_threshold"]))
+            del blocker
+            self.filter_tab.qc_thresh_spin.setEnabled(bool(self.filter_tab.qc_check.isChecked() and self.filter_tab.qc_check.isEnabled()))
+
+        if hasattr(self, "norm_tab"):
+            self._set_combo_value(self.norm_tab.row_combo, params["row_norm"])
+            self._set_combo_value(self.norm_tab.trans_combo, params["transform"])
+            self._set_combo_value(self.norm_tab.scale_combo, params["scaling"])
+            factor_source = params.get("factor_source")
+            if factor_source is not None:
+                self._set_combo_value(self.norm_tab.factor_combo, factor_source)
+            self.norm_tab._on_row_method_changed()
+
+    def _apply_config_to_widgets(self, config: AppConfig) -> bool:
+        state = config.to_dict(include_runtime=False)
+        unsupported_paths: list[str] = []
+        with self._suspend_preset_tracking():
+            self.pipeline_params = config.to_pipeline_params()
+            self._apply_pipeline_params_to_widgets()
+            for tab in (
+                self.mv_tab,
+                self.filter_tab,
+                self.norm_tab,
+                self.stats_tab,
+                self.visual_tab,
+            ):
+                if hasattr(tab, "apply_state"):
+                    result = tab.apply_state(state)
+                    unsupported_paths.extend(result.unsupported_paths)
+            factor_column = config.spec_norm.get("factor_column")
+            factor_column_applied = False
+            if factor_column is not None and hasattr(self, "norm_tab"):
+                factor_column_applied = (
+                    self.norm_tab.factor_combo.findData(str(factor_column)) >= 0
+                    or self.norm_tab.factor_combo.findText(str(factor_column)) >= 0
+                )
+        self._last_preset_unsupported_paths = sorted(set(unsupported_paths))
+        return factor_column_applied
+
+    def _describe_applied_sections(
+        self,
+        config: AppConfig,
+        *,
+        factor_column_applied: bool,
+    ) -> list[str]:
+        applied_sections = ["pipeline"]
+        if "groups" in config.source_sections:
+            applied_sections.append("groups (stored for later phases)")
+        if "analysis" in config.source_sections:
+            applied_sections.append("analysis (stored for later phases)")
+        if "output" in config.source_sections:
+            applied_sections.append("output (stored for later phases)")
+        if "spec_norm" in config.source_sections:
+            if factor_column_applied:
+                applied_sections.append("spec_norm")
+            else:
+                applied_sections.append("spec_norm (stored for later phases)")
+        return applied_sections
+
+    def _apply_loaded_config(
+        self,
+        config: AppConfig,
+        path: str,
+        *,
+        announce: bool = True,
+    ) -> list[str]:
+        factor_column_applied = self._apply_config_to_widgets(config)
+        applied_sections = self._describe_applied_sections(
+            config,
+            factor_column_applied=factor_column_applied,
+        )
+        self._last_preset_apply_sections = applied_sections
+
+        if announce:
+            summary = ", ".join(applied_sections)
+            self.status_bar.showMessage(
+                self.tr("Config loaded: {path} ({summary})").format(path=path, summary=summary)
+            )
+            logger.info("Loaded shared config from %s, sections: %s", path, applied_sections)
+        self._refresh_preset_bar()
+        return applied_sections
+
+    def _load_preset_config(self, config: AppConfig, path: str) -> list[str]:
+        applied_sections = self._apply_loaded_config(config, path)
+        self._active_preset_config = config
+        self._active_preset_path = path
+        self._active_preset_kind = self._infer_preset_kind(path)
+        self._refresh_preset_bar()
+        return applied_sections
+
+    def _apply_current_preset(self, *_args) -> list[str]:
+        if self._active_preset_config is None:
+            return []
+        path = self._active_preset_path or "memory://preset"
+        return self._apply_loaded_config(self._active_preset_config, path)
+
+    def _save_preset_to_path(self, path: str | Path) -> AppConfig:
+        config = self._build_current_gui_preset_config()
+        target_path = Path(path)
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        target_path.write_text(dump_yaml(config, include_runtime=False), encoding="utf-8")
+        saved_config = load_yaml_config(target_path, require_required_sections=False)
+        self._reload_preset_repository()
+        self._active_preset_config = saved_config
+        self._active_preset_path = str(target_path)
+        self._active_preset_kind = self._infer_preset_kind(str(target_path))
+        self._last_preset_unsupported_paths = []
+        self._last_preset_apply_sections = self._describe_applied_sections(
+            saved_config,
+            factor_column_applied=bool(
+                not saved_config.spec_norm.get("factor_column")
+                or self.norm_tab.factor_combo.findData(
+                    str(saved_config.spec_norm.get("factor_column"))
+                )
+                >= 0
+                or self.norm_tab.factor_combo.findText(
+                    str(saved_config.spec_norm.get("factor_column"))
+                )
+                >= 0
+            ),
+        )
+        self.status_bar.showMessage(self.tr("Preset saved: {path}").format(path=target_path))
+        logger.info("Saved GUI preset to %s", target_path)
+        self._refresh_preset_bar()
+        return saved_config
+
+    def _save_preset_yaml(self, *_args):
+        local_preset_dir = get_local_preset_dir()
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            self.tr("Save Preset (YAML)"),
+            str(local_preset_dir / "gui_preset.yaml"),
+            "YAML Files (*.yaml *.yml);;All Files (*)",
+        )
+        if not path:
+            return
+        self._save_preset_to_path(path)
+
+    def _reset_preset_to_defaults(self, *_args):
+        default_config = self._default_app_config()
+        self._apply_config_to_widgets(default_config)
+        self._last_preset_apply_sections = [self.tr("Reset to defaults")]
+        self._refresh_preset_bar()
 
     def run_pipeline_until(self, stage: str):
         if self.raw_data is None:
@@ -649,11 +1144,25 @@ class MainWindow(QMainWindow):
             raise ValueError(f"Unknown pipeline stage: {stage}")
 
         source_labels = self.raw_labels if self.raw_labels is not None else self.labels
-        pipeline = MetaboAnalystPipeline(self.raw_data, source_labels)
+        pipeline = MetaboAnalystPipeline(
+            self.raw_data,
+            source_labels,
+            feature_metadata=self.raw_feature_metadata,
+        )
         result = pipeline.run_pipeline(**params)
         return {
             "data": result,
             "labels": pipeline.processed_labels,
+            "feature_metadata": (
+                pipeline.processed_feature_metadata.copy()
+                if pipeline.processed_feature_metadata is not None
+                else None
+            ),
+            "stats_matrix_bundle": (
+                self._build_stats_matrix_bundle(pipeline)
+                if stage == "norm"
+                else None
+            ),
             "log": pipeline.log,
         }
 
@@ -692,8 +1201,22 @@ class MainWindow(QMainWindow):
         labels,
         sample_col: str,
         group_col: str,
+        feature_metadata: pd.DataFrame | None = None,
         sample_info: pd.DataFrame | None = None,
     ):
+        current_gui_config = self._build_current_gui_preset_config()
+        active_pending_paths = self._collect_pending_preset_paths(self._active_preset_config)
+        preserved_preset_config = (
+            self._active_preset_config
+            if self._active_preset_config is not None and active_pending_paths
+            else current_gui_config
+        )
+        should_preserve_preset = (
+            self._active_preset_config is not None
+            or current_gui_config.to_dict(include_runtime=False)
+            != self._default_app_config().to_dict(include_runtime=False)
+        )
+
         self.raw_data = df.copy()
         self.current_data = df.copy()
         if isinstance(labels, pd.Series):
@@ -705,11 +1228,16 @@ class MainWindow(QMainWindow):
 
         self.raw_labels = labels_series.copy()
         self.labels = labels_series.copy()
+        self.raw_feature_metadata = (
+            feature_metadata.reindex(df.columns).copy()
+            if feature_metadata is not None
+            else None
+        )
+        self.clear_stats_matrix_bundle()
         self.sample_info = sample_info.copy() if sample_info is not None else None
         self.sample_col = sample_col
         self.group_col = group_col
 
-        self.pipeline_params = self._default_pipeline_params()
         self.undo_stack.clear()
         self._filtered_data = None
         self._filtered_labels = None
@@ -718,22 +1246,31 @@ class MainWindow(QMainWindow):
 
         self._on_data_state_changed()
 
+        with self._suspend_preset_tracking():
+            if hasattr(self.mv_tab, "on_data_loaded"):
+                self.mv_tab.on_data_loaded()
+            if hasattr(self.filter_tab, "on_data_updated"):
+                self.filter_tab.on_data_updated()
+            if hasattr(self.norm_tab, "on_data_updated"):
+                self.norm_tab.on_data_updated()
+            if hasattr(self.stats_tab, "_refresh_groups"):
+                self.stats_tab._refresh_groups()
+
+        if should_preserve_preset:
+            self._apply_config_to_widgets(preserved_preset_config)
+        else:
+            with self._suspend_preset_tracking():
+                self.pipeline_params = self._default_pipeline_params()
+                self._apply_pipeline_params_to_widgets()
+
         msg = self.tr("Loaded {n_samples} samples and {n_features} features").format(
             n_samples=df.shape[0], n_features=df.shape[1]
         )
         self.status_bar.showMessage(msg)
         logger.info(msg)
 
-        if hasattr(self.mv_tab, "on_data_loaded"):
-            self.mv_tab.on_data_loaded()
-        if hasattr(self.filter_tab, "on_data_updated"):
-            self.filter_tab.on_data_updated()
-        if hasattr(self.norm_tab, "on_data_updated"):
-            self.norm_tab.on_data_updated()
-        if hasattr(self.stats_tab, "_refresh_groups"):
-            self.stats_tab._refresh_groups()
-
         self._nav_list.setCurrentRow(1)
+        self._refresh_preset_bar()
 
     def update_data(
         self,
@@ -776,6 +1313,9 @@ class MainWindow(QMainWindow):
         if step_key == "filter":
             self._filtered_data = df.copy()
             self._filtered_labels = new_labels.copy() if new_labels is not None else None
+
+        if step_key != "norm":
+            self.clear_stats_matrix_bundle()
 
         self._update_tab_states()
 
@@ -891,9 +1431,7 @@ class MainWindow(QMainWindow):
 
         self.switch_language(locale)
 
-    def _load_config_yaml(self):
-        from PySide6.QtWidgets import QFileDialog
-
+    def _load_config_yaml(self, *_args):
         path, _ = QFileDialog.getOpenFileName(
             self,
             self.tr("Load Config (YAML)"),
@@ -903,62 +1441,8 @@ class MainWindow(QMainWindow):
         if not path:
             return
         try:
-            import yaml
-
-            with open(path, "r", encoding="utf-8") as f:
-                config = yaml.safe_load(f)
-
-            if not isinstance(config, dict):
-                QMessageBox.warning(
-                    self,
-                    self.tr("Load Error"),
-                    self.tr("Config file is empty or not a valid YAML mapping."),
-                )
-                return
-
-            applied = []
-
-            if "pipeline" in config and isinstance(config["pipeline"], dict):
-                pipe_cfg = config["pipeline"]
-                valid_keys = (
-                    "missing_thresh",
-                    "impute_method",
-                    "filter_method",
-                    "filter_cutoff",
-                    "row_norm",
-                    "transform",
-                    "scaling",
-                    "qc_rsd_enabled",
-                    "qc_rsd_threshold",
-                )
-                for key in valid_keys:
-                    if key in pipe_cfg:
-                        self.pipeline_params[key] = pipe_cfg[key]
-                        applied.append(key)
-
-                if hasattr(self, "norm_tab"):
-                    nt = self.norm_tab
-                    combo_map = {
-                        "row_norm": getattr(nt, "row_combo", None),
-                        "transform": getattr(nt, "trans_combo", None),
-                        "scaling": getattr(nt, "scale_combo", None),
-                    }
-                    for key, combo in combo_map.items():
-                        if combo is not None and key in pipe_cfg:
-                            idx = combo.findData(pipe_cfg[key])
-                            if idx < 0:
-                                idx = combo.findText(pipe_cfg[key])
-                            if idx >= 0:
-                                combo.setCurrentIndex(idx)
-
-            summary = ", ".join(applied) if applied else "no pipeline keys"
-            self.status_bar.showMessage(
-                self.tr("Config loaded: {path} ({summary})").format(
-                    path=path,
-                    summary=summary,
-                )
-            )
-            logger.info("Loaded config from %s, applied: %s", path, applied)
+            config = load_yaml_config(path, require_required_sections=False)
+            self._load_preset_config(config, path)
         except Exception as exc:
             QMessageBox.warning(
                 self, self.tr("Load Error"), str(exc)

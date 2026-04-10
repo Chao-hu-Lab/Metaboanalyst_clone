@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any, Callable, Mapping
 
 import pandas as pd
 from PySide6.QtCore import QTimer
@@ -23,6 +24,7 @@ from PySide6.QtWidgets import (
 
 from gui.widgets.mpl_canvas import MatplotlibCanvas
 from gui.widgets.plotly_widget import PlotlyWidget
+from gui.state_binding import ApplyStateResult, apply_combo_data, apply_spin_value
 from visualization.theme import apply_publication_style
 
 logger = logging.getLogger(__name__)
@@ -213,6 +215,59 @@ class VisualTab(QWidget):
         self.control_dock.setWindowTitle(self.tr("Parameters"))
         self.header_label.setText(self.tr("Visualization Preview"))
 
+    def connect_state_changed(self, callback: Callable[..., None]) -> None:
+        self.hm_method.currentIndexChanged.connect(callback)
+        self.hm_metric.currentIndexChanged.connect(callback)
+        self.hm_scale.currentIndexChanged.connect(callback)
+        self.hm_maxfeat.valueChanged.connect(callback)
+
+    def read_state(self) -> dict[str, Any]:
+        return {
+            "analysis": {
+                "heatmap": {
+                    "method": self.hm_method.currentData(),
+                    "metric": self.hm_metric.currentData(),
+                    "scale": self.hm_scale.currentData(),
+                    "max_features": int(self.hm_maxfeat.value()),
+                }
+            }
+        }
+
+    def validate_state(self, state: Mapping[str, Any]) -> ApplyStateResult:
+        analysis = state.get("analysis", {})
+        result = ApplyStateResult()
+        if not isinstance(analysis, Mapping):
+            return result
+
+        heatmap = analysis.get("heatmap", {})
+        if not isinstance(heatmap, Mapping):
+            return result
+
+        result.extend(
+            apply_combo_data(self.hm_method, heatmap.get("method"), "analysis.heatmap.method")
+        )
+        result.extend(
+            apply_combo_data(self.hm_metric, heatmap.get("metric"), "analysis.heatmap.metric")
+        )
+        result.extend(
+            apply_combo_data(self.hm_scale, heatmap.get("scale"), "analysis.heatmap.scale")
+        )
+        return result
+
+    def apply_state(self, state: Mapping[str, Any]) -> ApplyStateResult:
+        analysis = state.get("analysis", {})
+        if not isinstance(analysis, Mapping):
+            return ApplyStateResult()
+
+        heatmap = analysis.get("heatmap", {})
+        if not isinstance(heatmap, Mapping):
+            return ApplyStateResult()
+
+        if "max_features" in heatmap:
+            apply_spin_value(self.hm_maxfeat, int(heatmap["max_features"]))
+
+        return self.validate_state(state)
+
     def _on_chart_type_changed(self) -> None:
         self._apply_control_visibility()
         self._on_parameter_changed()
@@ -394,6 +449,11 @@ class VisualTab(QWidget):
             pca_result,
             pc_x=self.pca_pc_x.value() - 1,
             pc_y=self.pca_pc_y.value() - 1,
+            show_labels=(
+                stats_tab.pca_label_mode.currentData()
+                if stats_tab is not None and hasattr(stats_tab, "pca_label_mode")
+                else "outlier"
+            ),
             theme=self.theme_manager.current_theme,
             fig=self.mpl_canvas.figure,
         )

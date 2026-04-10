@@ -10,6 +10,8 @@ Two-group univariate analysis for volcano plot:
 
 from __future__ import annotations
 
+from typing import Any, Mapping
+
 import numpy as np
 import pandas as pd
 from scipy.stats import mannwhitneyu, ttest_ind, ttest_rel, wilcoxon
@@ -23,21 +25,33 @@ class VolcanoResult:
         group1: str,
         group2: str,
         fc_thresh: float,
+        log2_fc_thresh: float,
         p_thresh: float,
         use_fdr: bool,
         fdr_method: str,
         paired: bool = False,
         n_pairs: int | None = None,
+        test_key: str = "student",
+        test_label: str = "Student's t",
+        resolution_strategy: str | None = None,
+        resolution_warnings: list[str] | None = None,
+        resolution_overrides_applied: list[dict[str, Any]] | None = None,
     ):
         self.result_df = result_df
         self.group1 = group1
         self.group2 = group2
         self.fc_thresh = fc_thresh
+        self.log2_fc_thresh = log2_fc_thresh
         self.p_thresh = p_thresh
         self.use_fdr = use_fdr
         self.fdr_method = fdr_method
         self.paired = paired
         self.n_pairs = n_pairs
+        self.test_key = test_key
+        self.test_label = test_label
+        self.resolution_strategy = resolution_strategy
+        self.resolution_warnings = list(resolution_warnings or [])
+        self.resolution_overrides_applied = list(resolution_overrides_applied or [])
 
     @property
     def significant(self) -> pd.DataFrame:
@@ -76,12 +90,39 @@ def _robust_log2fc(mean1: pd.Series, mean2: pd.Series) -> pd.Series:
     return np.log2(ratio) * direction
 
 
+def _ratio_log2fc(mean1: pd.Series, mean2: pd.Series) -> pd.Series:
+    """Standard log2 fold change for strictly-positive means with a small offset."""
+    combined = pd.concat([mean1, mean2], axis=0)
+    positive = combined[combined > 0]
+    offset = (positive.min() / 10) if len(positive) else 1e-12
+    return np.log2((mean1 + offset) / (mean2 + offset))
+
+
+def _resolve_test_metadata(
+    *,
+    paired: bool,
+    nonpar: bool,
+    equal_var: bool,
+) -> tuple[str, str]:
+    """Return a stable test identifier and user-facing label."""
+    if paired and nonpar:
+        return "signed_rank", "Wilcoxon signed-rank"
+    if paired:
+        return "paired_t", "Paired t-test"
+    if nonpar:
+        return "mannwhitney", "Mann-Whitney U"
+    if equal_var:
+        return "student", "Student's t"
+    return "welch", "Welch's t"
+
+
 def volcano_analysis(
     df: pd.DataFrame,
     labels,
     group1: str,
     group2: str,
     fc_thresh: float = 2.0,
+    log2_fc_thresh: float | None = None,
     p_thresh: float = 0.05,
     equal_var: bool = True,
     nonpar: bool = False,
@@ -89,6 +130,8 @@ def volcano_analysis(
     fdr_method: str = "fdr_bh",
     paired: bool = False,
     pair_ids: pd.Series | None = None,
+    fc_df: pd.DataFrame | None = None,
+    pair_resolution: Mapping[str, Any] | None = None,
 ) -> VolcanoResult:
     """
     Two-group univariate analysis for volcano plot.
@@ -108,27 +151,64 @@ def volcano_analysis(
         labels_arr = np.array(labels)
 
     n_pairs = None
+    resolution_meta = {
+        "resolution_strategy": None,
+        "warnings": [],
+        "overrides_applied": [],
+    }
+    test_key, test_label = _resolve_test_metadata(
+        paired=paired,
+        nonpar=nonpar,
+        equal_var=equal_var,
+    )
 
     if paired:
         if pair_ids is None:
             raise ValueError("pair_ids is required for paired analysis.")
 
         # Align samples by subject ID
-        from core.sample_info import align_paired_samples
+        from core.sample_info import align_paired_samples_with_meta
 
-        g1, g2, matched = align_paired_samples(
-            df, pd.Series(labels_arr, index=df.index),
+        g1, g2, matched, resolution_meta = align_paired_samples_with_meta(
+            df,
+            pd.Series(labels_arr, index=df.index),
             group1, group2, pair_ids,
+            paired_resolution=pair_resolution,
         )
         n_pairs = len(matched)
     else:
         g1 = df[labels_arr == group1]
         g2 = df[labels_arr == group2]
 
+    if fc_df is None:
+        fc_df = df
+
+    if not fc_df.columns.equals(df.columns):
+        fc_df = fc_df.reindex(columns=df.columns)
+
+    if not fc_df.index.equals(df.index):
+        fc_df = fc_df.reindex(df.index)
+
+    if paired:
+        fc_g1 = fc_df.loc[g1.index]
+        fc_g2 = fc_df.loc[g2.index]
+    else:
+        fc_g1 = fc_df[labels_arr == group1]
+        fc_g2 = fc_df[labels_arr == group2]
+
     # Fold change uses group means (consistent with MetaboAnalyst)
-    mean1 = g1.mean()
-    mean2 = g2.mean()
-    log2fc = _robust_log2fc(mean1, mean2)
+    mean1 = fc_g1.mean()
+    mean2 = fc_g2.mean()
+    if (mean1 > 0).all() and (mean2 > 0).all():
+        log2fc = _ratio_log2fc(mean1, mean2)
+    else:
+        log2fc = _robust_log2fc(mean1, mean2)
+
+    if log2_fc_thresh is None:
+        log2_fc_thresh = float(np.log2(fc_thresh))
+    else:
+        log2_fc_thresh = float(log2_fc_thresh)
+        fc_thresh = float(2 ** log2_fc_thresh)
 
     pvals_raw = []
     for col in df.columns:
@@ -176,7 +256,7 @@ def volcano_analysis(
 
     significance_p = pvals_adj if use_fdr else pvals_raw
     neg_log10p = -np.log10(np.clip(significance_p, 1e-300, 1.0))
-    sig_mask = (np.abs(log2fc) >= np.log2(fc_thresh)) & (significance_p < p_thresh)
+    sig_mask = (np.abs(log2fc) >= log2_fc_thresh) & (significance_p < p_thresh)
 
     result_df = pd.DataFrame(
         {
@@ -196,10 +276,16 @@ def volcano_analysis(
         group1=group1,
         group2=group2,
         fc_thresh=fc_thresh,
+        log2_fc_thresh=log2_fc_thresh,
         p_thresh=p_thresh,
         use_fdr=use_fdr,
         fdr_method=fdr_method,
         paired=paired,
         n_pairs=n_pairs,
+        test_key=test_key,
+        test_label=test_label,
+        resolution_strategy=resolution_meta.get("resolution_strategy"),
+        resolution_warnings=resolution_meta.get("warnings"),
+        resolution_overrides_applied=resolution_meta.get("overrides_applied"),
     )
 

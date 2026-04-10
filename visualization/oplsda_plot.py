@@ -9,6 +9,7 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Ellipse
 from scipy.stats import chi2
 
+from visualization.score_labeling import add_score_labels, finalize_score_labels
 from visualization.theme import apply_publication_style, get_group_colors
 
 
@@ -49,23 +50,6 @@ def _confidence_ellipse(ax, x, y, color, fill_color, confidence: float = 0.95) -
     )
 
 
-def _mahalanobis_outliers(x, y, confidence: float = 0.95) -> np.ndarray:
-    """Return a boolean mask of points outside the confidence ellipse."""
-    if len(x) < 3:
-        return np.zeros(len(x), dtype=bool)
-    points = np.column_stack([x, y])
-    mean = points.mean(axis=0)
-    cov = np.cov(x, y)
-    try:
-        cov_inv = np.linalg.inv(cov)
-    except np.linalg.LinAlgError:
-        return np.zeros(len(x), dtype=bool)
-    diff = points - mean
-    md_sq = np.sum(diff @ cov_inv * diff, axis=1)
-    threshold = chi2.ppf(confidence, 2)
-    return md_sq > threshold
-
-
 def plot_oplsda_score(
     oplsda_result,
     show_labels: str = "outlier",
@@ -104,6 +88,7 @@ def plot_oplsda_score(
     score_df = oplsda_result.get_score_df()
     groups = sorted(score_df["Group"].unique())
     colors = get_group_colors(theme, len(groups))
+    backend = getattr(oplsda_result, "backend", "pyopls")
 
     all_t = score_df["T_predictive"].values
     all_o = score_df["T_orthogonal"].values
@@ -112,6 +97,7 @@ def plot_oplsda_score(
     var_o = np.var(all_o) / total_var * 100 if total_var > 0 else 0.0
 
     legend_handles = []
+    label_texts: list = []
     for idx, group in enumerate(groups):
         color = colors[idx % len(colors)]
         marker = _MA_MARKERS[idx % len(_MA_MARKERS)]
@@ -132,24 +118,17 @@ def plot_oplsda_score(
             zorder=3,
         )
 
-        if show_labels == "all":
-            label_mask = np.ones(len(x), dtype=bool)
-        elif show_labels == "outlier":
-            label_mask = _mahalanobis_outliers(x, y, confidence)
-        else:
-            label_mask = np.zeros(len(x), dtype=bool)
-
-        for x_val, y_val, name, should_label in zip(x, y, samples, label_mask):
-            if should_label:
-                ax.annotate(
-                    str(name),
-                    (x_val, y_val),
-                    fontsize=6.5,
-                    color="#444444",
-                    xytext=(5, 2),
-                    textcoords="offset points",
-                    zorder=4,
-                )
+        label_texts.extend(
+            add_score_labels(
+                ax,
+                x,
+                y,
+                samples,
+                show_labels=show_labels,
+                confidence=confidence,
+                bbox_edgecolor=color,
+            )
+        )
 
         legend_handles.append(
             Line2D(
@@ -165,8 +144,23 @@ def plot_oplsda_score(
             )
         )
 
+    finalize_score_labels(ax, label_texts, all_t, all_o)
+
     ax.set_xlabel(f"T score [1] ({var_t:.1f} %)", fontsize=10.5)
-    ax.set_ylabel(f"Orthogonal T score [1] ({var_o:.1f} %)", fontsize=10.5)
+    if backend == "pls_fallback":
+        ax.set_ylabel(f"T score [2] ({var_o:.1f} %)", fontsize=10.5)
+        ax.text(
+            0.01,
+            0.01,
+            "PLS fallback axis",
+            transform=ax.transAxes,
+            fontsize=8,
+            alpha=0.7,
+            ha="left",
+            va="bottom",
+        )
+    else:
+        ax.set_ylabel(f"Orthogonal T score [1] ({var_o:.1f} %)", fontsize=10.5)
     ax.set_title("Scores Plot", fontsize=12, fontweight="bold", pad=10)
     ax.legend(
         handles=legend_handles,

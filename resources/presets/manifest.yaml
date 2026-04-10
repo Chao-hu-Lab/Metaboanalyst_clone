@@ -1,0 +1,9 @@
+presets:
+  - id: tissue_knn_rsd050_marker_verify
+    label: Tissue KNN RSD 50% Marker Verify
+    file: tissue_knn_rsd050_marker_verify.yaml
+    description: Tissue workflow with KNN imputation, QC-RSD 50%, and marker verification pairs.
+  - id: urine_knn_rsd050
+    label: Urine KNN RSD 50%
+    file: urine_knn_rsd050.yaml
+    description: Urine workflow with KNN imputation, QC-RSD 50%, and exposure-control comparisons.

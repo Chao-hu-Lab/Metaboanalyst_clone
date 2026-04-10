@@ -12,6 +12,7 @@ NON_SAMPLE_COLUMN_PATTERNS = (
     "featureid",
     "mzrt",
     "sampletype",
+    "ispresenceabsencemarker",
     "originalcv",
     "normalizedcv",
     "correctedqccv",

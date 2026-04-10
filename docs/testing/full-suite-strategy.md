@@ -95,6 +95,30 @@ This number may vary by machine, but the general lesson remains:
 
 ---
 
+## Parallel execution note
+
+If faster suite execution is needed, install `pytest-xdist`:
+
+```powershell
+uv pip install pytest-xdist
+```
+
+Then test whether parallel execution is stable for your environment:
+
+```powershell
+$env:UV_CACHE_DIR = ".uv-cache"
+uv run pytest tests -n auto
+```
+
+However:
+
+- GUI-heavy tests may still need special handling even after `xdist`
+- parallelism improves throughput, but does not replace focused verification
+- parallel execution should be treated as an optimization, not the only source
+  of truth
+
+---
+
 ## Practical policy
 
 Use this order by default:
@@ -114,12 +138,14 @@ The repository CI intentionally does **not** run the same monolithic command on 
 
 Current policy:
 
-1. Python 3.11 runs the full suite file-by-file on the self-hosted Windows runner
-2. Python 3.12 runs a targeted compatibility smoke subset
-3. `ruff` is kept as a low-noise guardrail using `--select=F,E9`
+1. Python 3.11 runs the repository regression suite file-by-file with `-m "not slow"`
+2. The known slow GUI smoke cases are split into a dedicated Python 3.11 job outside the default PR path
+3. Python 3.12 runs a targeted compatibility smoke subset
+4. `ruff` is kept as a low-noise guardrail using `--select=F,E9`
 
 Why:
 
-- Python 3.11 is the main regression signal
-- Python 3.12 still provides compatibility coverage without doubling the full-suite wall clock time
-- file-by-file execution localizes failures and avoids the false-negative timeout pattern already observed in this repository
+- PR feedback needs to stay within a practical wall-clock budget
+- file-by-file execution still localizes failures instead of hiding them in one giant run
+- the Phase 7 GUI smoke matrix remains valuable, but it should not dominate every PR check
+- splitting slow GUI smoke into its own lane makes progress visible and failures easier to interpret

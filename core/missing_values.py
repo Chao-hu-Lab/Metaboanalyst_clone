@@ -12,6 +12,18 @@ import pandas as pd
 from sklearn.impute import KNNImputer
 
 
+def normalize_impute_method(method: str | None) -> str:
+    """Normalize imputation aliases so callers can compare methods safely."""
+    if method is None:
+        return "none"
+    normalized = str(method).strip().lower()
+    if normalized in {"lod", "min"}:
+        return "min"
+    if normalized in {"none", ""}:
+        return "none"
+    return normalized
+
+
 def replace_zero_with_nan(df: pd.DataFrame) -> pd.DataFrame:
     """將所有 0 值轉為 NaN（MetaboAnalyst SanityCheckData 行為）"""
     return df.replace(0, np.nan)
@@ -52,9 +64,20 @@ def _impute_min_lod(df: pd.DataFrame) -> pd.DataFrame:
 
 def _impute_knn(df: pd.DataFrame, k: int = 10) -> pd.DataFrame:
     """KNN 填補，k=10"""
+    if df.empty:
+        return df.copy()
+
+    all_nan_cols = df.columns[df.isna().all()].tolist()
+    work_df = df.drop(columns=all_nan_cols)
+    if work_df.empty:
+        return df.copy()
+
     imputer = KNNImputer(n_neighbors=k)
-    imputed = imputer.fit_transform(df)
-    return pd.DataFrame(imputed, columns=df.columns, index=df.index)
+    imputed = imputer.fit_transform(work_df)
+    result = pd.DataFrame(imputed, columns=work_df.columns, index=df.index)
+    for col in all_nan_cols:
+        result[col] = np.nan
+    return result.reindex(columns=df.columns)
 
 
 def _impute_svd(df: pd.DataFrame, rank: int = 2) -> pd.DataFrame:
@@ -126,23 +149,54 @@ def impute_missing(df: pd.DataFrame, method: str = "min", **kwargs) -> pd.DataFr
     DataFrame
         填補後的資料框
     """
-    if method in ("none", "None"):
+    method = normalize_impute_method(method)
+    if method == "none":
         return df.copy()
-    if method == "min" or method == "lod":
+    if method == "min":
         return _impute_min_lod(df)
-    elif method == "mean":
+    if method == "mean":
         return df.fillna(df.mean())
-    elif method == "median":
+    if method == "median":
         return df.fillna(df.median())
-    elif method == "exclude":
+    if method == "exclude":
         return df.dropna(axis=1)
-    elif method == "knn":
+    if method == "knn":
         return _impute_knn(df, k=kwargs.get("k", 10))
-    elif method == "ppca":
+    if method == "ppca":
         return _impute_ppca(df, n_components=kwargs.get("n_components", 2))
-    elif method == "bpca":
+    if method == "bpca":
         return _impute_bpca(df, n_components=kwargs.get("n_components", 2))
-    elif method == "svd":
+    if method == "svd":
         return _impute_svd(df, rank=kwargs.get("rank", 2))
-    else:
-        raise ValueError(f"未知的填補方法: {method}")
+    raise ValueError(f"未知的填補方法: {method}")
+
+
+def impute_missing_by_feature(
+    df: pd.DataFrame,
+    feature_methods: pd.Series | dict,
+    default_method: str = "min",
+    **kwargs,
+) -> tuple[pd.DataFrame, pd.Series]:
+    """Impute features with different methods while preserving column order."""
+    if df.empty:
+        return df.copy(), pd.Series(dtype=object)
+
+    if isinstance(feature_methods, dict):
+        feature_methods = pd.Series(feature_methods)
+
+    default_method = normalize_impute_method(default_method)
+    feature_methods = feature_methods.reindex(df.columns)
+    feature_methods = feature_methods.fillna(default_method).map(normalize_impute_method)
+
+    result = pd.DataFrame(index=df.index)
+    resolved_methods = pd.Series(index=df.columns, dtype=object)
+
+    for method in pd.unique(feature_methods):
+        cols = feature_methods.index[feature_methods == method]
+        if len(cols) == 0:
+            continue
+        imputed = impute_missing(df.loc[:, cols], method=method, **kwargs)
+        result = pd.concat([result, imputed], axis=1)
+        resolved_methods.loc[cols] = method
+
+    return result.reindex(columns=df.columns), resolved_methods.reindex(df.columns)

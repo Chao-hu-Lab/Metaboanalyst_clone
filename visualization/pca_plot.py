@@ -8,6 +8,7 @@ from matplotlib.figure import Figure
 from matplotlib.patches import Ellipse
 from scipy.stats import chi2
 
+from visualization.score_labeling import add_score_labels, finalize_score_labels
 from visualization.theme import apply_publication_style, get_group_colors
 from visualization.vip_plot import _format_mzrt_label
 
@@ -16,6 +17,8 @@ def plot_pca_score(
     pca_result,
     pc_x: int = 0,
     pc_y: int = 1,
+    show_labels: str = "outlier",
+    confidence: float = 0.95,
     theme: str = "light",
     fig: Figure | None = None,
 ) -> Figure:
@@ -30,6 +33,10 @@ def plot_pca_score(
         Zero-based component index used on the x-axis.
     pc_y : int, default=1
         Zero-based component index used on the y-axis.
+    show_labels : {"outlier", "all", "none"}, default="outlier"
+        Labeling strategy for sample names on the score plot.
+    confidence : float, default=0.95
+        Confidence level used for ellipse drawing and outlier labeling.
     theme : str, default="light"
         Visualization theme name.
     fig : Figure or None, default=None
@@ -50,15 +57,23 @@ def plot_pca_score(
 
     scores = pca_result.scores
     labels = pca_result.labels
+    sample_names = np.asarray(
+        getattr(pca_result, "sample_names", [f"S{i+1}" for i in range(len(scores))]),
+        dtype=object,
+    )
     var_ratio = pca_result.explained_variance_ratio
     labels_arr = labels.values if hasattr(labels, "values") else np.asarray(labels)
     groups = sorted(set(labels_arr))
     colors = get_group_colors(theme, len(groups))
+    label_texts: list = []
+    all_x = scores[:, pc_x]
+    all_y = scores[:, pc_y]
 
     for idx, group in enumerate(groups):
         mask = labels_arr == group
         x = scores[mask, pc_x]
         y = scores[mask, pc_y]
+        group_names = sample_names[mask]
         ax.scatter(
             x,
             y,
@@ -75,7 +90,7 @@ def plot_pca_score(
             if np.linalg.det(cov) > 1e-10:
                 eig_vals, eig_vecs = np.linalg.eigh(cov)
                 angle = np.degrees(np.arctan2(*eig_vecs[:, 1][::-1]))
-                n_std = np.sqrt(chi2.ppf(0.95, 2))
+                n_std = np.sqrt(chi2.ppf(confidence, 2))
                 width, height = 2 * n_std * np.sqrt(np.abs(eig_vals))
                 ax.add_patch(
                     Ellipse(
@@ -89,6 +104,20 @@ def plot_pca_score(
                         linewidth=1.5,
                     )
                 )
+
+        label_texts.extend(
+            add_score_labels(
+                ax,
+                x,
+                y,
+                group_names,
+                show_labels=show_labels,
+                confidence=confidence,
+                bbox_edgecolor=colors[idx],
+            )
+        )
+
+    finalize_score_labels(ax, label_texts, all_x, all_y)
 
     ax.set_xlabel(f"PC{pc_x + 1} ({var_ratio[pc_x] * 100:.1f}%)")
     ax.set_ylabel(f"PC{pc_y + 1} ({var_ratio[pc_y] * 100:.1f}%)")
@@ -184,15 +213,18 @@ def plot_pca_loading(
 
     loading_df = pca_result.get_loading_df()
     col = loading_df.columns[pc]
-    vals = loading_df[col].abs().nlargest(top_n).sort_values(ascending=True)
+    component = loading_df[col]
+    top_count = min(top_n, len(component))
+    top_positions = np.argsort(np.abs(component.to_numpy()))[-top_count:]
+    top_loadings = component.iloc[top_positions].sort_values(ascending=True)
     palette = get_group_colors(theme, 2)
 
-    colors = [palette[0] if loading_df.loc[feature, col] > 0 else palette[1] for feature in vals.index]
-    actual_vals = [loading_df.loc[feature, col] for feature in vals.index]
+    colors = [palette[0] if value > 0 else palette[1] for value in top_loadings]
+    actual_vals = top_loadings.tolist()
 
-    ax.barh(range(len(vals)), actual_vals, color=colors)
-    ax.set_yticks(range(len(vals)))
-    ax.set_yticklabels([_format_mzrt_label(str(feature)) for feature in vals.index], fontsize=8)
+    ax.barh(range(len(top_loadings)), actual_vals, color=colors)
+    ax.set_yticks(range(len(top_loadings)))
+    ax.set_yticklabels([_format_mzrt_label(str(feature)) for feature in top_loadings.index], fontsize=8)
     ax.set_xlabel(f"Loading ({col})")
     ax.set_title(f"PCA Loading Plot - Top {top_n} Features")
     ax.axvline(0, color="grey", linewidth=0.5)

@@ -57,6 +57,7 @@ def plot_volcano(
 
     result_df = volcano_result.result_df
     fc_thresh = volcano_result.fc_thresh
+    log2_fc_thresh = float(getattr(volcano_result, "log2_fc_thresh", np.log2(fc_thresh)))
     p_thresh = volcano_result.p_thresh
     use_fdr = bool(getattr(volcano_result, "use_fdr", False))
     fdr_method = str(getattr(volcano_result, "fdr_method", "fdr_bh"))
@@ -68,12 +69,21 @@ def plot_volcano(
 
     config = COLORS.get(theme, COLORS["light"])
     palette = get_group_colors(theme, 3)
-    sig_label = "Significant (FDR)" if use_fdr else "Significant"
-    ax.scatter(log2fc[~significant], neg_log10p[~significant], c=config["grid"], alpha=0.5, s=20, label="Not significant")
-    ax.scatter(log2fc[significant], neg_log10p[significant], c=palette[0], alpha=0.75, s=30, label=sig_label)
+
+    # Separate significant features into up/down regulated
+    log2_thresh = log2_fc_thresh
+    up_mask = significant & (log2fc >= log2_thresh)
+    down_mask = significant & (log2fc <= -log2_thresh)
+    nonsig_mask = ~significant
+
+    ax.scatter(log2fc[nonsig_mask], neg_log10p[nonsig_mask],
+               c=config["grid"], alpha=0.5, s=20, label="Not significant")
+    ax.scatter(log2fc[up_mask], neg_log10p[up_mask],
+               c=palette[0], alpha=0.75, s=30, label="Up-regulated")
+    ax.scatter(log2fc[down_mask], neg_log10p[down_mask],
+               c="#4393C3", alpha=0.75, s=30, label="Down-regulated")
 
     threshold_color = palette[1]
-    log2_thresh = np.log2(fc_thresh)
     ax.axhline(-np.log10(p_thresh), ls="--", c=threshold_color, alpha=0.7, linewidth=0.9)
     ax.axvline(log2_thresh, ls="--", c=threshold_color, alpha=0.7, linewidth=0.9)
     ax.axvline(-log2_thresh, ls="--", c=threshold_color, alpha=0.7, linewidth=0.9)
@@ -116,7 +126,7 @@ def plot_volcano_interactive(
     top_n : int, default=10
         Number of top-ranked features to label.
     fc_threshold : float or None, default=None
-        Fold-change threshold. Falls back to ``volcano_result.fc_thresh``.
+        log2 fold-change threshold. Falls back to ``volcano_result.log2_fc_thresh``.
     pval_threshold : float or None, default=None
         P-value threshold. Falls back to ``volcano_result.p_thresh``.
     theme : str, default="light"
@@ -135,9 +145,13 @@ def plot_volcano_interactive(
     config = COLORS.get(theme, COLORS["light"])
     palette = get_group_colors(theme, 3)
     result_df = volcano_result.result_df.copy()
-    fc_threshold = fc_threshold if fc_threshold is not None else volcano_result.fc_thresh
+    fc_threshold = (
+        fc_threshold
+        if fc_threshold is not None
+        else getattr(volcano_result, "log2_fc_thresh", np.log2(volcano_result.fc_thresh))
+    )
     pval_threshold = pval_threshold if pval_threshold is not None else volcano_result.p_thresh
-    log2_threshold = np.log2(fc_threshold)
+    log2_threshold = float(fc_threshold)
 
     significant = result_df["significant"].to_numpy(dtype=bool)
     up_mask = significant & (result_df["log2FC"].to_numpy(dtype=float) >= 0)

@@ -91,7 +91,10 @@ def filter_by_qc_rsd(
     df: pd.DataFrame,
     qc_mask: np.ndarray,
     rsd_threshold: float = 0.25,
-) -> pd.DataFrame:
+    exempt_columns: pd.Series | np.ndarray | list[str] | None = None,
+    ddof: int = 0,
+    return_stats: bool = False,
+) -> pd.DataFrame | tuple[pd.DataFrame, pd.DataFrame]:
     """
     Filter features using RSD calculated from QC samples only.
     QC rows are removed from output.
@@ -103,6 +106,34 @@ def filter_by_qc_rsd(
             f"but only {len(qc_data)} found."
         )
     means = qc_data.mean().replace(0, np.nan)
-    rsd = qc_data.std() / means
-    keep = rsd[rsd.abs() <= rsd_threshold].index
-    return df.loc[~qc_mask, keep]
+    # Use population std so the threshold matches upstream QC_CV% columns exported
+    # from the workbook and boundary cases do not flip unexpectedly.
+    rsd = qc_data.std(ddof=ddof) / means
+    exempt_mask = pd.Series(False, index=df.columns)
+    if exempt_columns is not None:
+        if isinstance(exempt_columns, pd.Series):
+            exempt_mask = exempt_columns.reindex(df.columns).fillna(False).astype(bool)
+        elif isinstance(exempt_columns, np.ndarray):
+            exempt_mask = pd.Series(exempt_columns, index=df.columns).fillna(False).astype(bool)
+        else:
+            exempt_mask.loc[list(exempt_columns)] = True
+
+    pass_mask = rsd.abs() <= rsd_threshold
+    keep_mask = exempt_mask | pass_mask.fillna(False)
+    keep = keep_mask[keep_mask].index
+    filtered = df.loc[~qc_mask, keep]
+
+    if not return_stats:
+        return filtered
+
+    stats = pd.DataFrame(
+        {
+            "qc_rsd": rsd.reindex(df.columns),
+            "qc_rsd_threshold": rsd_threshold,
+            "qc_rsd_pass": pass_mask.reindex(df.columns).fillna(False),
+            "qc_rsd_exempted": exempt_mask.reindex(df.columns).fillna(False),
+            "kept_after_qc_rsd": keep_mask.reindex(df.columns).fillna(False),
+        },
+        index=df.columns,
+    )
+    return filtered, stats

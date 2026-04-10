@@ -9,6 +9,7 @@ import pandas as pd
 from matplotlib.colorbar import ColorbarBase
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.figure import Figure
+from matplotlib.gridspec import GridSpec
 from matplotlib.patches import Rectangle
 
 from visualization.theme import COLORS, apply_publication_style, get_group_colors
@@ -80,9 +81,14 @@ def plot_vip(
         fig.clear()
 
     if has_heatmap:
-        ax = fig.add_axes([0.12, 0.08, 0.65, 0.87])
-        ax_heat = fig.add_axes([0.80, 0.08, 0.06, 0.87])
-        ax_cb = fig.add_axes([0.88, 0.25, 0.015, 0.45])
+        gs = GridSpec(
+            1, 3, figure=fig,
+            width_ratios=[10, 1.2, 0.3],
+            wspace=0.08,
+        )
+        ax = fig.add_subplot(gs[0, 0])
+        ax_heat = fig.add_subplot(gs[0, 1])
+        ax_cb = fig.add_subplot(gs[0, 2])
     else:
         ax = fig.add_subplot(111)
         ax_heat = None
@@ -188,4 +194,6 @@ def plot_vip(
             for spine in ax_cb.spines.values():
                 spine.set_linewidth(0.5)
 
+    if not has_heatmap:
+        fig.tight_layout()
     return fig

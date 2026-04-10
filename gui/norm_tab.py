@@ -5,14 +5,17 @@ Row normalization -> transformation -> scaling
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from typing import Any, Callable, Mapping
+
+from PySide6.QtCore import QSignalBlocker, Qt
 from PySide6.QtWidgets import (
     QComboBox,
+    QGridLayout,
     QGroupBox,
-    QHBoxLayout,
     QLabel,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSplitter,
     QTextEdit,
     QVBoxLayout,
@@ -23,6 +26,7 @@ from ms_core.processing.normalization import ROW_NORM_METHODS
 from core.sample_info import build_aligned_factors, detect_factor_columns
 from ms_core.processing.scaling import SCALING_METHODS
 from ms_core.processing.transformation import TRANSFORM_METHODS
+from gui.state_binding import ApplyStateResult, apply_combo_data
 from gui.widgets.mpl_canvas import MplWidget
 
 
@@ -34,75 +38,91 @@ class NormTab(QWidget):
         self._init_ui()
 
     def _init_ui(self):
-        layout = QVBoxLayout(self)
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.scroll_area = QScrollArea(self)
+        self.scroll_area.setWidgetResizable(True)
+        root_layout.addWidget(self.scroll_area)
+
+        content = QWidget()
+        self.scroll_area.setWidget(content)
+
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(12)
 
         self.info_group = QGroupBox(self.tr("Current Data"))
         info_layout = QVBoxLayout()
         self.info_label = QLabel(self.tr("Apply filtering step first."))
+        self.info_label.setWordWrap(True)
         info_layout.addWidget(self.info_label)
         self.info_group.setLayout(info_layout)
         layout.addWidget(self.info_group)
 
         self.settings_group = QGroupBox(self.tr("Normalization Pipeline"))
-        settings_layout = QVBoxLayout()
+        settings_layout = QGridLayout()
+        settings_layout.setHorizontalSpacing(12)
+        settings_layout.setVerticalSpacing(8)
 
-        row1 = QHBoxLayout()
         self.row_label = QLabel(self.tr("1. Row normalization:"))
-        row1.addWidget(self.row_label)
+        self.row_label.setWordWrap(True)
+        settings_layout.addWidget(self.row_label, 0, 0)
         self.row_combo = QComboBox()
+        self.row_combo.setMinimumWidth(220)
         for key, label in ROW_NORM_METHODS.items():
             self.row_combo.addItem(label, key)
         self.row_combo.currentIndexChanged.connect(self._on_row_method_changed)
-        row1.addWidget(self.row_combo)
-        settings_layout.addLayout(row1)
+        settings_layout.addWidget(self.row_combo, 0, 1, 1, 2)
 
-        factor_row = QHBoxLayout()
         self.factor_label = QLabel(self.tr("SampleInfo factor column:"))
-        factor_row.addWidget(self.factor_label)
+        self.factor_label.setWordWrap(True)
+        settings_layout.addWidget(self.factor_label, 1, 0)
         self.factor_combo = QComboBox()
         self.factor_combo.setMinimumWidth(220)
-        factor_row.addWidget(self.factor_combo)
+        settings_layout.addWidget(self.factor_combo, 1, 1)
         self.factor_refresh_btn = QPushButton(self.tr("Refresh SampleInfo"))
+        self.factor_refresh_btn.setMinimumWidth(170)
         self.factor_refresh_btn.clicked.connect(self._refresh_factor_controls)
-        factor_row.addWidget(self.factor_refresh_btn)
-        settings_layout.addLayout(factor_row)
+        settings_layout.addWidget(self.factor_refresh_btn, 1, 2)
 
         self.factor_status = QLabel("")
         self.factor_status.setWordWrap(True)
-        settings_layout.addWidget(self.factor_status)
+        settings_layout.addWidget(self.factor_status, 2, 0, 1, 3)
 
-        row2 = QHBoxLayout()
         self.trans_label = QLabel(self.tr("2. Transformation:"))
-        row2.addWidget(self.trans_label)
+        self.trans_label.setWordWrap(True)
+        settings_layout.addWidget(self.trans_label, 3, 0)
         self.trans_combo = QComboBox()
+        self.trans_combo.setMinimumWidth(220)
         for key, label in TRANSFORM_METHODS.items():
             self.trans_combo.addItem(label, key)
-        row2.addWidget(self.trans_combo)
-        settings_layout.addLayout(row2)
+        settings_layout.addWidget(self.trans_combo, 3, 1, 1, 2)
 
-        row3 = QHBoxLayout()
         self.scale_label = QLabel(self.tr("3. Scaling:"))
-        row3.addWidget(self.scale_label)
+        self.scale_label.setWordWrap(True)
+        settings_layout.addWidget(self.scale_label, 4, 0)
         self.scale_combo = QComboBox()
+        self.scale_combo.setMinimumWidth(220)
         for key, label in SCALING_METHODS.items():
             self.scale_combo.addItem(label, key)
-        row3.addWidget(self.scale_combo)
-        settings_layout.addLayout(row3)
+        settings_layout.addWidget(self.scale_combo, 4, 1, 1, 2)
 
-        btn_row = QHBoxLayout()
         self.btn_run = QPushButton(self.tr("Apply Full Normalization Pipeline"))
+        self.btn_run.setMinimumWidth(240)
         self.btn_run.clicked.connect(self._run)
-        btn_row.addWidget(self.btn_run)
+        settings_layout.addWidget(self.btn_run, 5, 1)
 
         self.btn_reset = QPushButton(self.tr("Reset to Filtered Data"))
+        self.btn_reset.setMinimumWidth(220)
         self.btn_reset.clicked.connect(self._reset)
-        btn_row.addWidget(self.btn_reset)
-        settings_layout.addLayout(btn_row)
+        settings_layout.addWidget(self.btn_reset, 5, 2)
 
         self.settings_group.setLayout(settings_layout)
         layout.addWidget(self.settings_group)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setChildrenCollapsible(False)
 
         self.log_group = QGroupBox(self.tr("Processing Log"))
         log_layout = QVBoxLayout()
@@ -121,6 +141,7 @@ class NormTab(QWidget):
         splitter.addWidget(self.preview_group)
 
         layout.addWidget(splitter, stretch=1)
+        layout.addStretch()
         self._refresh_factor_controls()
         self._on_row_method_changed()
 
@@ -139,13 +160,72 @@ class NormTab(QWidget):
         self._refresh_factor_controls()
         self._on_row_method_changed()
 
+    def connect_state_changed(self, callback: Callable[..., None]) -> None:
+        self.row_combo.currentIndexChanged.connect(callback)
+        self.trans_combo.currentIndexChanged.connect(callback)
+        self.scale_combo.currentIndexChanged.connect(callback)
+        self.factor_combo.currentIndexChanged.connect(callback)
+
+    def read_state(self) -> dict[str, Any]:
+        state: dict[str, Any] = {
+            "pipeline": {
+                "row_norm": self.row_combo.currentData(),
+                "transform": self.trans_combo.currentData(),
+                "scaling": self.scale_combo.currentData(),
+            }
+        }
+        factor_column = self.factor_combo.currentData()
+        if self.row_combo.currentData() == "SpecNorm" and factor_column is not None:
+            state["spec_norm"] = {"factor_column": str(factor_column)}
+        return state
+
+    def validate_state(self, state: Mapping[str, Any]) -> ApplyStateResult:
+        result = ApplyStateResult()
+        pipeline = state.get("pipeline", {})
+        if isinstance(pipeline, Mapping):
+            result.extend(
+                apply_combo_data(self.row_combo, pipeline.get("row_norm"), "pipeline.row_norm")
+            )
+            result.extend(
+                apply_combo_data(
+                    self.trans_combo,
+                    pipeline.get("transform"),
+                    "pipeline.transform",
+                )
+            )
+            result.extend(
+                apply_combo_data(
+                    self.scale_combo,
+                    pipeline.get("scaling"),
+                    "pipeline.scaling",
+                )
+            )
+        return result
+
+    def apply_state(self, state: Mapping[str, Any]) -> ApplyStateResult:
+        result = self.validate_state(state)
+        spec_norm = state.get("spec_norm", {})
+        if isinstance(spec_norm, Mapping):
+            factor_column = spec_norm.get("factor_column")
+            if factor_column is not None:
+                if not apply_combo_data(
+                    self.factor_combo,
+                    factor_column,
+                    "spec_norm.factor_column",
+                ).unsupported_paths:
+                    self._on_row_method_changed()
+        self._on_row_method_changed()
+        return result
+
     def _refresh_factor_controls(self):
+        blocker = QSignalBlocker(self.factor_combo)
         self.factor_combo.clear()
         sample_info = getattr(self.mw, "sample_info", None)
         if sample_info is None or sample_info.empty:
             self.factor_status.setText(
                 self.tr("SampleInfo sheet not found. SpecNorm from SampleInfo is unavailable.")
             )
+            del blocker
             return
 
         columns, default_col = detect_factor_columns(sample_info)
@@ -173,6 +253,7 @@ class NormTab(QWidget):
                     default_col=default_col if default_col is not None else "-",
                 )
             )
+        del blocker
 
     def _on_row_method_changed(self):
         is_specnorm = self.row_combo.currentData() == "SpecNorm"
@@ -305,6 +386,7 @@ class NormTab(QWidget):
         df = payload["data"]
         pipeline_log = payload["log"]
         labels = payload.get("labels")
+        self.mw.set_stats_matrix_bundle(payload.get("stats_matrix_bundle"))
         self.btn_run.setEnabled(True)
         self.log_text.setPlainText("\n".join(pipeline_log))
         self.mw.update_data(

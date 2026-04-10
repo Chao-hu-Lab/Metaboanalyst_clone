@@ -312,11 +312,11 @@ if match_bm:
     base_anova = data["baseline"][2].set_index("Feature")
     mz_anova = data["mzmine"][2].set_index("Feature")
     feat_short, f_base, f_mz = [], [], []
-    for fa, fb in sorted(match_bm, key=lambda x: base_anova.loc[x[0], "F_statistic"] if x[0] in base_anova.index else 0, reverse=True):
+    for fa, fb in sorted(match_bm, key=lambda x: base_anova.loc[x[0], "statistic"] if x[0] in base_anova.index else 0, reverse=True):
         if fa in base_anova.index and fb in mz_anova.index:
             feat_short.append(fa.split("/")[0][:10])
-            f_base.append(base_anova.loc[fa, "F_statistic"])
-            f_mz.append(mz_anova.loc[fb, "F_statistic"])
+            f_base.append(base_anova.loc[fa, "statistic"])
+            f_mz.append(mz_anova.loc[fb, "statistic"])
     y = np.arange(len(feat_short))
     h = 0.35
     ax.barh(y + h/2, f_base, h, label="non-MZmine", color=COLORS["baseline"], edgecolor="white")
@@ -333,11 +333,11 @@ if match_bd:
     base_anova = data["baseline"][2].set_index("Feature")
     dnp_anova = data["dnp"][2].set_index("Feature")
     feat_short, f_base, f_dnp = [], [], []
-    for fa, fb in sorted(match_bd, key=lambda x: base_anova.loc[x[0], "F_statistic"] if x[0] in base_anova.index else 0, reverse=True):
+    for fa, fb in sorted(match_bd, key=lambda x: base_anova.loc[x[0], "statistic"] if x[0] in base_anova.index else 0, reverse=True):
         if fa in base_anova.index and fb in dnp_anova.index:
             feat_short.append(fa.split("/")[0][:10])
-            f_base.append(base_anova.loc[fa, "F_statistic"])
-            f_dnp.append(dnp_anova.loc[fb, "F_statistic"])
+            f_base.append(base_anova.loc[fa, "statistic"])
+            f_dnp.append(dnp_anova.loc[fb, "statistic"])
     y = np.arange(len(feat_short))
     h = 0.35
     ax.barh(y + h/2, f_base, h, label="non-MZmine", color=COLORS["baseline"], edgecolor="white")
@@ -487,8 +487,8 @@ report.append(f"  non-MZmine 獨有: {len(baseline_feats) - len(match_bm)} 特�
 if match_bm:
     base_a = data["baseline"][2].set_index("Feature")
     mz_a = data["mzmine"][2].set_index("Feature")
-    f_base_list = [base_a.loc[fa, "F_statistic"] for fa, fb in match_bm if fa in base_a.index]
-    f_mz_list = [mz_a.loc[fb, "F_statistic"] for fa, fb in match_bm if fb in mz_a.index]
+    f_base_list = [base_a.loc[fa, "statistic"] for fa, fb in match_bm if fa in base_a.index]
+    f_mz_list = [mz_a.loc[fb, "statistic"] for fa, fb in match_bm if fb in mz_a.index]
     avg_f_base = np.mean(f_base_list)
     avg_f_mz = np.mean(f_mz_list)
     better = "MZmine" if avg_f_mz > avg_f_base else "non-MZmine"
@@ -506,8 +506,8 @@ report.append(f"  non-MZmine 獨有: {len(baseline_feats) - len(match_bd)} 特�
 if match_bd:
     base_a = data["baseline"][2].set_index("Feature")
     dnp_a = data["dnp"][2].set_index("Feature")
-    f_base_list = [base_a.loc[fa, "F_statistic"] for fa, fb in match_bd if fa in base_a.index]
-    f_dnp_list = [dnp_a.loc[fb, "F_statistic"] for fa, fb in match_bd if fb in dnp_a.index]
+    f_base_list = [base_a.loc[fa, "statistic"] for fa, fb in match_bd if fa in base_a.index]
+    f_dnp_list = [dnp_a.loc[fb, "statistic"] for fa, fb in match_bd if fb in dnp_a.index]
     avg_f_base = np.mean(f_base_list)
     avg_f_dnp = np.mean(f_dnp_list)
     better = "DNP" if avg_f_dnp > avg_f_base else "non-MZmine"

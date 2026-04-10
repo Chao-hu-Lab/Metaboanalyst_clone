@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
+from typing import Any, Mapping
 
 import pandas as pd
 
@@ -98,13 +99,14 @@ def align_paired_samples(
     group1: str,
     group2: str,
     subject_ids: pd.Series,
+    paired_resolution: Mapping[str, Any] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.Index]:
     """
     Align two groups into matched pairs by subject ID.
 
     For each subject that appears in *both* groups, selects the first
-    matching sample from each group.  Subjects found in only one group
-    are silently dropped.
+    matching sample from each group unless `paired_resolution` overrides
+    the selection. Subjects found in only one group are silently dropped.
 
     Parameters
     ----------
@@ -132,30 +134,170 @@ def align_paired_samples(
     ValueError
         If no subjects can be matched between the two groups.
     """
+    df1, df2, matched, _meta = align_paired_samples_with_meta(
+        df,
+        labels,
+        group1,
+        group2,
+        subject_ids,
+        paired_resolution=paired_resolution,
+    )
+    return df1, df2, matched
+
+
+def _build_group_subject_candidates(
+    labels: pd.Series,
+    group: str,
+    subject_ids: pd.Series,
+) -> dict[str, list[Any]]:
+    """Return subject -> candidate sample index list for one group."""
+    group_candidates: dict[str, list[Any]] = {}
     labels_arr = labels.astype(str)
-    mask1 = labels_arr == group1
-    mask2 = labels_arr == group2
+    mask = labels_arr == group
+    group_subject_ids = subject_ids[mask]
+    for sample_name, subject_id in group_subject_ids.items():
+        subject_key = str(subject_id).strip()
+        if not subject_key:
+            continue
+        group_candidates.setdefault(subject_key, []).append(sample_name)
+    return group_candidates
 
-    # Build subject → first sample index mapping per group
-    sid1 = subject_ids[mask1]
-    sid2 = subject_ids[mask2]
 
-    # Drop empty subject IDs and keep first occurrence per subject
-    map1 = sid1[sid1 != ""].groupby(sid1[sid1 != ""]).apply(lambda g: g.index[0])
-    map2 = sid2[sid2 != ""].groupby(sid2[sid2 != ""]).apply(lambda g: g.index[0])
+def _resolve_subject_candidate(
+    group: str,
+    subject_id: str,
+    candidates: list[Any],
+    paired_resolution: Mapping[str, Any] | None,
+    warnings: list[str],
+    overrides_applied: list[dict[str, Any]],
+) -> Any:
+    """Resolve one subject/group candidate list to a single sample index."""
+    if len(candidates) == 1:
+        return candidates[0]
 
-    common = map1.index.intersection(map2.index).sort_values()
+    overrides = {}
+    if isinstance(paired_resolution, Mapping):
+        raw_overrides = paired_resolution.get("overrides", {})
+        if isinstance(raw_overrides, Mapping):
+            group_overrides = raw_overrides.get(group, {})
+            if isinstance(group_overrides, Mapping):
+                overrides = dict(group_overrides)
+
+    override_sample = overrides.get(subject_id)
+    if override_sample is not None:
+        if override_sample not in candidates:
+            candidate_text = ", ".join(str(candidate) for candidate in candidates)
+            raise ValueError(
+                f"Paired override for group '{group}', subject '{subject_id}' "
+                f"points to '{override_sample}', but candidates are: {candidate_text}"
+            )
+        overrides_applied.append(
+            {
+                "group": group,
+                "subject_id": subject_id,
+                "selected_sample": str(override_sample),
+                "candidates": [str(candidate) for candidate in candidates],
+            }
+        )
+        return override_sample
+
+    unresolved_policy = "warn_keep_first"
+    if isinstance(paired_resolution, Mapping) and "on_unresolved" in paired_resolution:
+        unresolved_policy = str(paired_resolution["on_unresolved"]).strip().lower()
+
+    candidate_text = ", ".join(str(candidate) for candidate in candidates)
+    if unresolved_policy == "error":
+        raise ValueError(
+            f"Multiple paired candidates found for group '{group}', subject '{subject_id}': "
+            f"{candidate_text}"
+        )
+
+    warnings.append(
+        f"Multiple paired candidates found for group '{group}', subject '{subject_id}'. "
+        f"Using first sample '{candidates[0]}'. Candidates: {candidate_text}"
+    )
+    return candidates[0]
+
+
+def resolve_paired_sample_indices(
+    labels: pd.Series,
+    group1: str,
+    group2: str,
+    subject_ids: pd.Series,
+    paired_resolution: Mapping[str, Any] | None = None,
+) -> tuple[list[Any], list[Any], pd.Index, dict[str, Any]]:
+    """Resolve matched paired sample indices plus audit metadata."""
+    map1 = _build_group_subject_candidates(labels, group1, subject_ids)
+    map2 = _build_group_subject_candidates(labels, group2, subject_ids)
+
+    common = pd.Index(sorted(set(map1).intersection(map2)), name="subject_id")
     if common.empty:
         raise ValueError(
             f"No matched subjects between '{group1}' and '{group2}'. "
-            f"Group1 subjects: {sorted(map1.index.tolist())[:5]}; "
-            f"Group2 subjects: {sorted(map2.index.tolist())[:5]}"
+            f"Group1 subjects: {sorted(map1.keys())[:5]}; "
+            f"Group2 subjects: {sorted(map2.keys())[:5]}"
         )
 
-    idx1 = [map1[s] for s in common]
-    idx2 = [map2[s] for s in common]
+    warnings: list[str] = []
+    overrides_applied: list[dict[str, Any]] = []
+    idx1: list[Any] = []
+    idx2: list[Any] = []
+    for subject_id in common:
+        idx1.append(
+            _resolve_subject_candidate(
+                group1,
+                str(subject_id),
+                map1[str(subject_id)],
+                paired_resolution,
+                warnings,
+                overrides_applied,
+            )
+        )
+        idx2.append(
+            _resolve_subject_candidate(
+                group2,
+                str(subject_id),
+                map2[str(subject_id)],
+                paired_resolution,
+                warnings,
+                overrides_applied,
+            )
+        )
 
-    return df.loc[idx1], df.loc[idx2], common
+    strategy = "first_occurrence"
+    unresolved_policy = "warn_keep_first"
+    if isinstance(paired_resolution, Mapping):
+        strategy = str(paired_resolution.get("on_duplicate", "prefer_override")).strip().lower()
+        unresolved_policy = str(
+            paired_resolution.get("on_unresolved", "warn_keep_first")
+        ).strip().lower()
+
+    meta = {
+        "resolution_strategy": strategy,
+        "unresolved_policy": unresolved_policy,
+        "warnings": warnings,
+        "overrides_applied": overrides_applied,
+    }
+    return idx1, idx2, common, meta
+
+
+def align_paired_samples_with_meta(
+    df: pd.DataFrame,
+    labels: pd.Series,
+    group1: str,
+    group2: str,
+    subject_ids: pd.Series,
+    paired_resolution: Mapping[str, Any] | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.Index, dict[str, Any]]:
+    """Align two groups into matched pairs and return audit metadata."""
+    idx1, idx2, common, meta = resolve_paired_sample_indices(
+        labels,
+        group1,
+        group2,
+        subject_ids,
+        paired_resolution=paired_resolution,
+    )
+    return df.loc[idx1], df.loc[idx2], common, meta
 
 
 def _extract_qc_number(text: str) -> str:

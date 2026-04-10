@@ -18,11 +18,19 @@ from statsmodels.stats.multicomp import pairwise_tukeyhsd
 class ANOVAResult:
     """ANOVA 分析結果容器"""
 
-    def __init__(self, result_df, groups, p_thresh, posthoc_df=None):
+    def __init__(
+        self,
+        result_df,
+        groups,
+        p_thresh,
+        posthoc_df=None,
+        method_key: str = "anova",
+    ):
         self.result_df = result_df
         self.groups = groups
         self.p_thresh = p_thresh
         self.posthoc_df = posthoc_df
+        self.method_key = method_key
 
     @property
     def significant(self) -> pd.DataFrame:
@@ -115,7 +123,7 @@ def run_anova(
 
     result_df = pd.DataFrame({
         "Feature": df.columns,
-        "F_statistic": fvals,
+        "statistic": fvals,
         "pvalue": pvals,
         "pvalue_adj": pvals_adj,
         "neg_log10p": neg_log10p,
@@ -129,8 +137,13 @@ def run_anova(
         sig_features = result_df[result_df["significant"]]["Feature"].values
         for feat in sig_features[:50]:  # 限制數量
             vals = df[feat].values
+            valid_mask = ~np.isnan(vals)
+            vals = vals[valid_mask]
+            feat_labels = labels_arr[valid_mask]
+            if len(vals) < 3 or len(set(feat_labels)) < 2:
+                continue
             try:
-                tukey = pairwise_tukeyhsd(vals, labels_arr, alpha=p_thresh)
+                tukey = pairwise_tukeyhsd(vals, feat_labels, alpha=p_thresh)
                 for row in tukey.summary().data[1:]:
                     posthoc_records.append({
                         "Feature": feat,
@@ -147,4 +160,10 @@ def run_anova(
         if posthoc_records:
             posthoc_df = pd.DataFrame(posthoc_records)
 
-    return ANOVAResult(result_df, groups, p_thresh, posthoc_df)
+    return ANOVAResult(
+        result_df,
+        groups,
+        p_thresh,
+        posthoc_df,
+        method_key="kruskal" if nonpar else "anova",
+    )

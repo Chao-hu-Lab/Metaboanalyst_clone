@@ -32,7 +32,17 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from core.feature_metadata import default_feature_metadata, extract_feature_metadata
+from core.input_resolver import (
+    build_labels_from_sample_info,
+    detect_sample_type_row_key,
+    has_sample_type_row,
+    read_input_table,
+    validate_label_consistency,
+    validate_sample_info_alignment,
+)
 from core.sample_info import read_sample_info_sheet
+from core.sample_interface import identify_sample_columns
 from gui.widgets.pandas_model import create_sortable_model
 
 
@@ -44,6 +54,7 @@ class DataImportTab(QWidget):
         self.mw = main_window
         self._raw_df: pd.DataFrame | None = None
         self._sample_info_df: pd.DataFrame | None = None
+        self._loaded_sheet_name: str | None = None
         self._preview_source_model = None
         self._preview_proxy_model = None
         self._init_ui()
@@ -272,9 +283,13 @@ class DataImportTab(QWidget):
 
     def _load_file_for_preview(self, path: str):
         self._sample_info_df = None
+        self._loaded_sheet_name = None
         try:
-            df = self._read_table(path)
-            self._sample_info_df = read_sample_info_sheet(path)
+            loaded = self._read_table(path)
+            df = loaded.table
+            self._loaded_sheet_name = loaded.sheet_name
+            if Path(path).suffix.lower() in {".xlsx", ".xls"}:
+                self._sample_info_df = read_sample_info_sheet(path)
         except Exception as exc:
             QMessageBox.critical(self, self.tr("Import Error"), str(exc))
             return
@@ -284,39 +299,37 @@ class DataImportTab(QWidget):
             return
 
         self._raw_df = df
+        if has_sample_type_row(df):
+            cols_index = self.orientation_combo.findData("cols")
+            if cols_index >= 0:
+                self.orientation_combo.setCurrentIndex(cols_index)
         self._populate_mapping_options()
         self._update_preview(df)
 
-        sample_info_msg = self.tr("SampleInfo sheet: not found")
-        if self._sample_info_df is not None and not self._sample_info_df.empty:
-            sample_info_msg = self.tr(
-                "SampleInfo sheet loaded.\nRows: {rows}\nColumns: {cols}"
-            ).format(
-                rows=self._sample_info_df.shape[0],
-                cols=self._sample_info_df.shape[1],
-            )
+        sample_info_msg = self.tr("SampleInfo sheet loaded.\nRows: {rows}\nColumns: {cols}").format(
+            rows=self._sample_info_df.shape[0],
+            cols=self._sample_info_df.shape[1],
+        ) if self._sample_info_df is not None and not self._sample_info_df.empty else self.tr(
+            "SampleInfo sheet: not found"
+        )
+        sheet_msg = (
+            self.tr("Resolved worksheet: {sheet}").format(sheet=self._loaded_sheet_name)
+            if self._loaded_sheet_name
+            else self.tr("Resolved worksheet: current file")
+        )
 
         self.info_text.setPlainText(
             self.tr(
                 "Raw table loaded.\nRows: {rows}\nColumns: {cols}\n"
+                "{sheet}\n"
                 "{sample_info}\n"
                 "Select orientation and mapping, then click 'Load Data'."
-            ).format(rows=df.shape[0], cols=df.shape[1], sample_info=sample_info_msg)
+            ).format(rows=df.shape[0], cols=df.shape[1], sheet=sheet_msg, sample_info=sample_info_msg)
         )
 
     @staticmethod
-    def _read_table(path: str) -> pd.DataFrame:
-        ext = Path(path).suffix.lower()
-        if ext in {".xlsx", ".xls"}:
-            return pd.read_excel(path)
-        if ext in {".tsv", ".txt"}:
-            return pd.read_csv(path, sep="\t")
-        if ext == ".csv":
-            try:
-                return pd.read_csv(path)
-            except Exception:
-                return pd.read_csv(path, sep=None, engine="python")
-        return pd.read_csv(path, sep=None, engine="python")
+    def _read_table(path: str):
+        return read_input_table(path)
 
     def _update_preview(self, df: pd.DataFrame):
         source, proxy = create_sortable_model(df)
@@ -432,11 +445,34 @@ class DataImportTab(QWidget):
             return
 
         try:
-            mode = self.orientation_combo.currentData()
-            if mode == "cols":
-                matrix, labels, sample_col, group_col = self._parse_samples_as_columns()
+            has_sample_type = detect_sample_type_row_key(self._raw_df) is not None
+            if has_sample_type and self._sample_info_df is None and self.path_edit.text().strip().lower().endswith((".xlsx", ".xls")):
+                raise ValueError(
+                    self.tr("SampleInfo sheet is required for Excel files with Sample_Type rows.")
+                )
+            if has_sample_type:
+                matrix, labels, feature_metadata, sample_col, group_col = self._parse_samples_as_columns()
             else:
-                matrix, labels, sample_col, group_col = self._parse_samples_as_rows()
+                mode = self.orientation_combo.currentData()
+                if mode == "cols":
+                    matrix, labels, feature_metadata, sample_col, group_col = self._parse_samples_as_columns()
+                else:
+                    matrix, labels, feature_metadata, sample_col, group_col = self._parse_samples_as_rows()
+            if self._sample_info_df is not None:
+                if has_sample_type:
+                    labels = validate_label_consistency(
+                        matrix.index,
+                        labels,
+                        self._sample_info_df,
+                        observed_label_name="Worksheet Sample_Type",
+                    )
+                else:
+                    labels = build_labels_from_sample_info(
+                        matrix.index,
+                        self._sample_info_df,
+                        label_name=str(group_col),
+                    )
+                validate_sample_info_alignment(matrix.index, self._sample_info_df)
         except Exception as exc:
             QMessageBox.critical(self, self.tr("Import Error"), str(exc))
             return
@@ -444,6 +480,7 @@ class DataImportTab(QWidget):
         self.mw.set_data(
             matrix,
             labels,
+            feature_metadata=feature_metadata,
             sample_col=sample_col,
             group_col=group_col,
             sample_info=self._sample_info_df,
@@ -490,10 +527,12 @@ class DataImportTab(QWidget):
             raise ValueError(self.tr("No numeric feature columns found."))
 
         matrix.index = pd.Index(sample_ids.values, name=str(sample_col))
-        matrix.columns = self._make_unique(matrix.columns)
+        feature_index = pd.Index(self._make_unique(matrix.columns), name="Feature")
+        matrix.columns = feature_index
+        feature_metadata = default_feature_metadata(feature_index)
 
         labels = pd.Series(df[group_col].astype(str).values, index=matrix.index, name=str(group_col))
-        return matrix, labels, str(sample_col), str(group_col)
+        return matrix, labels, feature_metadata, str(sample_col), str(group_col)
 
     def _parse_samples_as_columns(self):
         df = self._raw_df.copy()
@@ -505,7 +544,7 @@ class DataImportTab(QWidget):
         if group_key is None:
             raise ValueError(self.tr("Please select a group row key."))
 
-        sample_columns = [c for c in df.columns if c != id_col]
+        sample_columns = [col for col in identify_sample_columns(df) if col != id_col]
         if not sample_columns:
             raise ValueError(self.tr("No sample columns found."))
 
@@ -521,20 +560,27 @@ class DataImportTab(QWidget):
         if feature_rows.empty:
             raise ValueError(self.tr("No feature rows remain after removing group row."))
 
-        feature_names = self._make_unique(feature_rows[id_col].astype(str).tolist())
+        feature_index = pd.Index(
+            self._make_unique(feature_rows[id_col].astype(str).tolist()),
+            name="Feature",
+        )
         matrix = feature_rows.loc[:, sample_columns].apply(pd.to_numeric, errors="coerce").T
         matrix.index = pd.Index([str(col) for col in sample_columns], name=self.tr("Sample"))
-        matrix.columns = feature_names
+        matrix.columns = feature_index
         matrix = matrix.dropna(axis=1, how="all")
         if matrix.empty:
             raise ValueError(self.tr("No numeric feature columns found after transpose."))
+        feature_metadata = extract_feature_metadata(
+            feature_rows.reset_index(drop=True),
+            feature_index,
+        )
 
         labels = pd.Series(
             group_row.loc[sample_columns].astype(str).values,
             index=matrix.index,
             name=str(group_key),
         )
-        return matrix, labels, str(id_col), str(group_key)
+        return matrix, labels, feature_metadata, str(id_col), str(group_key)
 
     @staticmethod
     def _make_unique(values) -> list[str]:
