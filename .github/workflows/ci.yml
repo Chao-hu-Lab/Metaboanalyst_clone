@@ -29,7 +29,43 @@ jobs:
           submodules: "false"
           install-args: "-r requirements.txt pytest"
 
-      - name: Run not-slow regression file-by-file
+      - name: Run PR regression targets
+        if: github.event_name == 'pull_request'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $targets = @(
+              @{ Path = "tests\test_gui_config_integration.py"; Marker = $null },
+              @{ Path = "tests\test_gui_layout.py"; Marker = "not slow" },
+              @{ Path = "tests\test_gui_preset_manager.py"; Marker = $null },
+              @{ Path = "tests\test_gui_state_binding.py"; Marker = $null },
+              @{ Path = "tests\test_plotly_charts.py"; Marker = $null },
+              @{ Path = "tests\test_run_from_config_input_formats.py"; Marker = $null },
+              @{ Path = "tests\test_score_plot_label_modes.py"; Marker = $null },
+              @{ Path = "tests\test_stats_matrix_routing.py"; Marker = $null }
+          )
+
+          foreach ($target in $targets) {
+              $path = $target.Path
+              if (-not (Test-Path $path)) {
+                  throw "PR regression target not found: $path"
+              }
+
+              Write-Host "=== RUNNING $path ==="
+              if ($null -ne $target.Marker) {
+                  uv run pytest $path -q -m $target.Marker
+              }
+              else {
+                  uv run pytest $path -q
+              }
+
+              if ($LASTEXITCODE -ne 0) {
+                  throw "PR regression target failed: $path"
+              }
+          }
+
+      - name: Run repository regression file-by-file
+        if: github.event_name != 'pull_request'
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"

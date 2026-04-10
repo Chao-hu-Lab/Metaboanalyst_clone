@@ -138,14 +138,17 @@ The repository CI intentionally does **not** run the same monolithic command on 
 
 Current policy:
 
-1. Python 3.11 runs the repository regression suite file-by-file with `-m "not slow"`
-2. The known slow GUI smoke cases are split into a dedicated Python 3.11 job outside the default PR path
-3. Python 3.12 runs a targeted compatibility smoke subset
-4. `ruff` is kept as a low-noise guardrail using `--select=F,E9`
+1. Python 3.11 keeps the legacy `Full Regression (Python 3.11)` check name for branch protection compatibility
+2. On pull requests, that job runs a curated regression subset focused on GUI/state/config/statistics surfaces touched most often in active development
+3. On non-PR events, Python 3.11 still runs the repository regression suite file-by-file with `-m "not slow"`
+4. The known slow GUI smoke cases are split into a dedicated Python 3.11 job outside the default PR path
+5. Python 3.12 runs a targeted compatibility smoke subset
+6. `ruff` is kept as a low-noise guardrail using `--select=F,E9`
 
 Why:
 
 - PR feedback needs to stay within a practical wall-clock budget
+- the required regression check name remains stable even though PR and non-PR execution depth now differs
 - file-by-file execution still localizes failures instead of hiding them in one giant run
 - the Phase 7 GUI smoke matrix remains valuable, but it should not dominate every PR check
 - splitting slow GUI smoke into its own lane makes progress visible and failures easier to interpret
