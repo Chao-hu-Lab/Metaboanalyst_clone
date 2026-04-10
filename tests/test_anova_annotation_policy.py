@@ -8,7 +8,7 @@ import pytest
 from analysis.anova import ANOVAResult
 from gui.main_window import MainWindow
 
-pytestmark = [pytest.mark.gui, pytest.mark.integration]
+pytestmark = [pytest.mark.gui, pytest.mark.integration, pytest.mark.pr_smoke]
 
 
 def _patch_sync_runner(window: MainWindow, monkeypatch: pytest.MonkeyPatch) -> None:

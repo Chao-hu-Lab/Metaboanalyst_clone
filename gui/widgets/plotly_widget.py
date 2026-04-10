@@ -32,6 +32,14 @@ if HAS_WEBENGINE:
             self.console_message_emitted.emit(message)
 
 
+def _is_truthy_env(value: str | None) -> bool:
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _should_embed_webengine() -> bool:
+    return HAS_WEBENGINE and not _is_truthy_env(os.environ.get("METABO_DISABLE_WEBENGINE"))
+
+
 class PlotlyWidget(QWidget):
     """Display Plotly charts via ``QWebEngineView`` or a browser fallback."""
 
@@ -43,7 +51,7 @@ class PlotlyWidget(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        if HAS_WEBENGINE:
+        if _should_embed_webengine():
             self._web = QWebEngineView()
             self._page = _PlotlyBridgePage(self._web)
             self._page.console_message_emitted.connect(self._handle_console_message)

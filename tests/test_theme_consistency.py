@@ -8,6 +8,8 @@ import pytest
 
 import visualization
 
+pytestmark = [pytest.mark.pr_smoke]
+
 
 _PLOT_FUNCTIONS = [
     (name, obj)

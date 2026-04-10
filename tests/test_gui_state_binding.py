@@ -7,7 +7,7 @@ import pytest
 from core.app_config import load_yaml_config
 from gui.main_window import MainWindow
 
-pytestmark = [pytest.mark.gui, pytest.mark.integration]
+pytestmark = [pytest.mark.gui, pytest.mark.integration, pytest.mark.pr_smoke]
 
 
 def _set_combo_to_data(combo, value: object) -> None:

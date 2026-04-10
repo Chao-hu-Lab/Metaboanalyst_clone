@@ -6,6 +6,8 @@ import pytest
 
 from visualization.theme_manager import ThemeManager
 
+pytestmark = [pytest.mark.pr_smoke]
+
 
 def test_theme_manager_init():
     tm = ThemeManager("light")

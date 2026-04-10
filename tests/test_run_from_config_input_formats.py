@@ -11,6 +11,8 @@ from scripts.run_from_config import (
     resolve_top_vip,
 )
 
+pytestmark = [pytest.mark.integration, pytest.mark.pr_smoke]
+
 try:
     import plotly.graph_objects as go
 

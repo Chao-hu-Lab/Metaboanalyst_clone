@@ -79,14 +79,14 @@ If `uv run pytest tests -q` times out:
 
 ## Known slow files
 
-The following file is known to dominate full-suite runtime in the current
-Windows harness environment:
+The following Phase 7 GUI smoke coverage is known to dominate runtime in the
+current Windows harness environment:
 
-- `tests\test_gui_layout.py`
+- `tests\test_gui_phase7_slow.py`
 
-Observed runtime during the April 2026 verification pass:
+Observed runtime during the April 2026 verification pass before the split:
 
-- `tests\test_gui_layout.py`: about 14 minutes
+- the old `tests\test_gui_layout.py` deep-smoke segment: about 14 minutes
 
 This number may vary by machine, but the general lesson remains:
 
@@ -139,16 +139,18 @@ The repository CI intentionally does **not** run the same monolithic command on 
 Current policy:
 
 1. Python 3.11 keeps the legacy `Full Regression (Python 3.11)` check name for branch protection compatibility
-2. On pull requests, that job runs a curated regression subset focused on GUI/state/config/statistics surfaces touched most often in active development
-3. On non-PR events, Python 3.11 still runs the repository regression suite file-by-file with `-m "not slow"`
-4. The known slow GUI smoke cases are split into a dedicated Python 3.11 job outside the default PR path
+2. Pull requests fan out into domain-oriented smoke shards and then report back through that legacy regression check name via an aggregate job
+3. On non-PR events, Python 3.11 still runs broader repository regression shards on the self-hosted Windows runner
+4. The known slow GUI smoke cases live in `tests\test_gui_phase7_slow.py` and stay outside the default PR path
 5. Python 3.12 runs a targeted compatibility smoke subset
 6. `ruff` is kept as a low-noise guardrail using `--select=F,E9`
+7. Shard membership lives in `tools\ci\pytest-target-groups.psd1`, so workflow YAML does not become the only source of truth for repository test topology
 
 Why:
 
 - PR feedback needs to stay within a practical wall-clock budget
 - the required regression check name remains stable even though PR and non-PR execution depth now differs
-- file-by-file execution still localizes failures instead of hiding them in one giant run
+- shard boundaries follow repository domains rather than one giant sequential loop
 - the Phase 7 GUI smoke matrix remains valuable, but it should not dominate every PR check
 - splitting slow GUI smoke into its own lane makes progress visible and failures easier to interpret
+- keeping shard membership in a repo-local manifest makes it easier to evolve CI without rewriting job logic

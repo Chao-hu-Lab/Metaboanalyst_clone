@@ -12,7 +12,7 @@ from core.pipeline import MetaboAnalystPipeline
 from gui.main_window import MainWindow
 from scripts.run_from_config import load_data
 
-pytestmark = [pytest.mark.gui, pytest.mark.integration]
+pytestmark = [pytest.mark.gui, pytest.mark.integration, pytest.mark.pr_smoke]
 
 
 def _make_column_oriented_raw_df() -> pd.DataFrame:

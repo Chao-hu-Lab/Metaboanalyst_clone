@@ -15,6 +15,10 @@ from PySide6.QtWidgets import QApplication
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("METABO_N_JOBS", "1")  # single-process in test environment
+os.environ.setdefault(
+    "METABO_DISABLE_WEBENGINE",
+    "1",
+)  # keep GUI smoke focused on app wiring instead of QWebEngine teardown behavior
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _PYTEST_BUILD_DIR = _REPO_ROOT / "build" / "pytest"

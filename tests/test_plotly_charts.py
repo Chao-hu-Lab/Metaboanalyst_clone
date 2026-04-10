@@ -24,6 +24,9 @@ except ImportError:
     HAS_NETWORKX = False
 
 
+pytestmark = [pytest.mark.pr_smoke]
+
+
 def _make_volcano_result():
     result_df = pd.DataFrame(
         {

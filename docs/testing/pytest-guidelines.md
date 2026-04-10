@@ -33,6 +33,7 @@ markers =
     gui: PySide6 desktop GUI tests and layout smoke checks.
     slow: Long-running tests that are not ideal for tight edit-run loops.
     integration: Multi-module integration tests that exercise shared config, pipeline, or GUI flows.
+    pr_smoke: Curated high-signal regression coverage for pull request gating.
 ```
 
 ### Marker policy
@@ -41,13 +42,16 @@ markers =
   - Any test that requires `QApplication`, `PySide6`, `MainWindow`, or widget interaction
 - `slow`
   - Tests that are intentionally expensive or have long wall-clock runtime
-  - Current examples: the Phase 7 deep smoke cases inside `tests/test_gui_layout.py`
+  - Current examples: the Phase 7 deep smoke cases inside `tests/test_gui_phase7_slow.py`
 - `integration`
   - Tests that validate behavior across multiple modules or layers
   - Examples:
     - shared config -> GUI widget state
     - GUI -> pipeline runtime parity
     - preset lifecycle across config + UI
+- `pr_smoke`
+  - High-signal tests intended to form the default pull-request regression gate
+  - Should remain focused enough that CI can shard them by domain without reintroducing multi-hour single-job runs
 
 ### Fixture policy
 
@@ -71,8 +75,14 @@ markers =
 - GUI smoke failures should save widget screenshots only on failure to keep
   normal runs clean
 - Keep long GUI geometry suites separate from fast widget-state tests when possible
-- In mixed files such as `tests/test_gui_layout.py`, apply `slow` only to the
-  deep smoke matrix cases, not to the whole module
+- Prefer separate modules for:
+  - fast GUI shell/layout checks
+  - Step 5 interaction/statistics checks
+  - deep slow smoke coverage
+- The Phase 7 slow coverage now lives in `tests/test_gui_phase7_slow.py`
+- Test mode disables embedded `QWebEngineView` via `METABO_DISABLE_WEBENGINE=1`
+  so CI validates application wiring without paying WebEngine startup and
+  teardown cost in every GUI test process
 
 ### Recommended commands
 
@@ -97,7 +107,8 @@ Long smoke verification:
 
 ```powershell
 $env:UV_CACHE_DIR='.uv-cache'
-uv run pytest tests\test_gui_layout.py -vv
+uv run pytest tests\test_gui_layout_core.py tests\test_gui_step5_interaction.py -q
+uv run pytest tests\test_gui_phase7_slow.py -vv
 ```
 
 ### Audit summary for current repository
@@ -133,11 +144,7 @@ uv run pytest tests\test_gui_layout.py -vv
 ### Follow-up recommendations
 
 1. Migrate future tests from `tmp_path` to `repo_tmp_path` explicitly
-2. Consider splitting `tests/test_gui_layout.py` into:
-   - fast layout sanity checks
-   - deep smoke matrix
-3. Add a CI lane that runs:
-   - `-m "not slow"` on every push
-   - full GUI smoke on scheduled or release workflows
+2. Keep `pr_smoke` focused and review shard membership whenever a PR gate starts stretching in wall-clock time
+3. Update `tools/ci/pytest-target-groups.psd1` before editing workflow YAML when shard membership changes
 4. If warning discipline becomes important later, adopt `filterwarnings`
    incrementally rather than switching all warnings to errors at once

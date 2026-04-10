@@ -16,7 +16,7 @@ import analysis.univariate as univariate_module
 from core.pipeline import MetaboAnalystPipeline
 from gui.main_window import MainWindow
 
-pytestmark = [pytest.mark.gui, pytest.mark.integration]
+pytestmark = [pytest.mark.gui, pytest.mark.integration, pytest.mark.pr_smoke]
 
 
 def _make_stats_matrices() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Series]:

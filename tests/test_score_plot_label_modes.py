@@ -16,7 +16,7 @@ from visualization.plsda_plot import plot_plsda_score
 
 matplotlib.use("Agg")
 
-pytestmark = [pytest.mark.gui, pytest.mark.integration]
+pytestmark = [pytest.mark.gui, pytest.mark.integration, pytest.mark.pr_smoke]
 
 
 def _make_group_scores(seed: int, shift: float) -> np.ndarray:
