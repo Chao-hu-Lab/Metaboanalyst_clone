@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.figure import Figure
+from matplotlib.patches import Patch
 from matplotlib.lines import Line2D
 from matplotlib.patches import Ellipse
 from scipy.stats import chi2
@@ -249,37 +250,136 @@ def plot_oplsda_splot(
     apply_publication_style(theme)
 
     if fig is None:
-        fig = plt.figure(figsize=(8, 6))
+        fig = plt.figure(figsize=(8.8, 6.8))
     fig.clf()
     ax = fig.add_subplot(111)
 
     imp_df = oplsda_result.get_importance_df()
     if imp_df.empty:
-        ax.set_title("OPLS-DA S-Plot (no data)")
+        ax.text(
+            0.5,
+            0.5,
+            "OPLS-DA S-Plot\nNo importance data available.",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+            fontsize=11,
+        )
+        ax.set_axis_off()
+        fig.suptitle("OPLS-DA S-Plot", fontsize=13, fontweight="bold", y=0.97)
         fig.tight_layout()
         return fig
 
     loadings = imp_df["Loading"].to_numpy(dtype=float)
-    importance = imp_df["Importance"].to_numpy(dtype=float)
+    if "Importance" in imp_df.columns:
+        importance = imp_df["Importance"].to_numpy(dtype=float)
+    else:
+        importance = np.abs(loadings)
     features = imp_df["Feature"].astype(str).to_numpy()
-    palette = get_group_colors(theme, 2)
+    palette = get_group_colors(theme, 3)
+    positive_color = palette[0]
+    negative_color = palette[1]
+    neutral_color = palette[2] if len(palette) > 2 else palette[0]
 
-    ax.scatter(loadings, importance, c=palette[1], s=30, alpha=0.6, zorder=2)
+    pos_mask = loadings >= 0
+    neg_mask = ~pos_mask
+    ax.scatter(
+        loadings[neg_mask],
+        importance[neg_mask],
+        c=negative_color,
+        s=28,
+        alpha=0.55,
+        zorder=2,
+        label="Negative loading",
+    )
+    ax.scatter(
+        loadings[pos_mask],
+        importance[pos_mask],
+        c=positive_color,
+        s=28,
+        alpha=0.55,
+        zorder=2,
+        label="Positive loading",
+    )
 
-    top_idx = np.argsort(importance)[-top_n:]
-    for idx in top_idx:
+    top_idx = _select_balanced_annotation_indices(loadings, importance, top_n)
+    for rank, idx in enumerate(top_idx, start=1):
+        offset_x = 6 if loadings[idx] >= 0 else -6
+        align = "left" if offset_x > 0 else "right"
         ax.annotate(
-            features[idx][:20],
+            features[idx][:24],
             (loadings[idx], importance[idx]),
-            fontsize=7,
-            alpha=0.8,
-            xytext=(5, 5),
+            fontsize=7.2,
+            color=neutral_color,
+            alpha=0.95,
+            xytext=(offset_x, 5 if rank % 2 else -6),
             textcoords="offset points",
+            ha=align,
+            va="bottom" if rank % 2 else "top",
+            bbox={
+                "boxstyle": "round,pad=0.16",
+                "facecolor": "white",
+                "edgecolor": positive_color if loadings[idx] >= 0 else negative_color,
+                "linewidth": 0.6,
+                "alpha": 0.88,
+            },
         )
 
+    ax.axvline(0, color="grey", linewidth=0.8, linestyle="-", alpha=0.6)
+    ax.axhline(0, color="grey", linewidth=0.8, linestyle="-", alpha=0.35)
     ax.set_xlabel("Predictive Loading p[1]", fontsize=10)
-    ax.set_ylabel("|p[1]| (Importance)", fontsize=10)
-    ax.set_title("OPLS-DA S-Plot", fontsize=12, fontweight="bold")
-    ax.axvline(0, color="grey", linewidth=0.5, linestyle="-")
+    ax.set_ylabel("Absolute predictive loading |p[1]|", fontsize=10)
+    ax.set_title("OPLS-DA S-Plot", fontsize=13, fontweight="bold", pad=10)
+    ax.text(
+        0.01,
+        0.99,
+        f"Annotated top {len(top_idx)} features by |loading|",
+        transform=ax.transAxes,
+        ha="left",
+        va="top",
+        fontsize=8.5,
+        alpha=0.85,
+    )
+    ax.legend(
+        handles=[
+            Patch(facecolor=positive_color, edgecolor=positive_color, label="Positive loading", alpha=0.55),
+            Patch(facecolor=negative_color, edgecolor=negative_color, label="Negative loading", alpha=0.55),
+        ],
+        loc="upper right",
+        frameon=False,
+        fontsize=8.5,
+    )
+    ax.margins(x=0.08, y=0.12)
     fig.tight_layout()
     return fig
+
+
+def _select_balanced_annotation_indices(
+    loadings: np.ndarray,
+    importance: np.ndarray,
+    top_n: int,
+) -> list[int]:
+    """Pick a balanced set of positive/negative contributors for annotation."""
+    if top_n <= 0 or len(loadings) == 0:
+        return []
+
+    order = np.argsort(importance)[::-1]
+    positive = [int(idx) for idx in order if loadings[idx] >= 0]
+    negative = [int(idx) for idx in order if loadings[idx] < 0]
+
+    target_positive = int(np.ceil(top_n / 2))
+    target_negative = top_n - target_positive
+    selected = positive[:target_positive] + negative[:target_negative]
+
+    if len(selected) < top_n:
+        seen = set(selected)
+        for idx in order:
+            idx = int(idx)
+            if idx in seen:
+                continue
+            selected.append(idx)
+            seen.add(idx)
+            if len(selected) >= top_n:
+                break
+
+    return selected[:top_n]

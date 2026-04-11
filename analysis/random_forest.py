@@ -83,6 +83,108 @@ def _clean_feature_dataframe(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
     return out, dropped
 
 
+def _build_rf_model(
+    *,
+    n_trees: int,
+    random_state: int,
+    n_jobs: int,
+) -> RandomForestClassifier:
+    """Build a Random Forest classifier with a specific parallelism setting."""
+    return RandomForestClassifier(
+        n_estimators=n_trees,
+        oob_score=True,
+        random_state=random_state,
+        n_jobs=n_jobs,
+    )
+
+
+def _run_rf_with_n_jobs(
+    *,
+    X: np.ndarray,
+    y: np.ndarray,
+    class_names: list[str],
+    feature_names: list[str],
+    dropped_unnamed: int,
+    n_trees: int,
+    cv_folds: int,
+    top_n: int,
+    random_state: int,
+    n_jobs: int,
+) -> RFResult:
+    """Execute Random Forest analysis with an explicit n_jobs setting."""
+    rf = _build_rf_model(
+        n_trees=n_trees,
+        random_state=random_state,
+        n_jobs=n_jobs,
+    )
+    rf.fit(X, y)
+    oob_acc = float(rf.oob_score_)
+
+    used_folds = _get_cv_folds(y, cv_folds)
+    if used_folds >= 2:
+        cv = StratifiedKFold(
+            n_splits=used_folds,
+            shuffle=True,
+            random_state=random_state,
+        )
+        cv_scores = cross_val_score(
+            _build_rf_model(
+                n_trees=n_trees,
+                random_state=random_state,
+                n_jobs=n_jobs,
+            ),
+            X,
+            y,
+            cv=cv,
+            scoring="accuracy",
+            n_jobs=n_jobs,
+        )
+        cv_acc = float(cv_scores.mean())
+        cv_std = float(cv_scores.std())
+        y_pred = cross_val_predict(
+            _build_rf_model(
+                n_trees=n_trees,
+                random_state=random_state,
+                n_jobs=n_jobs,
+            ),
+            X,
+            y,
+            cv=cv,
+            n_jobs=n_jobs,
+        )
+        cm = confusion_matrix(y, y_pred)
+    else:
+        # Not enough samples per class for CV; fall back to in-sample prediction.
+        cv_acc = float("nan")
+        cv_std = float("nan")
+        cm = confusion_matrix(y, rf.predict(X))
+
+    feature_cap = int(max(1, min(top_n, len(feature_names))))
+    importance_df = (
+        pd.DataFrame(
+            {
+                "Feature": feature_names,
+                "Importance": rf.feature_importances_,
+            }
+        )
+        .sort_values("Importance", ascending=False)
+        .reset_index(drop=True)
+        .head(feature_cap)
+    )
+
+    return RFResult(
+        feature_importance=importance_df,
+        oob_accuracy=oob_acc,
+        cv_accuracy=cv_acc,
+        cv_std=cv_std,
+        cv_folds_used=used_folds,
+        confusion_mat=cm,
+        class_names=class_names,
+        model=rf,
+        dropped_unnamed_features=dropped_unnamed,
+    )
+
+
 def run_random_forest(
     df: pd.DataFrame,
     labels: pd.Series,
@@ -102,55 +204,35 @@ def run_random_forest(
     y = le.fit_transform(labels)
     X = clean_df.values
     class_names = list(le.classes_)
+    requested_n_jobs = _N_JOBS
 
-    rf = RandomForestClassifier(
-        n_estimators=n_trees,
-        oob_score=True,
-        random_state=random_state,
-        n_jobs=_N_JOBS,
-    )
-    rf.fit(X, y)
-    oob_acc = float(rf.oob_score_)
-
-    used_folds = _get_cv_folds(y, cv_folds)
-    if used_folds >= 2:
-        cv = StratifiedKFold(
-            n_splits=used_folds,
-            shuffle=True,
+    try:
+        return _run_rf_with_n_jobs(
+            X=X,
+            y=y,
+            class_names=class_names,
+            feature_names=clean_df.columns.astype(str).tolist(),
+            dropped_unnamed=dropped_unnamed,
+            n_trees=n_trees,
+            cv_folds=cv_folds,
+            top_n=top_n,
             random_state=random_state,
+            n_jobs=requested_n_jobs,
         )
-        cv_scores = cross_val_score(rf, X, y, cv=cv, scoring="accuracy", n_jobs=_N_JOBS)
-        cv_acc = float(cv_scores.mean())
-        cv_std = float(cv_scores.std())
-        y_pred = cross_val_predict(rf, X, y, cv=cv, n_jobs=_N_JOBS)
-        cm = confusion_matrix(y, y_pred)
-    else:
-        # Not enough samples per class for CV; fall back to in-sample prediction.
-        cv_acc = float("nan")
-        cv_std = float("nan")
-        cm = confusion_matrix(y, rf.predict(X))
-
-    top_n = int(max(1, min(top_n, clean_df.shape[1])))
-    importance_df = (
-        pd.DataFrame(
-            {
-                "Feature": clean_df.columns,
-                "Importance": rf.feature_importances_,
-            }
+    except PermissionError:
+        # Windows sandboxed or packaged environments can deny the internal
+        # multiprocessing queue creation used by joblib when n_jobs != 1.
+        if requested_n_jobs == 1:
+            raise
+        return _run_rf_with_n_jobs(
+            X=X,
+            y=y,
+            class_names=class_names,
+            feature_names=clean_df.columns.astype(str).tolist(),
+            dropped_unnamed=dropped_unnamed,
+            n_trees=n_trees,
+            cv_folds=cv_folds,
+            top_n=top_n,
+            random_state=random_state,
+            n_jobs=1,
         )
-        .sort_values("Importance", ascending=False)
-        .reset_index(drop=True)
-        .head(top_n)
-    )
-
-    return RFResult(
-        feature_importance=importance_df,
-        oob_accuracy=oob_acc,
-        cv_accuracy=cv_acc,
-        cv_std=cv_std,
-        cv_folds_used=used_folds,
-        confusion_mat=cm,
-        class_names=class_names,
-        model=rf,
-        dropped_unnamed_features=dropped_unnamed,
-    )

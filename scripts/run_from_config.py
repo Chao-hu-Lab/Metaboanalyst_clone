@@ -12,6 +12,7 @@ import json
 import os
 import sys
 import warnings
+from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping
@@ -41,27 +42,22 @@ from core.input_resolver import (  # noqa: E402
 from core.pipeline import MetaboAnalystPipeline  # noqa: E402
 from core.sample_interface import identify_sample_columns  # noqa: E402
 from core.sample_info import read_sample_info_sheet, build_aligned_factors, extract_subject_ids  # noqa: E402
+from analysis.outlier import run_outlier_detection  # noqa: E402
+from analysis.random_forest import run_random_forest  # noqa: E402
+from analysis.roc import run_roc_analysis  # noqa: E402
 from ms_core.analysis.pca import run_pca  # noqa: E402
 from ms_core.analysis.anova import run_anova  # noqa: E402
 from ms_core.analysis.univariate import volcano_analysis  # noqa: E402
-from ms_core.visualization.pca_plot import plot_pca_score, plot_pca_scree, plot_pca_loading  # noqa: E402
-from ms_core.visualization.boxplot import plot_sample_boxplot  # noqa: E402
-from ms_core.visualization.density_plot import plot_density  # noqa: E402
+from ms_core.visualization.pca_plot import plot_pca_score  # noqa: E402
 from ms_core.visualization.anova_plot import plot_anova_importance, plot_feature_boxplot  # noqa: E402
-from visualization.oplsda_plot import plot_oplsda_score_interactive  # noqa: E402
-from visualization.pca_plot import plot_pca_score_interactive  # noqa: E402
-from visualization.plsda_plot import plot_plsda_score_interactive  # noqa: E402
-from visualization.volcano_plot import plot_volcano_interactive  # noqa: E402
+from visualization.heatmap import plot_heatmap  # noqa: E402
+from visualization.norm_preview import plot_norm_comparison  # noqa: E402
+from visualization.oplsda_plot import plot_oplsda_splot  # noqa: E402
+from visualization.outlier_plot import plot_dmodx, plot_outlier_score  # noqa: E402
+from visualization.rf_plot import plot_confusion_matrix, plot_rf_importance  # noqa: E402
+from visualization.roc_plot import plot_auc_ranking, plot_roc_curves  # noqa: E402
 
 warnings.filterwarnings("ignore")
-
-try:
-    import plotly.io as pio  # noqa: E402
-
-    HAS_PLOTLY = True
-except ImportError:
-    pio = None
-    HAS_PLOTLY = False
 
 TRUE_FILL = PatternFill(fill_type="solid", start_color="C6EFCE", end_color="C6EFCE")
 FALSE_FILL = PatternFill(fill_type="solid", start_color="FCE4D6", end_color="FCE4D6")
@@ -73,15 +69,36 @@ REDUNDANT_EXPORT_COLUMNS = {
     "pvalue_raw",
     "significance_pvalue",
 }
+REPORT_SUBDIRS = {
+    "qc": "01_QC_and_Preprocessing",
+    "global": "02_Global_Profiling",
+    "feature": "03_Feature_Selection",
+    "validation": "04_Biomarker_Validation",
+    "supplementary": "05_Supplementary",
+}
 
 
-def _save_plotly_html(fig: Any, path: str) -> bool:
-    """Persist a Plotly figure as a standalone HTML document when available."""
-    if fig is None or not HAS_PLOTLY or pio is None:
-        return False
-    html = pio.to_html(fig, include_plotlyjs="cdn", full_html=True)
-    Path(path).write_text(html, encoding="utf-8")
-    return True
+def _ensure_report_dirs(output_dir: str) -> dict[str, Path]:
+    """Create publication-oriented report subdirectories under the output root."""
+    root = Path(output_dir)
+    report_dirs: dict[str, Path] = {}
+    for key, name in REPORT_SUBDIRS.items():
+        path = root / name
+        path.mkdir(parents=True, exist_ok=True)
+        report_dirs[key] = path
+    return report_dirs
+
+
+def _save_figure(fig: Any, path: Path) -> None:
+    """Save a matplotlib-compatible figure and close it."""
+    fig.savefig(path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _iter_output_files(output_dir: str) -> Iterable[Path]:
+    """Yield every file under the output directory in stable relative order."""
+    root = Path(output_dir)
+    yield from sorted((path for path in root.rglob("*") if path.is_file()), key=lambda path: str(path.relative_to(root)))
 
 
 # ── Config loader ─────────────────────────────────────────
@@ -112,6 +129,19 @@ def parse_pair_config(
     return result
 
 
+def unique_group_pairs(parsed_pairs: list[tuple[str, str, bool]]) -> list[tuple[str, str]]:
+    """Return de-duplicated ordered group pairs while ignoring paired-mode metadata."""
+    seen: set[tuple[str, str]] = set()
+    unique_pairs: list[tuple[str, str]] = []
+    for group1, group2, _paired in parsed_pairs:
+        pair = (str(group1), str(group2))
+        if pair in seen:
+            continue
+        seen.add(pair)
+        unique_pairs.append(pair)
+    return unique_pairs
+
+
 def resolve_volcano_test_mode(volcano_cfg: Mapping[str, Any]) -> tuple[str, bool, bool]:
     """Return (test_key, equal_var, nonpar) for volcano analysis."""
     test_key = str(
@@ -131,6 +161,17 @@ def resolve_volcano_parametric_equal_var(volcano_cfg: Mapping[str, Any]) -> bool
 def resolve_top_vip(plsda_cfg: Mapping[str, Any]) -> int:
     """Return the configured VIP count while keeping a sane positive lower bound."""
     return max(1, int(plsda_cfg.get("top_vip", 15)))
+
+
+def resolve_volcano_fc_threshold(volcano_cfg: Mapping[str, Any]) -> tuple[float, float | None]:
+    """Return volcano FC thresholds while supporting legacy log2-only configs."""
+    fc_thresh = volcano_cfg.get("fc_thresh")
+    log2_fc_thresh = volcano_cfg.get("log2_fc_thresh")
+    if fc_thresh is None and log2_fc_thresh is None:
+        return 2.0, None
+    if fc_thresh is None:
+        return float(2 ** float(log2_fc_thresh)), float(log2_fc_thresh)
+    return float(fc_thresh), None if log2_fc_thresh is None else float(log2_fc_thresh)
 
 
 # ── Data loaders ──────────────────────────────────────────
@@ -286,6 +327,28 @@ def compose_output_suffix(
 
     ts = timestamp or datetime.now().strftime("%Y%m%d_%H%M%S")
     return f"{base}_{ts}" if base else f"_{ts}"
+
+
+def _select_heatmap_matrix(
+    df: pd.DataFrame,
+    anova_df: pd.DataFrame,
+    *,
+    max_features: int,
+) -> pd.DataFrame:
+    """Choose a stable subset for publication heatmap export."""
+    feature_cap = max(1, min(int(max_features), 50))
+    ranked = anova_df.sort_values("pvalue_adj").copy()
+    if "significant" in ranked.columns:
+        significant_mask = ranked["significant"].fillna(False).astype(bool)
+        significant = ranked.loc[significant_mask]
+    else:
+        significant = ranked.iloc[0:0]
+    feature_rows = significant if not significant.empty else ranked
+    feature_names = [feat for feat in feature_rows["Feature"].astype(str).tolist() if feat in df.columns]
+    selected = feature_names[:feature_cap]
+    if selected:
+        return df.loc[:, selected].copy()
+    return df.copy()
 
 
 # ── Significant features Excel export ────────────────────
@@ -493,6 +556,7 @@ def run_analysis(cfg: dict) -> dict[str, str]:
     cfg["output"]["suffix"] = resolved_suffix
     output_dir = os.path.join(results_root, input_stem + resolved_suffix)
     os.makedirs(output_dir, exist_ok=True)
+    report_dirs = _ensure_report_dirs(output_dir)
 
     # ── Build SpecNorm factors if needed ──────────────────
     factors = None
@@ -578,6 +642,16 @@ def run_analysis(cfg: dict) -> dict[str, str]:
         (pipeline.processed_labels if pipeline.processed_labels is not None else labels).copy(),
         included_groups,
     )
+    pre_norm_matrix, _ = _finalize_analysis_matrix(
+        pipeline.steps["filtered"].copy(),
+        (pipeline.processed_labels if pipeline.processed_labels is not None else labels).copy(),
+        included_groups,
+    )
+    pre_norm_matrix = pre_norm_matrix.reindex(index=processed.index, columns=processed.columns)
+
+    raw_volcano_pairs = parse_pair_config(cfg["groups"].get("volcano_pairs", []))
+    raw_oplsda_pairs = parse_pair_config(cfg["groups"].get("oplsda_pairs", []))
+    report_pairs = unique_group_pairs(raw_volcano_pairs or raw_oplsda_pairs)
 
     print(f"  Final: {processed.shape[0]} samples x {processed.shape[1]} features")
     print(f"  Groups: {dict(final_labels.value_counts())}")
@@ -606,6 +680,15 @@ def run_analysis(cfg: dict) -> dict[str, str]:
         f.write(dump_yaml(cfg, include_runtime=False))
     print(f"  Saved to {output_dir}")
 
+    # ── QC / preprocessing report ────────────────────────
+    print("\n" + "=" * 60)
+    print("Generating QC and preprocessing report...")
+
+    fig = plt.figure(figsize=(12, 8))
+    plot_norm_comparison(pre_norm_matrix, processed, final_labels, fig=fig)
+    _save_figure(fig, report_dirs["qc"] / "normalization_comparison.png")
+    print(f"  Saved {REPORT_SUBDIRS['qc']}\\normalization_comparison.png")
+
     # ── PCA ───────────────────────────────────────────────
     print("\n" + "=" * 60)
     print("Running PCA...")
@@ -617,24 +700,8 @@ def run_analysis(cfg: dict) -> dict[str, str]:
 
     fig = plt.figure(figsize=(10, 8))
     plot_pca_score(pca_result, pc_x=0, pc_y=1, fig=fig)
-    fig.savefig(os.path.join(output_dir, "pca_score_plot.png"), dpi=150, bbox_inches="tight")
-    plt.close(fig)
-    if _save_plotly_html(
-        plot_pca_score_interactive(pca_result, pc_x=0, pc_y=1),
-        os.path.join(output_dir, "pca_score_plot.html"),
-    ):
-        print("  Saved pca_score_plot.html")
-
-    fig = plt.figure(figsize=(8, 5))
-    plot_pca_scree(pca_result, fig=fig)
-    fig.savefig(os.path.join(output_dir, "pca_scree_plot.png"), dpi=150, bbox_inches="tight")
-    plt.close(fig)
-
-    fig = plt.figure(figsize=(10, 6))
-    plot_pca_loading(pca_result, fig=fig)
-    fig.savefig(os.path.join(output_dir, "pca_loading_plot.png"), dpi=150, bbox_inches="tight")
-    plt.close(fig)
-    print("  Saved PCA plots (score, scree, loading)")
+    _save_figure(fig, report_dirs["qc"] / "pca_score_plot.png")
+    print(f"  Saved {REPORT_SUBDIRS['qc']}\\pca_score_plot.png")
 
     # ── ANOVA ─────────────────────────────────────────────
     print("\n" + "=" * 60)
@@ -670,21 +737,34 @@ def run_analysis(cfg: dict) -> dict[str, str]:
 
     fig = plt.figure(figsize=(10, 8))
     plot_anova_importance(anova_result, top_n=25, fig=fig)
-    fig.savefig(os.path.join(output_dir, "anova_importance.png"), dpi=150, bbox_inches="tight")
-    plt.close(fig)
+    _save_figure(fig, report_dirs["feature"] / "anova_importance.png")
 
     anova_ranked = anova_result.result_df.sort_values("pvalue_adj").copy()
     anova_feature_pool = anova_ranked["Feature"].tolist()
     sig_feature_pool = anova_ranked.loc[anova_ranked["significant"], "Feature"].tolist()
-    anova_pairs = parse_pair_config(cfg["groups"].get("volcano_pairs", []))
-    saved_anova_boxplots = 0
-    seen_anova_pairs = set()
-    for g1, g2, _paired in anova_pairs:
-        pair_key = (g1, g2)
-        if pair_key in seen_anova_pairs:
-            continue
-        seen_anova_pairs.add(pair_key)
+    heatmap_cfg = analysis_cfg.get("heatmap", {})
+    heatmap_df = _select_heatmap_matrix(
+        processed,
+        anova_ranked,
+        max_features=int(heatmap_cfg.get("max_features", 50)),
+    )
+    if not heatmap_df.empty:
+        heatmap_fig = plot_heatmap(
+            heatmap_df,
+            final_labels.reindex(heatmap_df.index),
+            method=str(heatmap_cfg.get("method", "ward")),
+            metric=str(heatmap_cfg.get("metric", "euclidean")),
+            scale=heatmap_cfg.get("scale", "row"),
+            max_features=min(int(heatmap_cfg.get("max_features", 50)), 50),
+            top_by=str(heatmap_cfg.get("top_by", "var")),
+        )
+        _save_figure(heatmap_fig, report_dirs["global"] / "heatmap_top50.png")
+        print(f"  Saved {REPORT_SUBDIRS['global']}\\heatmap_top50.png")
 
+    anova_pairs = report_pairs
+    saved_anova_boxplots = 0
+    anova_boxplot_top_n = 10
+    for g1, g2 in anova_pairs:
         pair_mask = final_labels.isin([g1, g2])
         pair_data = anova_matrix.loc[pair_mask]
         pair_labels = final_labels.loc[pair_mask]
@@ -700,24 +780,22 @@ def run_analysis(cfg: dict) -> dict[str, str]:
             candidate_features,
             key=lambda feat: abs(pair_means.loc[g1, feat] - pair_means.loc[g2, feat]),
             reverse=True,
-        )[:5]
+        )[:anova_boxplot_top_n]
 
         for i, feat in enumerate(ranked_features, start=1):
             fig = plt.figure(figsize=(7, 5))
             plot_feature_boxplot(pair_data, pair_labels, feat, fig=fig)
-            fig.savefig(
-                os.path.join(output_dir, f"anova_boxplot_{g1}_vs_{g2}_top{i}.png"),
-                dpi=150,
-                bbox_inches="tight",
+            _save_figure(
+                fig,
+                report_dirs["supplementary"] / f"anova_boxplot_{g1}_vs_{g2}_top{i}.png",
             )
-            plt.close(fig)
             saved_anova_boxplots += 1
-    print(f"  Saved ANOVA results + {saved_anova_boxplots} pairwise boxplots")
+    print(f"  Saved {REPORT_SUBDIRS['feature']}\\anova_importance.png")
+    print(f"  Saved {saved_anova_boxplots} supplementary ANOVA boxplots")
 
     # ── PLS-DA + VIP (pairwise, 2-group) ─────────────────────
     plsda_cfg = analysis_cfg.get("plsda", {})
-    raw_plsda_pairs = cfg["groups"].get("oplsda_pairs", [])  # reuse OPLS-DA pairs
-    plsda_pairs = parse_pair_config(raw_plsda_pairs)
+    plsda_pairs = raw_oplsda_pairs
     if plsda_cfg and plsda_pairs:
         print("\n" + "=" * 60)
         print("Running pairwise PLS-DA + VIP...")
@@ -736,18 +814,8 @@ def run_analysis(cfg: dict) -> dict[str, str]:
             all_plsda_result = run_plsda(processed, final_labels, n_components=n_comp)
             fig = plt.figure(figsize=(8, 6))
             plot_plsda_score(all_plsda_result, fig=fig)
-            fig.savefig(
-                os.path.join(output_dir, "plsda_score_all_groups.png"),
-                dpi=150,
-                bbox_inches="tight",
-            )
-            plt.close(fig)
-            print("  Saved plsda_score_all_groups.png")
-            if _save_plotly_html(
-                plot_plsda_score_interactive(all_plsda_result),
-                os.path.join(output_dir, "plsda_score_all_groups.html"),
-            ):
-                print("  Saved plsda_score_all_groups.html")
+            _save_figure(fig, report_dirs["supplementary"] / "plsda_score_all_groups.png")
+            print(f"  Saved {REPORT_SUBDIRS['supplementary']}\\plsda_score_all_groups.png")
         except Exception as e:
             print(f"  All-group PLS-DA error: {e}")
 
@@ -767,27 +835,11 @@ def run_analysis(cfg: dict) -> dict[str, str]:
                 vip_df.insert(0, "Rank", range(1, len(vip_df) + 1))
                 _excel_sheets[f"VIP_{g1}_vs_{g2}"] = vip_df
 
-                fig = plt.figure(figsize=(8, 6))
-                plot_plsda_score(plsda_result, fig=fig)
-                fig.savefig(
-                    os.path.join(output_dir, f"plsda_score_{g1}_vs_{g2}.png"),
-                    dpi=150,
-                    bbox_inches="tight",
-                )
-                plt.close(fig)
-                if _save_plotly_html(
-                    plot_plsda_score_interactive(plsda_result),
-                    os.path.join(output_dir, f"plsda_score_{g1}_vs_{g2}.html"),
-                ):
-                    print(f"    Saved plsda_score_{g1}_vs_{g2}.html")
-
                 fig = plt.figure(figsize=(10, max(6, top_vip * 0.32)))
                 plot_vip(plsda_result, top_n=top_vip,
                          data=pair_data, labels=pair_labels, fig=fig)
-                fig.savefig(os.path.join(output_dir, f"plsda_vip_{g1}_vs_{g2}.png"),
-                            dpi=150, bbox_inches="tight")
-                plt.close(fig)
-                print(f"    Saved plsda_vip_{g1}_vs_{g2}.png")
+                _save_figure(fig, report_dirs["feature"] / f"plsda_vip_{g1}_vs_{g2}.png")
+                print(f"    Saved {REPORT_SUBDIRS['feature']}\\plsda_vip_{g1}_vs_{g2}.png")
             except Exception as e:
                 print(f"    Error: {e}")
 
@@ -824,16 +876,14 @@ def run_analysis(cfg: dict) -> dict[str, str]:
                 # Score plot
                 fig = plt.figure(figsize=(8, 6))
                 plot_oplsda_score(oplsda_result, fig=fig)
-                fig.savefig(os.path.join(output_dir, f"oplsda_score_{g1}_vs_{g2}.png"),
-                            dpi=150, bbox_inches="tight")
-                plt.close(fig)
-                if _save_plotly_html(
-                    plot_oplsda_score_interactive(oplsda_result),
-                    os.path.join(output_dir, f"oplsda_score_{g1}_vs_{g2}.html"),
-                ):
-                    print(f"    Saved oplsda_score_{g1}_vs_{g2}.html")
+                _save_figure(fig, report_dirs["feature"] / f"oplsda_score_{g1}_vs_{g2}.png")
 
-                print("    Saved score plot")
+                fig = plt.figure(figsize=(8, 6))
+                plot_oplsda_splot(oplsda_result, top_n=10, fig=fig)
+                _save_figure(fig, report_dirs["feature"] / f"oplsda_splot_{g1}_vs_{g2}.png")
+
+                print(f"    Saved {REPORT_SUBDIRS['feature']}\\oplsda_score_{g1}_vs_{g2}.png")
+                print(f"    Saved {REPORT_SUBDIRS['feature']}\\oplsda_splot_{g1}_vs_{g2}.png")
             except Exception as e:
                 print(f"    Error: {e}")
 
@@ -843,9 +893,9 @@ def run_analysis(cfg: dict) -> dict[str, str]:
     from visualization.volcano_plot import plot_volcano
 
     vol_cfg = analysis_cfg["volcano"]
-    raw_pairs = cfg["groups"].get("volcano_pairs", [])
-    volcano_pairs = parse_pair_config(raw_pairs)
+    volcano_pairs = raw_volcano_pairs
     volcano_test_key, volcano_equal_var, volcano_nonpar = resolve_volcano_test_mode(vol_cfg)
+    volcano_fc_thresh, volcano_log2_fc_thresh = resolve_volcano_fc_threshold(vol_cfg)
     paired_resolution_cfg = cfg["groups"].get("paired_resolution")
 
     # Extract subject IDs if any pair is paired
@@ -867,8 +917,8 @@ def run_analysis(cfg: dict) -> dict[str, str]:
             vresult = volcano_analysis(
                 volcano_matrix, final_labels,
                 group1=g1, group2=g2,
-                fc_thresh=vol_cfg["fc_thresh"],
-                log2_fc_thresh=vol_cfg.get("log2_fc_thresh"),
+                fc_thresh=volcano_fc_thresh,
+                log2_fc_thresh=volcano_log2_fc_thresh,
                 p_thresh=vol_cfg["p_thresh"],
                 equal_var=volcano_equal_var,
                 nonpar=volcano_nonpar,
@@ -924,34 +974,123 @@ def run_analysis(cfg: dict) -> dict[str, str]:
                 _excel_sheets[f"Volcano_{g1}_vs_{g2}"] = vol_sig
             fig = plt.figure(figsize=(10, 8))
             plot_volcano(vresult, fig=fig)
-            fig.savefig(os.path.join(output_dir, f"volcano_{g1}_vs_{g2}.png"),
-                        dpi=150, bbox_inches="tight")
-            plt.close(fig)
-            if _save_plotly_html(
-                plot_volcano_interactive(vresult),
-                os.path.join(output_dir, f"volcano_{g1}_vs_{g2}.html"),
-            ):
-                print(f"    Saved volcano_{g1}_vs_{g2}.html")
+            _save_figure(fig, report_dirs["feature"] / f"volcano_{g1}_vs_{g2}.png")
+            print(f"    Saved {REPORT_SUBDIRS['feature']}\\volcano_{g1}_vs_{g2}.png")
         except Exception as e:
             print(f"    Error: {e}")
 
-    # ── Sample overview ───────────────────────────────────
+    # ── ROC / biomarker validation ───────────────────────
     print("\n" + "=" * 60)
-    print("Generating sample-level overview plots...")
-    fig = plt.figure(figsize=(16, 6))
-    plot_sample_boxplot(processed, final_labels,
-                        title="Sample Distribution (after processing)", fig=fig)
-    fig.savefig(os.path.join(output_dir, "sample_boxplot.png"),
-                dpi=150, bbox_inches="tight")
-    plt.close(fig)
+    print("Running biomarker validation plots...")
+    roc_cfg = analysis_cfg.get("roc", {})
+    roc_top_n = int(roc_cfg.get("top_n", 10))
+    roc_multi_feature = bool(roc_cfg.get("multi_feature", True))
+    roc_cv_folds = int(roc_cfg.get("cv_folds", 5))
+    for g1, g2 in report_pairs:
+        print(f"  ROC {g1} vs {g2}...")
+        try:
+            pair_mask = final_labels.isin([g1, g2])
+            pair_data = processed.loc[pair_mask]
+            pair_labels = final_labels.loc[pair_mask]
+            if pair_data.empty or pair_labels.nunique() < 2:
+                print("    Skipped (not enough pairwise samples)")
+                continue
 
-    fig = plt.figure(figsize=(10, 6))
-    plot_density(processed, final_labels,
-                 title="Density Plot (after processing)", fig=fig)
-    fig.savefig(os.path.join(output_dir, "density_plot.png"),
-                dpi=150, bbox_inches="tight")
-    plt.close(fig)
-    print("  Saved sample_boxplot.png + density_plot.png")
+            roc_result = run_roc_analysis(
+                pair_data,
+                pair_labels,
+                group1=g1,
+                group2=g2,
+                top_n=roc_top_n,
+                multi_feature=roc_multi_feature,
+                cv_folds=roc_cv_folds,
+            )
+            roc_result.summary_df.to_csv(
+                os.path.join(output_dir, f"roc_{g1}_vs_{g2}.csv"),
+                index=False,
+            )
+
+            fig = plt.figure(figsize=(8, 6))
+            plot_roc_curves(roc_result, fig=fig)
+            _save_figure(fig, report_dirs["validation"] / f"roc_{g1}_vs_{g2}.png")
+
+            fig = plt.figure(figsize=(8, 6))
+            plot_auc_ranking(roc_result, fig=fig)
+            _save_figure(fig, report_dirs["validation"] / f"auc_ranking_{g1}_vs_{g2}.png")
+
+            print(f"    Saved {REPORT_SUBDIRS['validation']}\\roc_{g1}_vs_{g2}.png")
+            print(f"    Saved {REPORT_SUBDIRS['validation']}\\auc_ranking_{g1}_vs_{g2}.png")
+        except Exception as e:
+            print(f"    Error: {e}")
+
+    # ── Supplementary: outlier detection ─────────────────
+    print("\n" + "=" * 60)
+    print("Generating supplementary outlier plots...")
+    outlier_cfg = analysis_cfg.get("outlier", {})
+    try:
+        outlier_result = run_outlier_detection(
+            processed,
+            n_components=int(outlier_cfg.get("n_components", 2)),
+            alpha=float(outlier_cfg.get("alpha", 0.05)),
+        )
+        outlier_result.get_outlier_df().to_csv(
+            os.path.join(output_dir, "outlier_results.csv"),
+            index=False,
+        )
+
+        fig = plt.figure(figsize=(8, 6))
+        plot_outlier_score(outlier_result, labels=final_labels, fig=fig)
+        _save_figure(fig, report_dirs["supplementary"] / "outlier_t2.png")
+
+        fig = plt.figure(figsize=(8, 6))
+        plot_dmodx(outlier_result, labels=final_labels, fig=fig)
+        _save_figure(fig, report_dirs["supplementary"] / "outlier_dmodx.png")
+        print(f"  Saved {REPORT_SUBDIRS['supplementary']}\\outlier_t2.png")
+        print(f"  Saved {REPORT_SUBDIRS['supplementary']}\\outlier_dmodx.png")
+    except Exception as e:
+        print(f"  Outlier export error: {e}")
+
+    # ── Supplementary: random forest ─────────────────────
+    print("\n" + "=" * 60)
+    print("Generating supplementary Random Forest plots...")
+    rf_cfg = analysis_cfg.get("random_forest", {})
+    rf_trees = int(rf_cfg.get("n_trees", 500))
+    rf_cv_folds = int(rf_cfg.get("cv_folds", 5))
+    rf_top_n = int(rf_cfg.get("top_n", 25))
+    for g1, g2 in report_pairs:
+        print(f"  RF {g1} vs {g2}...")
+        try:
+            pair_mask = final_labels.isin([g1, g2])
+            pair_data = processed.loc[pair_mask]
+            pair_labels = final_labels.loc[pair_mask]
+            if pair_data.empty or pair_labels.nunique() < 2:
+                print("    Skipped (not enough pairwise samples)")
+                continue
+
+            rf_result = run_random_forest(
+                pair_data,
+                pair_labels,
+                n_trees=rf_trees,
+                cv_folds=rf_cv_folds,
+                top_n=rf_top_n,
+            )
+            rf_result.feature_importance.to_csv(
+                os.path.join(output_dir, f"rf_importance_{g1}_vs_{g2}.csv"),
+                index=False,
+            )
+
+            fig = plt.figure(figsize=(8, 6))
+            plot_rf_importance(rf_result, top_n=rf_top_n, fig=fig)
+            _save_figure(fig, report_dirs["supplementary"] / f"rf_importance_{g1}_vs_{g2}.png")
+
+            fig = plt.figure(figsize=(6, 5))
+            plot_confusion_matrix(rf_result, fig=fig)
+            _save_figure(fig, report_dirs["supplementary"] / f"rf_confusion_matrix_{g1}_vs_{g2}.png")
+
+            print(f"    Saved {REPORT_SUBDIRS['supplementary']}\\rf_importance_{g1}_vs_{g2}.png")
+            print(f"    Saved {REPORT_SUBDIRS['supplementary']}\\rf_confusion_matrix_{g1}_vs_{g2}.png")
+        except Exception as e:
+            print(f"    Error: {e}")
 
     if paired_resolution_audit_rows:
         audit_path = os.path.join(output_dir, "paired_resolution_audit.csv")
@@ -974,9 +1113,11 @@ def run_analysis(cfg: dict) -> dict[str, str]:
     print("ANALYSIS COMPLETE")
     print(f"All outputs saved to: {output_dir}")
     print("\nGenerated files:")
-    for f in sorted(os.listdir(output_dir)):
-        size = os.path.getsize(os.path.join(output_dir, f))
-        print(f"  {f:40s} ({size / 1024:.0f} KB)")
+    output_root = Path(output_dir)
+    for path in _iter_output_files(output_dir):
+        rel = str(path.relative_to(output_root))
+        size = path.stat().st_size
+        print(f"  {rel:70s} ({size / 1024:.0f} KB)")
     return {"output_dir": output_dir}
 
 

@@ -4,8 +4,8 @@
 
 - **core/** — pure-function processing modules (normalization, transformation, scaling, etc.)
 - **analysis/** — statistical analysis (PCA, PLS-DA, univariate, clustering)
-- **visualization/** — matplotlib Figure objects returned by each module
-- **gui/** — PyQt6 GUI layer only (no processing logic here)
+- **visualization/** — matplotlib and Plotly rendering helpers used by GUI previews, exports, and reports
+- **gui/** — PySide6 GUI layer only (no processing logic here)
 - **tests/** — pytest test suite
 
 ## Development Workflow
@@ -14,7 +14,7 @@
 
 Before ANY development work, always run:
 
-```bash
+```powershell
 git status
 ```
 
@@ -35,7 +35,7 @@ git status
 
 Use git worktree for isolation (`.worktrees/` is already in `.gitignore`):
 
-```bash
+```powershell
 git worktree add .worktrees/<branch-name> -b <type>/<branch-name>
 ```
 
@@ -43,13 +43,32 @@ Use the `superpowers:using-git-worktrees` skill for guided setup.
 
 ### 3. Develop and Test
 
-Run the full test suite before considering work complete:
+Do not default to a single monolithic `pytest tests/ ...` run in this repo.
 
-```bash
-pytest tests/ -v --tb=short -x
+This repository contains GUI-heavy and matrix-heavy test slices that can look hung or exceed harness limits when run as one large command, especially on self-hosted Windows CI. Prefer targeted verification first, then run the matching CI-style shard wrapper.
+
+Recommended order:
+
+1. Run the smallest test slice that directly covers the change.
+2. Run the matching CI shard with `tools\ci\run_pytest_targets.ps1`.
+3. Only use broader file-by-file aggregation when you need wider regression confidence.
+
+Representative commands:
+
+```powershell
+# Targeted test during implementation
+uv run pytest tests\test_gui_step5_interaction.py -q
+
+# CI-equivalent PR shards
+tools\ci\run_pytest_targets.ps1 -GroupNames @("pr-gui-shell")
+tools\ci\run_pytest_targets.ps1 -GroupNames @("pr-stats")
+tools\ci\run_pytest_targets.ps1 -GroupNames @("pr-runtime")
+
+# Broader file-by-file aggregation when needed
+Get-ChildItem tests -Filter "test_*.py" | Sort-Object Name | ForEach-Object { uv run pytest $_.FullName -q }
 ```
 
-All tests must pass.
+All tests relevant to the current change must pass before considering work complete.
 
 ### 4. Finish Branch
 
@@ -82,36 +101,39 @@ When ms-core submodule is added:
 - **NO** force push to `main`
 - **NO** merging without passing tests
 - **NO** skipping `git status` check before starting work
+- **NO** relying on bare `window.close()` as the only teardown step in Qt GUI tests
 
 ## Key Commands
 
-```bash
+```powershell
 # Run tests
-pytest tests/ -v --tb=short -x
+uv run pytest tests\test_gui_step5_interaction.py -q
 
-# Run tests in the supported CI matrix locally when needed
-uv run pytest tests/ -v --tb=short -x
+# Run CI-equivalent PR shards locally
+tools\ci\run_pytest_targets.ps1 -GroupNames @("pr-gui-shell")
+tools\ci\run_pytest_targets.ps1 -GroupNames @("pr-stats")
+tools\ci\run_pytest_targets.ps1 -GroupNames @("pr-runtime")
 
-# CI-style full regression
+# Broader file-by-file regression
 Get-ChildItem tests -Filter "test_*.py" | Sort-Object Name | ForEach-Object { uv run pytest $_.FullName -q }
 
 # Preferred stable wrapper (Windows)
 scripts\run_pipeline.cmd -Config configs\Tissue_knn_rsd050_marker_verify.yaml -Input "C:\path\to\input.xlsx"
 
 # Run pipeline from YAML
-python scripts/run_from_config.py <config.yaml>
+uv run python scripts\run_from_config.py <config.yaml>
 
 # Run pipeline with an explicit input workbook override
-python scripts/run_from_config.py <config.yaml> --input "<path-to-input.xlsx>"
+uv run python scripts\run_from_config.py <config.yaml> --input "<path-to-input.xlsx>"
 
 # Run pipeline with an input override and output suffix override
-python scripts/run_from_config.py <config.yaml> --input "<path-to-input.xlsx>" --suffix "_custom"
+uv run python scripts\run_from_config.py <config.yaml> --input "<path-to-input.xlsx>" --suffix "_custom"
 
 # Build exe locally (Windows)
-pyinstaller packaging/pymetabo.spec --clean --noconfirm
+pyinstaller packaging\pymetabo.spec --clean --noconfirm
 
 # Build CI-compatible release package locally
-pyinstaller packaging/pymetabo_release.spec --clean --noconfirm
+pyinstaller packaging\pymetabo_release.spec --clean --noconfirm
 
 # Lint
 ruff check . --select=F,E9
@@ -138,13 +160,13 @@ and execute it directly without re-discovering project structure.
 
 Default command mapping:
 
-```bash
+```powershell
 run.cmd "<input.xlsx>" "<config.yaml>"
 ```
 
 If the user also asks for a custom output suffix:
 
-```bash
+```powershell
 run.cmd "<input.xlsx>" "<config.yaml>" -Suffix "_custom"
 ```
 
@@ -154,7 +176,7 @@ Do not spend time re-finding the CLI entry point, config parameter name, or inpu
 
 For requests phrased with input first and config second, prefer:
 
-```bash
+```powershell
 run.cmd "<input.xlsx>" "<config.yaml>"
 ```
 
@@ -166,24 +188,24 @@ run.cmd "<input.xlsx>" "<config.yaml>"
 
 Prefer this wrapper unless there is a specific reason to call the Python entry point directly:
 
-```bash
+```powershell
 scripts\run_pipeline.cmd -Config <config.yaml> -Input "<input.xlsx>" [-Suffix "_tag"]
 ```
 
 - This wrapper resolves relative paths from the repo root.
 - It validates that the config and input files exist before starting Python.
-- It forwards arguments to `scripts/run_from_config.py`.
-- The `.cmd` wrapper delegates to `scripts/run_pipeline.py`, which is more reliable than raw shell argument forwarding on Windows.
+- It forwards arguments to `scripts\run_from_config.py`.
+- The `.cmd` wrapper delegates to `scripts\run_pipeline.py`, which is more reliable than raw shell argument forwarding on Windows.
 
 ### Canonical CLI Entry Point
 
 Always use:
 
-```bash
-python scripts/run_from_config.py <config.yaml> [--input "<input.xlsx>"] [--suffix "_tag"]
+```powershell
+uv run python scripts\run_from_config.py <config.yaml> [--input "<input.xlsx>"] [--suffix "_tag"]
 ```
 
-- Script entry point: `scripts/run_from_config.py`
+- Script entry point: `scripts\run_from_config.py`
 - Required positional argument: `config`
 - Optional input override: `--input` or `-i`
 - Optional output suffix override: `--suffix` or `-s`
@@ -226,7 +248,7 @@ Do not re-discover this in later sessions unless the script changes.
 
 ### Example
 
-```bash
+```powershell
 run.cmd "C:\Users\user\Desktop\Data_Normalization_project_v2\.worktrees\refactor-step4-pqn-only\output\run_20260331_190146\Step4_Normalized_PQN.xlsx" "configs\Tissue_knn_rsd050_marker_verify.yaml"
 ```
 
@@ -258,3 +280,48 @@ Examples:
 | `release-checklist` | Executing a versioned release |
 | `submodule-update` | When ms-core is modified (after submodule added) |
 | `root-hygiene` | When temp files pollute repository root |
+| `run-cmd-contract` | When the user phrases pipeline execution as `用這個 xlsx 跑這個 yaml` or equivalent |
+
+## GUI / CI Guardrails
+
+### Qt GUI Test Teardown
+
+- For PySide / Qt GUI tests, do not stop at bare `window.close()`.
+- Prefer the shared cleanup helper in `tests\gui_layout_support.py`.
+- The expected teardown shape is:
+
+```python
+window.close()
+window.deleteLater()
+QCoreApplication.sendPostedEvents(None, int(QEvent.Type.DeferredDelete))
+qapp.processEvents()
+```
+
+- If GUI tests get slower the further they progress, first suspect leaked Qt windows, timers, theme callbacks, or log handlers before blaming the runner.
+
+### MainWindow Lifecycle
+
+- When changing `gui\main_window.py`, always review lifecycle symmetry:
+  - timers created during setup
+  - theme-manager callback registration / unregistration
+  - log handler add / remove
+  - worker cancellation on close
+- If a new resource is created in `__init__` or UI setup, its cleanup path must be explicit.
+
+### Interactive Plot Routing
+
+- For Step 5 score plots, assume the GUI may route to interactive Plotly first and only fall back to Matplotlib when needed.
+- When updating tests around PCA / PLS-DA / OPLS-DA / Volcano, verify both:
+  - the primary interactive path
+  - the fallback static path
+- If a test only monkeypatches a legacy Matplotlib helper such as `plot_pca_score`, treat it as suspicious and confirm the real runtime path first.
+
+### CI Refactor Discipline
+
+- When changing CI job names or shard topology, also check branch protection / rulesets for required status-check drift.
+- Keep one stable aggregate PR gate name whenever possible. In this repo, the canonical aggregate gate is:
+  - `Full Regression (Python 3.11)`
+- Treat a long-running `in_progress` PR check as a debugging prompt, not automatic evidence that GitHub Actions itself is broken:
+  1. reproduce with the equivalent local shard
+  2. identify whether the slowdown is test runtime, repeated setup, or lifecycle leakage
+  3. only then change workflow topology if needed
