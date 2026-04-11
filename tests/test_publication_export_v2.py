@@ -83,3 +83,25 @@ class TestOplsdaEllipseNoFill:
         ls = patches[0].get_linestyle()
         assert ls != (0, None)  # not solid
         plt.close(fig)
+
+
+class TestAnovaBoxplotJitter:
+    def test_scatter_points_present(self):
+        from visualization.anova_plot import _draw_r_style_boxplot
+        from visualization.theme import COLORS
+
+        fig, ax = plt.subplots()
+        config = COLORS["light"]
+        data = [
+            np.array([1.0, 2.0, 3.0, 4.0, 5.0]),
+            np.array([2.0, 3.0, 4.0, 5.0, 6.0]),
+        ]
+        _draw_r_style_boxplot(ax, data, ["A", "B"], ["#E64B35", "#4DBBD5"], config)
+
+        scatter_collections = [
+            c for c in ax.collections if type(c).__name__ == "PathCollection"
+        ]
+        assert len(scatter_collections) >= 2, (
+            "Expected jittered scatter overlays for each group"
+        )
+        plt.close(fig)
