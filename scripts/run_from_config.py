@@ -753,23 +753,28 @@ def run_analysis(cfg: dict) -> dict[str, str]:
     paired_resolution_audit_rows: list[dict[str, Any]] = []
 
     # Save processed data
-    processed.to_csv(os.path.join(output_dir, "processed_data.csv"))
-    final_labels.to_csv(os.path.join(output_dir, "sample_labels.csv"))
+    processed.to_csv(os.path.join(report_dirs["qc"], "processed_data.csv"))
+    final_labels.to_csv(os.path.join(report_dirs["qc"], "sample_labels.csv"))
     final_feature_metadata.to_csv(
-        os.path.join(output_dir, "feature_metadata.csv"),
+        os.path.join(report_dirs["qc"], "feature_metadata.csv"),
         index_label="Feature",
     )
     qc_rsd_audit = pipeline.step_feature_metadata.get("qc_rsd")
     if qc_rsd_audit is not None and not qc_rsd_audit.empty:
         qc_rsd_audit.to_csv(
-            os.path.join(output_dir, "qc_rsd_audit.csv"),
+            os.path.join(report_dirs["qc"], "qc_rsd_audit.csv"),
             index_label="Feature",
         )
 
     # Save a copy of the config used
-    config_copy_path = os.path.join(output_dir, "config_used.yaml")
+    config_copy_path = os.path.join(report_dirs["qc"], "config_used.yaml")
     with open(config_copy_path, "w", encoding="utf-8") as f:
         f.write(dump_yaml(cfg, include_runtime=False))
+
+    log_path = os.path.join(report_dirs["qc"], "pipeline_log.txt")
+    with open(log_path, "w", encoding="utf-8") as f:
+        for line in pipeline.log:
+            f.write(line + "\n")
     print(f"  Saved to {output_dir}")
 
     # ── QC / preprocessing report ────────────────────────
@@ -778,7 +783,9 @@ def run_analysis(cfg: dict) -> dict[str, str]:
 
     fig = plt.figure(figsize=(12, 8))
     plot_norm_comparison(pre_norm_matrix, processed, final_labels, fig=fig)
-    _save_figure(fig, report_dirs["qc"] / "normalization_comparison.png", draft_mode=draft_mode)
+    _save_figure(
+        fig, report_dirs["qc"] / "normalization_comparison.png", draft_mode=draft_mode
+    )
     print(f"  Saved {REPORT_SUBDIRS['qc']}\\normalization_comparison.png")
 
     # ── PCA ───────────────────────────────────────────────
@@ -819,7 +826,7 @@ def run_analysis(cfg: dict) -> dict[str, str]:
         anova_result.result_df, final_feature_metadata
     )
     anova_result.result_df.to_csv(
-        os.path.join(output_dir, "anova_results.csv"), index=False
+        os.path.join(report_dirs["feature"], "anova_results.csv"), index=False
     )
 
     # Collect full ANOVA table for Excel export and summary scoring.
@@ -837,7 +844,9 @@ def run_analysis(cfg: dict) -> dict[str, str]:
 
     fig = plt.figure(figsize=(10, 8))
     plot_anova_importance(anova_result, top_n=25, fig=fig)
-    _save_figure(fig, report_dirs["feature"] / "anova_importance.png", draft_mode=draft_mode)
+    _save_figure(
+        fig, report_dirs["feature"] / "anova_importance.png", draft_mode=draft_mode
+    )
 
     anova_ranked = anova_result.result_df.sort_values("pvalue_adj").copy()
     anova_feature_pool = anova_ranked["Feature"].tolist()
@@ -858,7 +867,11 @@ def run_analysis(cfg: dict) -> dict[str, str]:
             max_features=min(int(heatmap_cfg.get("max_features", 50)), 50),
             top_by=str(heatmap_cfg.get("top_by", "var")),
         )
-        _save_figure(heatmap_fig, report_dirs["global"] / "heatmap_top50.png", draft_mode=draft_mode)
+        _save_figure(
+            heatmap_fig,
+            report_dirs["global"] / "heatmap_top50.png",
+            draft_mode=draft_mode,
+        )
         print(f"  Saved {REPORT_SUBDIRS['global']}\\heatmap_top50.png")
 
     anova_pairs = report_pairs
@@ -1117,7 +1130,7 @@ def run_analysis(cfg: dict) -> dict[str, str]:
                 vresult.result_df, final_feature_metadata
             )
             vresult.result_df.to_csv(
-                os.path.join(output_dir, f"volcano_{g1}_vs_{g2}.csv"),
+                os.path.join(report_dirs["feature"], f"volcano_{g1}_vs_{g2}.csv"),
                 index=False,
             )
 
@@ -1130,7 +1143,11 @@ def run_analysis(cfg: dict) -> dict[str, str]:
                 _excel_sheets[f"Volcano_{g1}_vs_{g2}"] = vol_sig
             fig = plt.figure(figsize=(10, 8))
             plot_volcano(vresult, fig=fig)
-            _save_figure(fig, report_dirs["feature"] / f"volcano_{g1}_vs_{g2}.png", draft_mode=draft_mode)
+            _save_figure(
+                fig,
+                report_dirs["feature"] / f"volcano_{g1}_vs_{g2}.png",
+                draft_mode=draft_mode,
+            )
             print(f"    Saved {REPORT_SUBDIRS['feature']}\\volcano_{g1}_vs_{g2}.png")
         except Exception as e:
             print(f"    Error: {e}")
@@ -1162,13 +1179,17 @@ def run_analysis(cfg: dict) -> dict[str, str]:
                 cv_folds=roc_cv_folds,
             )
             roc_result.summary_df.to_csv(
-                os.path.join(output_dir, f"roc_{g1}_vs_{g2}.csv"),
+                os.path.join(report_dirs["validation"], f"roc_{g1}_vs_{g2}.csv"),
                 index=False,
             )
 
             fig = plt.figure(figsize=(8, 6))
             plot_roc_curves(roc_result, fig=fig)
-            _save_figure(fig, report_dirs["validation"] / f"roc_{g1}_vs_{g2}.png", draft_mode=draft_mode)
+            _save_figure(
+                fig,
+                report_dirs["validation"] / f"roc_{g1}_vs_{g2}.png",
+                draft_mode=draft_mode,
+            )
 
             fig = plt.figure(figsize=(8, 6))
             plot_auc_ranking(roc_result, fig=fig)
@@ -1196,17 +1217,23 @@ def run_analysis(cfg: dict) -> dict[str, str]:
             alpha=float(outlier_cfg.get("alpha", 0.05)),
         )
         outlier_result.get_outlier_df().to_csv(
-            os.path.join(output_dir, "outlier_results.csv"),
+            os.path.join(report_dirs["supplementary"], "outlier_results.csv"),
             index=False,
         )
 
         fig = plt.figure(figsize=(8, 6))
         plot_outlier_score(outlier_result, labels=final_labels, fig=fig)
-        _save_figure(fig, report_dirs["supplementary"] / "outlier_t2.png", draft_mode=draft_mode)
+        _save_figure(
+            fig, report_dirs["supplementary"] / "outlier_t2.png", draft_mode=draft_mode
+        )
 
         fig = plt.figure(figsize=(8, 6))
         plot_dmodx(outlier_result, labels=final_labels, fig=fig)
-        _save_figure(fig, report_dirs["supplementary"] / "outlier_dmodx.png", draft_mode=draft_mode)
+        _save_figure(
+            fig,
+            report_dirs["supplementary"] / "outlier_dmodx.png",
+            draft_mode=draft_mode,
+        )
         print(f"  Saved {REPORT_SUBDIRS['supplementary']}\\outlier_t2.png")
         print(f"  Saved {REPORT_SUBDIRS['supplementary']}\\outlier_dmodx.png")
     except Exception as e:
@@ -1237,7 +1264,9 @@ def run_analysis(cfg: dict) -> dict[str, str]:
                 top_n=rf_top_n,
             )
             rf_result.feature_importance.to_csv(
-                os.path.join(output_dir, f"rf_importance_{g1}_vs_{g2}.csv"),
+                os.path.join(
+                    report_dirs["supplementary"], f"rf_importance_{g1}_vs_{g2}.csv"
+                ),
                 index=False,
             )
 
@@ -1267,7 +1296,9 @@ def run_analysis(cfg: dict) -> dict[str, str]:
             print(f"    Error: {e}")
 
     if paired_resolution_audit_rows:
-        audit_path = os.path.join(output_dir, "paired_resolution_audit.csv")
+        audit_path = os.path.join(
+            report_dirs["supplementary"], "paired_resolution_audit.csv"
+        )
         pd.DataFrame(paired_resolution_audit_rows).to_csv(audit_path, index=False)
         print(f"  Saved {audit_path}")
 

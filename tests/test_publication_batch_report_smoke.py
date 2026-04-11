@@ -22,7 +22,9 @@ pytestmark = pytest.mark.integration
 
 
 class _DummyPipeline:
-    def __init__(self, data: pd.DataFrame, labels: pd.Series, feature_metadata: pd.DataFrame) -> None:
+    def __init__(
+        self, data: pd.DataFrame, labels: pd.Series, feature_metadata: pd.DataFrame
+    ) -> None:
         self._data = data
         self._labels = labels
         self._feature_metadata = feature_metadata
@@ -213,7 +215,9 @@ def _stub_plot(label: str):
     return _plot
 
 
-def _install_smoke_stubs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[pd.DataFrame, pd.Series, pd.DataFrame]:
+def _install_smoke_stubs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> tuple[pd.DataFrame, pd.Series, pd.DataFrame]:
     sample_names = [
         "Exposure_A",
         "Exposure_B",
@@ -245,23 +249,45 @@ def _install_smoke_stubs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tup
     )
 
     monkeypatch.setattr(run_mod, "_PROJECT_ROOT", str(tmp_path))
-    monkeypatch.setattr(run_mod, "load_data", lambda cfg: (data.copy(), labels.copy(), feature_metadata.copy()))
+    monkeypatch.setattr(
+        run_mod,
+        "load_data",
+        lambda cfg: (data.copy(), labels.copy(), feature_metadata.copy()),
+    )
     monkeypatch.setattr(run_mod, "MetaboAnalystPipeline", _DummyPipeline)
     monkeypatch.setattr(run_mod, "run_pca", lambda *args, **kwargs: _DummyPCAResult())
-    monkeypatch.setattr(run_mod, "run_anova", lambda *args, **kwargs: _DummyANOVAResult(features))
+    monkeypatch.setattr(
+        run_mod, "run_anova", lambda *args, **kwargs: _DummyANOVAResult(features)
+    )
     monkeypatch.setattr(
         run_mod,
         "volcano_analysis",
-        lambda *args, **kwargs: _DummyVolcanoResult(features, kwargs["group1"], kwargs["group2"]),
+        lambda *args, **kwargs: _DummyVolcanoResult(
+            features, kwargs["group1"], kwargs["group2"]
+        ),
     )
-    monkeypatch.setattr(run_mod, "run_roc_analysis", lambda *args, **kwargs: _make_roc_result())
-    monkeypatch.setattr(run_mod, "run_random_forest", lambda *args, **kwargs: _make_rf_result(features))
-    monkeypatch.setattr(run_mod, "run_outlier_detection", lambda *args, **kwargs: _DummyOutlierResult(sample_names))
+    monkeypatch.setattr(
+        run_mod, "run_roc_analysis", lambda *args, **kwargs: _make_roc_result()
+    )
+    monkeypatch.setattr(
+        run_mod, "run_random_forest", lambda *args, **kwargs: _make_rf_result(features)
+    )
+    monkeypatch.setattr(
+        run_mod,
+        "run_outlier_detection",
+        lambda *args, **kwargs: _DummyOutlierResult(sample_names),
+    )
 
-    monkeypatch.setattr(run_mod, "plot_norm_comparison", _stub_plot("Normalization Comparison"))
+    monkeypatch.setattr(
+        run_mod, "plot_norm_comparison", _stub_plot("Normalization Comparison")
+    )
     monkeypatch.setattr(run_mod, "plot_pca_score", _stub_plot("PCA Score Plot"))
-    monkeypatch.setattr(run_mod, "plot_anova_importance", _stub_plot("ANOVA Importance Plot"))
-    monkeypatch.setattr(run_mod, "plot_feature_boxplot", _stub_plot("ANOVA Feature Boxplot"))
+    monkeypatch.setattr(
+        run_mod, "plot_anova_importance", _stub_plot("ANOVA Importance Plot")
+    )
+    monkeypatch.setattr(
+        run_mod, "plot_feature_boxplot", _stub_plot("ANOVA Feature Boxplot")
+    )
     monkeypatch.setattr(run_mod, "plot_heatmap", _stub_plot("Heatmap"))
     monkeypatch.setattr(run_mod, "plot_oplsda_splot", _stub_plot("OPLS-DA S-Plot"))
     monkeypatch.setattr(run_mod, "plot_outlier_score", _stub_plot("Outlier T2"))
@@ -271,11 +297,25 @@ def _install_smoke_stubs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tup
     monkeypatch.setattr(run_mod, "plot_rf_importance", _stub_plot("RF Importance"))
     monkeypatch.setattr(run_mod, "plot_confusion_matrix", _stub_plot("RF Confusion"))
 
-    monkeypatch.setattr(ms_plsda_mod, "run_plsda", lambda *args, **kwargs: _DummyPLSDAResult(features, ["Exposure", "Normal", "Control"]))
-    monkeypatch.setattr(ms_plsda_plot_mod, "plot_plsda_score", _stub_plot("PLS-DA Score Plot"))
+    monkeypatch.setattr(
+        ms_plsda_mod,
+        "run_plsda",
+        lambda *args, **kwargs: _DummyPLSDAResult(
+            features, ["Exposure", "Normal", "Control"]
+        ),
+    )
+    monkeypatch.setattr(
+        ms_plsda_plot_mod, "plot_plsda_score", _stub_plot("PLS-DA Score Plot")
+    )
     monkeypatch.setattr(ms_vip_plot_mod, "plot_vip", _stub_plot("PLS-DA VIP Plot"))
-    monkeypatch.setattr(ms_oplsda_mod, "run_oplsda", lambda *args, **kwargs: _DummyOPLSDAResult(features, ["Exposure", "Normal"]))
-    monkeypatch.setattr(ms_oplsda_plot_mod, "plot_oplsda_score", _stub_plot("OPLS-DA Score Plot"))
+    monkeypatch.setattr(
+        ms_oplsda_mod,
+        "run_oplsda",
+        lambda *args, **kwargs: _DummyOPLSDAResult(features, ["Exposure", "Normal"]),
+    )
+    monkeypatch.setattr(
+        ms_oplsda_plot_mod, "plot_oplsda_score", _stub_plot("OPLS-DA Score Plot")
+    )
     monkeypatch.setattr(volcano_plot_mod, "plot_volcano", _stub_plot("Volcano Plot"))
 
     return data, labels, feature_metadata
@@ -315,7 +355,12 @@ def _build_publication_config(tmp_path: Path) -> dict:
         "analysis": {
             "pca": {"n_components": 3},
             "plsda": {"n_components": 2, "top_vip": 15},
-            "anova": {"p_thresh": 0.05, "nonpar": False, "use_fdr": True, "posthoc": True},
+            "anova": {
+                "p_thresh": 0.05,
+                "nonpar": False,
+                "use_fdr": True,
+                "posthoc": True,
+            },
             "volcano": {
                 "fc_thresh": 2.0,
                 "log2_fc_thresh": 1.0,
@@ -323,7 +368,13 @@ def _build_publication_config(tmp_path: Path) -> dict:
                 "use_fdr": True,
                 "parametric_test_default": "welch",
             },
-            "heatmap": {"max_features": 50, "top_by": "var", "method": "ward", "metric": "euclidean", "scale": "row"},
+            "heatmap": {
+                "max_features": 50,
+                "top_by": "var",
+                "method": "ward",
+                "metric": "euclidean",
+                "scale": "row",
+            },
             "roc": {"top_n": 10, "multi_feature": True},
             "outlier": {"n_components": 2, "alpha": 0.05},
             "random_forest": {"n_trees": 500, "cv_folds": 5, "top_n": 25},
@@ -335,7 +386,9 @@ def _build_publication_config(tmp_path: Path) -> dict:
     }
 
 
-def test_publication_report_smoke_layout_and_pruning(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_publication_report_smoke_layout_and_pruning(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     _install_smoke_stubs(monkeypatch, tmp_path)
     cfg = _build_publication_config(tmp_path)
 
@@ -350,14 +403,15 @@ def test_publication_report_smoke_layout_and_pruning(monkeypatch: pytest.MonkeyP
         output_dir / "05_Supplementary",
     ]
     expected_files = [
-        output_dir / "config_used.yaml",
-        output_dir / "processed_data.csv",
-        output_dir / "sample_labels.csv",
-        output_dir / "feature_metadata.csv",
-        output_dir / "anova_results.csv",
-        output_dir / "roc_Exposure_vs_Normal.csv",
-        output_dir / "rf_importance_Exposure_vs_Normal.csv",
-        output_dir / "outlier_results.csv",
+        output_dir / "01_QC_and_Preprocessing" / "config_used.yaml",
+        output_dir / "01_QC_and_Preprocessing" / "processed_data.csv",
+        output_dir / "01_QC_and_Preprocessing" / "sample_labels.csv",
+        output_dir / "01_QC_and_Preprocessing" / "feature_metadata.csv",
+        output_dir / "01_QC_and_Preprocessing" / "pipeline_log.txt",
+        output_dir / "03_Feature_Selection" / "anova_results.csv",
+        output_dir / "04_Biomarker_Validation" / "roc_Exposure_vs_Normal.csv",
+        output_dir / "05_Supplementary" / "rf_importance_Exposure_vs_Normal.csv",
+        output_dir / "05_Supplementary" / "outlier_results.csv",
         output_dir / "01_QC_and_Preprocessing" / "normalization_comparison.png",
         output_dir / "01_QC_and_Preprocessing" / "pca_score_plot.png",
         output_dir / "02_Global_Profiling" / "heatmap_top50.png",
@@ -393,4 +447,6 @@ def test_publication_report_smoke_layout_and_pruning(monkeypatch: pytest.MonkeyP
         assert file_path.is_file(), f"missing report file: {file_path}"
 
     for file_path in legacy_files:
-        assert not file_path.exists(), f"legacy output should not be emitted: {file_path}"
+        assert not file_path.exists(), (
+            f"legacy output should not be emitted: {file_path}"
+        )
