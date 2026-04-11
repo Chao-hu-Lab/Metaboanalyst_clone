@@ -161,3 +161,14 @@ class TestConfusionMatrixVmax:
         assert "vmax" in sig.parameters, (
             "plot_confusion_matrix should accept vmax parameter"
         )
+
+
+class TestHeatmapLabelThreshold:
+    """Heatmap should hide x-labels when features > 50."""
+
+    def test_xticklabels_hidden_when_many_features(self):
+        import visualization.heatmap as hm
+
+        source = open(hm.__file__).read()
+        assert "xticklabels=False" in source
+        assert "50" in source
