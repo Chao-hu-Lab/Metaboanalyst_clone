@@ -1246,6 +1246,10 @@ def run_analysis(cfg: dict) -> dict[str, str]:
     rf_trees = int(rf_cfg.get("n_trees", 500))
     rf_cv_folds = int(rf_cfg.get("cv_folds", 5))
     rf_top_n = int(rf_cfg.get("top_n", 25))
+
+    # Pass 1: collect RF results and find global vmax for confusion matrices
+    rf_results: list[tuple[str, str, Any]] = []
+    global_cm_vmax = 0
     for g1, g2 in report_pairs:
         print(f"  RF {g1} vs {g2}...")
         try:
@@ -1263,37 +1267,44 @@ def run_analysis(cfg: dict) -> dict[str, str]:
                 cv_folds=rf_cv_folds,
                 top_n=rf_top_n,
             )
-            rf_result.feature_importance.to_csv(
-                os.path.join(
-                    report_dirs["supplementary"], f"rf_importance_{g1}_vs_{g2}.csv"
-                ),
-                index=False,
-            )
-
-            fig = plt.figure(figsize=(8, 6))
-            plot_rf_importance(rf_result, top_n=rf_top_n, fig=fig)
-            _save_figure(
-                fig,
-                report_dirs["supplementary"] / f"rf_importance_{g1}_vs_{g2}.png",
-                draft_mode=draft_mode,
-            )
-
-            fig = plt.figure(figsize=(6, 5))
-            plot_confusion_matrix(rf_result, fig=fig)
-            _save_figure(
-                fig,
-                report_dirs["supplementary"] / f"rf_confusion_matrix_{g1}_vs_{g2}.png",
-                draft_mode=draft_mode,
-            )
-
-            print(
-                f"    Saved {REPORT_SUBDIRS['supplementary']}\\rf_importance_{g1}_vs_{g2}.png"
-            )
-            print(
-                f"    Saved {REPORT_SUBDIRS['supplementary']}\\rf_confusion_matrix_{g1}_vs_{g2}.png"
-            )
+            rf_results.append((g1, g2, rf_result))
+            global_cm_vmax = max(global_cm_vmax, int(rf_result.confusion_mat.max()))
         except Exception as e:
             print(f"    Error: {e}")
+
+    # Pass 2: render figures with unified color scale
+    for g1, g2, rf_result in rf_results:
+        rf_result.feature_importance.to_csv(
+            os.path.join(
+                report_dirs["supplementary"], f"rf_importance_{g1}_vs_{g2}.csv"
+            ),
+            index=False,
+        )
+
+        fig = plt.figure(figsize=(8, 6))
+        plot_rf_importance(rf_result, top_n=rf_top_n, fig=fig)
+        _save_figure(
+            fig,
+            report_dirs["supplementary"] / f"rf_importance_{g1}_vs_{g2}.png",
+            draft_mode=draft_mode,
+        )
+
+        fig = plt.figure(figsize=(6, 5))
+        plot_confusion_matrix(
+            rf_result, fig=fig, vmax=global_cm_vmax if len(rf_results) > 1 else None
+        )
+        _save_figure(
+            fig,
+            report_dirs["supplementary"] / f"rf_confusion_matrix_{g1}_vs_{g2}.png",
+            draft_mode=draft_mode,
+        )
+
+        print(
+            f"    Saved {REPORT_SUBDIRS['supplementary']}\\rf_importance_{g1}_vs_{g2}.png"
+        )
+        print(
+            f"    Saved {REPORT_SUBDIRS['supplementary']}\\rf_confusion_matrix_{g1}_vs_{g2}.png"
+        )
 
     if paired_resolution_audit_rows:
         audit_path = os.path.join(

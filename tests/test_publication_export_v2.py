@@ -149,3 +149,15 @@ class TestLegendPositions:
 
         source = open(dp.__file__).read()
         assert 'loc="best"' not in source, "density_plot still uses loc='best'"
+
+
+class TestConfusionMatrixVmax:
+    def test_accepts_vmax_parameter(self):
+        import inspect
+
+        from visualization.rf_plot import plot_confusion_matrix
+
+        sig = inspect.signature(plot_confusion_matrix)
+        assert "vmax" in sig.parameters, (
+            "plot_confusion_matrix should accept vmax parameter"
+        )
