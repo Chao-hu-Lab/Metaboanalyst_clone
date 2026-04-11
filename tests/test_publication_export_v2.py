@@ -55,3 +55,31 @@ class TestSaveFigureDualOutput:
         _save_figure(fig, out, draft_mode=True)
         assert out.exists()
         assert not out.with_suffix(".pdf").exists()
+
+
+class TestOplsdaEllipseNoFill:
+    def test_ellipse_has_no_facecolor(self):
+        from visualization.oplsda_plot import _confidence_ellipse
+
+        fig, ax = plt.subplots()
+        x = np.random.randn(20)
+        y = np.random.randn(20)
+        _confidence_ellipse(ax, x, y, color="#E64B35", fill_color="#E64B35")
+        patches = [p for p in ax.patches if hasattr(p, "get_facecolor")]
+        assert len(patches) == 1
+        fc = patches[0].get_facecolor()
+        assert fc[3] == 0.0 or patches[0].get_fill() is False
+        plt.close(fig)
+
+    def test_ellipse_has_dashed_linestyle(self):
+        from visualization.oplsda_plot import _confidence_ellipse
+
+        fig, ax = plt.subplots()
+        x = np.random.randn(20)
+        y = np.random.randn(20)
+        _confidence_ellipse(ax, x, y, color="#E64B35", fill_color="#E64B35")
+        patches = [p for p in ax.patches if hasattr(p, "get_linestyle")]
+        assert len(patches) == 1
+        ls = patches[0].get_linestyle()
+        assert ls != (0, None)  # not solid
+        plt.close(fig)

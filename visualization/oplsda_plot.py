@@ -11,6 +11,13 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Ellipse
 from scipy.stats import chi2
 
+try:
+    from adjustText import adjust_text
+
+    _HAS_ADJUSTTEXT = True
+except ImportError:
+    _HAS_ADJUSTTEXT = False
+
 from visualization.interactive_score_plot import build_interactive_score_plot
 from visualization.score_labeling import add_score_labels, finalize_score_labels
 from visualization.theme import apply_publication_style, get_group_colors
@@ -44,10 +51,10 @@ def _confidence_ellipse(ax, x, y, color, fill_color, confidence: float = 0.95) -
             width=width,
             height=height,
             angle=angle,
-            facecolor=fill_color,
+            facecolor="none",
             edgecolor=color,
-            alpha=0.25,
-            linewidth=0.8,
+            linestyle="--",
+            linewidth=1.2,
             zorder=1,
         )
     )
@@ -303,18 +310,16 @@ def plot_oplsda_splot(
     )
 
     top_idx = _select_balanced_annotation_indices(loadings, importance, top_n)
+    texts = []
     for rank, idx in enumerate(top_idx, start=1):
-        offset_x = 6 if loadings[idx] >= 0 else -6
-        align = "left" if offset_x > 0 else "right"
-        ax.annotate(
+        txt = ax.text(
+            loadings[idx],
+            importance[idx],
             features[idx][:24],
-            (loadings[idx], importance[idx]),
             fontsize=7.2,
             color=neutral_color,
             alpha=0.95,
-            xytext=(offset_x, 5 if rank % 2 else -6),
-            textcoords="offset points",
-            ha=align,
+            ha="left" if loadings[idx] >= 0 else "right",
             va="bottom" if rank % 2 else "top",
             bbox={
                 "boxstyle": "round,pad=0.16",
@@ -323,6 +328,14 @@ def plot_oplsda_splot(
                 "linewidth": 0.6,
                 "alpha": 0.88,
             },
+        )
+        texts.append(txt)
+
+    if texts and _HAS_ADJUSTTEXT:
+        adjust_text(
+            texts,
+            ax=ax,
+            arrowprops=dict(arrowstyle="-", color=neutral_color, lw=0.5),
         )
 
     ax.axvline(0, color="grey", linewidth=0.8, linestyle="-", alpha=0.6)
@@ -342,8 +355,18 @@ def plot_oplsda_splot(
     )
     ax.legend(
         handles=[
-            Patch(facecolor=positive_color, edgecolor=positive_color, label="Positive loading", alpha=0.55),
-            Patch(facecolor=negative_color, edgecolor=negative_color, label="Negative loading", alpha=0.55),
+            Patch(
+                facecolor=positive_color,
+                edgecolor=positive_color,
+                label="Positive loading",
+                alpha=0.55,
+            ),
+            Patch(
+                facecolor=negative_color,
+                edgecolor=negative_color,
+                label="Negative loading",
+                alpha=0.55,
+            ),
         ],
         loc="upper right",
         frameon=False,
