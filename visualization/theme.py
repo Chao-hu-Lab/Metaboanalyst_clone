@@ -127,6 +127,28 @@ def apply_publication_style(theme: str = "light") -> None:
     )
 
 
+def apply_publication_export_style(theme: str = "light") -> None:
+    """
+    Apply publication-grade export rcParams for batch report generation.
+
+    Builds on ``apply_publication_style`` then overrides with journal-grade
+    settings: Arial font, 300 DPI, and tighter typographic sizes.
+
+    Intended for ``run_from_config.py`` batch exports — GUI preview should
+    continue using ``apply_publication_style`` for speed.
+
+    Corresponds to R function: N/A (MetaboAnalyst uses fixed R device settings).
+    """
+    apply_publication_style(theme)
+    plt.rcParams.update(
+        {
+            "font.family": "Arial",
+            "savefig.dpi": 300,
+            "figure.dpi": 300,
+        }
+    )
+
+
 def get_group_colors(theme: str = "light", n_groups: int | None = None) -> list[str]:
     """
     Return hex color list for the given theme and number of groups.
