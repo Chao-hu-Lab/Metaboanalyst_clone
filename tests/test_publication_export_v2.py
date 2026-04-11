@@ -133,3 +133,19 @@ class TestOutlierPlotLayout:
         ratio = w / h
         assert 2.0 <= ratio <= 2.5, f"Expected ~2:1 ratio, got {ratio:.2f}"
         plt.close(fig)
+
+
+class TestLegendPositions:
+    """Verify loc='best' is never used in publication plots."""
+
+    def test_volcano_legend_not_best(self):
+        import visualization.volcano_plot as vp
+
+        source = open(vp.__file__).read()
+        assert 'loc="best"' not in source, "volcano_plot still uses loc='best'"
+
+    def test_density_legend_not_best(self):
+        import visualization.density_plot as dp
+
+        source = open(dp.__file__).read()
+        assert 'loc="best"' not in source, "density_plot still uses loc='best'"
