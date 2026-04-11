@@ -105,3 +105,31 @@ class TestAnovaBoxplotJitter:
             "Expected jittered scatter overlays for each group"
         )
         plt.close(fig)
+
+
+class TestOutlierPlotLayout:
+    def test_outlier_score_figsize_2_to_1(self):
+        from unittest.mock import MagicMock
+
+        from analysis.outlier import OutlierResult
+        from visualization.outlier_plot import plot_outlier_score
+
+        n = 10
+        rng = np.random.default_rng(42)
+        result = OutlierResult(
+            scores=rng.standard_normal((n, 2)),
+            t2_values=rng.random(n) * 10,
+            t2_threshold=6.0,
+            outlier_mask_t2=np.array([False] * 9 + [True]),
+            dmodx=rng.random(n),
+            dmodx_threshold=2.0,
+            outlier_mask_dmodx=np.array([False] * 9 + [True]),
+            explained_variance=np.array([0.4, 0.3]),
+            sample_names=[f"S{i}" for i in range(n)],
+            pca_model=MagicMock(),
+        )
+        fig = plot_outlier_score(result)
+        w, h = fig.get_size_inches()
+        ratio = w / h
+        assert 2.0 <= ratio <= 2.5, f"Expected ~2:1 ratio, got {ratio:.2f}"
+        plt.close(fig)
