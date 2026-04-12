@@ -62,7 +62,11 @@ def plot_density(
 
     plotted_groups: set[str] = set()
     for row_idx in range(len(df)):
-        values = pd.to_numeric(df.iloc[row_idx], errors="coerce").dropna().to_numpy(dtype=float)
+        values = (
+            pd.to_numeric(df.iloc[row_idx], errors="coerce")
+            .dropna()
+            .to_numpy(dtype=float)
+        )
         if len(values) < 2:
             continue
 
@@ -80,6 +84,6 @@ def plot_density(
     ax.set_ylabel("Density")
     ax.set_title(title)
     if plotted_groups:
-        ax.legend(loc="best", fontsize=9)
+        ax.legend(loc="upper right", fontsize=9)
     fig.tight_layout()
     return fig

@@ -57,7 +57,9 @@ def plot_volcano(
 
     result_df = volcano_result.result_df
     fc_thresh = volcano_result.fc_thresh
-    log2_fc_thresh = float(getattr(volcano_result, "log2_fc_thresh", np.log2(fc_thresh)))
+    log2_fc_thresh = float(
+        getattr(volcano_result, "log2_fc_thresh", np.log2(fc_thresh))
+    )
     p_thresh = volcano_result.p_thresh
     use_fdr = bool(getattr(volcano_result, "use_fdr", False))
     fdr_method = str(getattr(volcano_result, "fdr_method", "fdr_bh"))
@@ -76,35 +78,63 @@ def plot_volcano(
     down_mask = significant & (log2fc <= -log2_thresh)
     nonsig_mask = ~significant
 
-    ax.scatter(log2fc[nonsig_mask], neg_log10p[nonsig_mask],
-               c=config["grid"], alpha=0.5, s=20, label="Not significant")
-    ax.scatter(log2fc[up_mask], neg_log10p[up_mask],
-               c=palette[0], alpha=0.75, s=30, label="Up-regulated")
-    ax.scatter(log2fc[down_mask], neg_log10p[down_mask],
-               c="#4393C3", alpha=0.75, s=30, label="Down-regulated")
+    ax.scatter(
+        log2fc[nonsig_mask],
+        neg_log10p[nonsig_mask],
+        c=config["grid"],
+        alpha=0.5,
+        s=20,
+        label="Not significant",
+    )
+    ax.scatter(
+        log2fc[up_mask],
+        neg_log10p[up_mask],
+        c=palette[0],
+        alpha=0.75,
+        s=30,
+        label="Up-regulated",
+    )
+    ax.scatter(
+        log2fc[down_mask],
+        neg_log10p[down_mask],
+        c="#4393C3",
+        alpha=0.75,
+        s=30,
+        label="Down-regulated",
+    )
 
     threshold_color = palette[1]
-    ax.axhline(-np.log10(p_thresh), ls="--", c=threshold_color, alpha=0.7, linewidth=0.9)
+    ax.axhline(
+        -np.log10(p_thresh), ls="--", c=threshold_color, alpha=0.7, linewidth=0.9
+    )
     ax.axvline(log2_thresh, ls="--", c=threshold_color, alpha=0.7, linewidth=0.9)
     ax.axvline(-log2_thresh, ls="--", c=threshold_color, alpha=0.7, linewidth=0.9)
 
-    rank_col = "pvalue_adj" if use_fdr and "pvalue_adj" in result_df.columns else "pvalue"
+    rank_col = (
+        "pvalue_adj" if use_fdr and "pvalue_adj" in result_df.columns else "pvalue"
+    )
     top_idx = np.argsort(result_df[rank_col].to_numpy(dtype=float))[:top_n]
     texts = []
     for idx in top_idx:
         name = features[idx]
         if len(name) > 20:
             name = f"{name[:18]}.."
-        texts.append(ax.text(log2fc[idx], neg_log10p[idx], name, fontsize=7, ha="center"))
+        texts.append(
+            ax.text(log2fc[idx], neg_log10p[idx], name, fontsize=7, ha="center")
+        )
     if texts and HAS_ADJUSTTEXT:
-        adjust_text(texts, ax=ax, arrowprops=dict(arrowstyle="-", color=config["text"], lw=0.5))
+        adjust_text(
+            texts, ax=ax, arrowprops=dict(arrowstyle="-", color=config["text"], lw=0.5)
+        )
 
     ylabel = "-log10(FDR-adjusted p-value)" if use_fdr else "-log10(p-value)"
     ax.set_xlabel("log2(Fold Change)")
     ax.set_ylabel(ylabel)
     mode_text = f"FDR={fdr_method}" if use_fdr else "raw p-value"
-    ax.set_title(f"Volcano Plot ({volcano_result.group1} vs {volcano_result.group2}, {mode_text})")
-    ax.legend(loc="best", fontsize=8)
+    ax.set_title(
+        f"Volcano Plot ({volcano_result.group1} vs {volcano_result.group2}, {mode_text})"
+    )
+    ax.legend(loc="upper right", fontsize=8)
     fig.tight_layout()
     return fig
 
@@ -148,9 +178,13 @@ def plot_volcano_interactive(
     fc_threshold = (
         fc_threshold
         if fc_threshold is not None
-        else getattr(volcano_result, "log2_fc_thresh", np.log2(volcano_result.fc_thresh))
+        else getattr(
+            volcano_result, "log2_fc_thresh", np.log2(volcano_result.fc_thresh)
+        )
     )
-    pval_threshold = pval_threshold if pval_threshold is not None else volcano_result.p_thresh
+    pval_threshold = (
+        pval_threshold if pval_threshold is not None else volcano_result.p_thresh
+    )
     log2_threshold = float(fc_threshold)
 
     significant = result_df["significant"].to_numpy(dtype=bool)
@@ -168,7 +202,9 @@ def plot_volcano_interactive(
         if subset.empty:
             continue
         rank_col = "pvalue_adj" if "pvalue_adj" in subset.columns else "pvalue"
-        top_features = set(subset.nsmallest(min(top_n, len(subset)), rank_col)["Feature"].astype(str))
+        top_features = set(
+            subset.nsmallest(min(top_n, len(subset)), rank_col)["Feature"].astype(str)
+        )
         hover_text = [
             (
                 f"<b>{feature}</b><br>"
@@ -188,10 +224,17 @@ def plot_volcano_interactive(
                 x=subset["log2FC"],
                 y=subset["neg_log10p"],
                 mode="markers+text" if name != "Not significant" else "markers",
-                marker=dict(color=color, size=8 if name != "Not significant" else 6, opacity=0.85 if name != "Not significant" else 0.5),
+                marker=dict(
+                    color=color,
+                    size=8 if name != "Not significant" else 6,
+                    opacity=0.85 if name != "Not significant" else 0.5,
+                ),
                 name=name,
                 customdata=subset["Feature"].astype(str).tolist(),
-                text=[feature if str(feature) in top_features else "" for feature in subset["Feature"]],
+                text=[
+                    feature if str(feature) in top_features else ""
+                    for feature in subset["Feature"]
+                ],
                 textposition="top center",
                 hovertext=hover_text,
                 hovertemplate="%{hovertext}<extra></extra>",
@@ -206,7 +249,9 @@ def plot_volcano_interactive(
             )
         )
 
-    fig.add_hline(y=-np.log10(pval_threshold), line_dash="dash", line_color=config["text"])
+    fig.add_hline(
+        y=-np.log10(pval_threshold), line_dash="dash", line_color=config["text"]
+    )
     fig.add_vline(x=log2_threshold, line_dash="dash", line_color=config["text"])
     fig.add_vline(x=-log2_threshold, line_dash="dash", line_color=config["text"])
     fig.update_layout(

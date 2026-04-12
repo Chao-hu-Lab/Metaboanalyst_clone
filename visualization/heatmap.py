@@ -84,12 +84,27 @@ def plot_heatmap(
             linewidths=0,
             xticklabels=False if plot_df.shape[1] > 50 else True,
             yticklabels=False if plot_df.shape[0] > 50 else True,
+            cbar_pos=(0.02, 0.82, 0.03, 0.14),
         )
-        cluster_grid.fig.suptitle("Heatmap with Hierarchical Clustering", y=1.01, fontsize=12)
+        cluster_grid.fig.suptitle(
+            "Heatmap with Hierarchical Clustering", y=1.01, fontsize=12
+        )
+
+        # Move colorbar to right side, below the Group legend, avoiding x-axis labels.
+        # cbar_pos is in figure coordinates; repositioning after layout avoids
+        # guessing where rotated x-tick labels end up.
+        cluster_grid.fig.canvas.draw()
+        hm_pos = cluster_grid.ax_heatmap.get_position()
+        cb_left = hm_pos.x1 + 0.01
+        cluster_grid.cax.set_position(
+            [cb_left, hm_pos.y0 + 0.02, 0.022, hm_pos.height * 0.35]
+        )
 
         from matplotlib.patches import Patch
 
-        legend_elements = [Patch(facecolor=palette[group], label=str(group)) for group in groups]
+        legend_elements = [
+            Patch(facecolor=palette[group], label=str(group)) for group in groups
+        ]
         cluster_grid.ax_heatmap.legend(
             handles=legend_elements,
             loc="upper left",

@@ -11,6 +11,13 @@ from scipy.stats import chi2
 
 from visualization.theme import COLORS, apply_publication_style, get_group_colors
 
+try:
+    from adjustText import adjust_text
+
+    _HAS_ADJUSTTEXT = True
+except ImportError:
+    _HAS_ADJUSTTEXT = False
+
 
 def plot_outlier_score(
     outlier_result,
@@ -42,7 +49,7 @@ def plot_outlier_score(
     config = COLORS.get(theme, COLORS["light"])
 
     if fig is None:
-        fig = plt.figure(figsize=(10, 5))
+        fig = plt.figure(figsize=(16, 7))
     fig.clf()
 
     scores = outlier_result.scores
@@ -66,7 +73,8 @@ def plot_outlier_score(
     outlier_mask = outlier_mask[mask]
     sample_names = sample_names[mask]
 
-    ax1 = fig.add_subplot(121)
+    gs = fig.add_gridspec(1, 2, wspace=0.3)
+    ax1 = fig.add_subplot(gs[0, 0])
     if labels_arr is not None:
         filtered_labels = labels_arr[mask].astype(str)
         groups = sorted(set(filtered_labels))
@@ -122,7 +130,9 @@ def plot_outlier_score(
     else:
         palette = get_group_colors(theme, 2)
         normal = ~outlier_mask
-        ax1.scatter(x[normal], y[normal], c=palette[1], alpha=0.75, s=40, label="Normal")
+        ax1.scatter(
+            x[normal], y[normal], c=palette[1], alpha=0.75, s=40, label="Normal"
+        )
         ax1.scatter(
             x[outlier_mask],
             y[outlier_mask],
@@ -134,13 +144,22 @@ def plot_outlier_score(
         )
         ax1.legend(fontsize=8)
 
+    outlier_texts = []
     for idx in np.where(outlier_mask)[0]:
-        ax1.annotate(
+        txt = ax1.text(
+            x[idx],
+            y[idx],
             str(sample_names[idx]),
-            (x[idx], y[idx]),
             fontsize=7,
             color=config["text"],
             alpha=0.9,
+        )
+        outlier_texts.append(txt)
+    if outlier_texts and _HAS_ADJUSTTEXT:
+        adjust_text(
+            outlier_texts,
+            ax=ax1,
+            arrowprops=dict(arrowstyle="-", color=config["text"], lw=0.5),
         )
 
     if len(x) > 2 and scores.shape[1] > 1:
@@ -170,9 +189,11 @@ def plot_outlier_score(
     scope_text = f" - {group_filter}" if group_filter is not None else ""
     ax1.set_title(f"PCA Score Plot - Outlier Detection{scope_text}")
 
-    ax2 = fig.add_subplot(122)
+    ax2 = fig.add_subplot(gs[0, 1])
     palette = get_group_colors(theme, 2)
-    bar_colors = [palette[0] if is_outlier else palette[1] for is_outlier in outlier_mask]
+    bar_colors = [
+        palette[0] if is_outlier else palette[1] for is_outlier in outlier_mask
+    ]
     ax2.bar(range(len(t2_values)), t2_values, color=bar_colors, alpha=0.75)
     ax2.axhline(
         y=outlier_result.t2_threshold,
@@ -186,7 +207,8 @@ def plot_outlier_score(
     ax2.set_title("Hotelling's T2")
     ax2.legend(fontsize=8)
 
-    fig.tight_layout()
+    fig.align_ylabels([ax1, ax2])
+    fig.set_layout_engine("constrained")
     return fig
 
 
@@ -218,7 +240,7 @@ def plot_dmodx(
     palette = get_group_colors(theme, 2)
 
     if fig is None:
-        fig = plt.figure(figsize=(8, 5))
+        fig = plt.figure(figsize=(10, 5))
     fig.clf()
     ax = fig.add_subplot(111)
 
@@ -247,14 +269,23 @@ def plot_dmodx(
     ax.set_title(f"DModX (Distance to Model){scope_text}")
     ax.legend(fontsize=8)
 
+    outlier_texts = []
     for idx in np.where(outlier_mask)[0]:
-        ax.annotate(
+        txt = ax.text(
+            idx,
+            dmodx[idx],
             str(sample_names[idx]),
-            (idx, dmodx[idx]),
             fontsize=7,
             color=palette[0],
             ha="center",
             va="bottom",
+        )
+        outlier_texts.append(txt)
+    if outlier_texts and _HAS_ADJUSTTEXT:
+        adjust_text(
+            outlier_texts,
+            ax=ax,
+            arrowprops=dict(arrowstyle="-", color=palette[0], lw=0.5),
         )
 
     fig.tight_layout()

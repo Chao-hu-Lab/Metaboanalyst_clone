@@ -82,7 +82,9 @@ def plot_vip(
 
     if has_heatmap:
         gs = GridSpec(
-            1, 3, figure=fig,
+            1,
+            3,
+            figure=fig,
             width_ratios=[10, 1.2, 0.3],
             wspace=0.08,
         )
@@ -98,7 +100,9 @@ def plot_vip(
     ax.grid(True, axis="y", color=config["grid"], linewidth=0.5, zorder=0)
 
     for y_idx, value in zip(y_pos, vip_vals):
-        ax.hlines(y_idx, xmin=0, xmax=value, color=config["grid"], linewidth=1.0, zorder=2)
+        ax.hlines(
+            y_idx, xmin=0, xmax=value, color=config["grid"], linewidth=1.0, zorder=2
+        )
 
     ax.scatter(vip_vals, y_pos, c=palette[0], s=45, zorder=3, edgecolors="none")
     ax.set_yticks(y_pos)
@@ -117,10 +121,14 @@ def plot_vip(
         labels_arr = labels.values if hasattr(labels, "values") else np.asarray(labels)
         groups = sorted(set(labels_arr))
         features_in_order = list(vip_df["Feature"])
-        valid_features = [feature for feature in features_in_order if feature in data.columns]
+        valid_features = [
+            feature for feature in features_in_order if feature in data.columns
+        ]
 
         if valid_features:
-            group_means = pd.DataFrame(index=valid_features, columns=groups, dtype=float)
+            group_means = pd.DataFrame(
+                index=valid_features, columns=groups, dtype=float
+            )
             for group in groups:
                 mask = labels_arr == group
                 group_means[group] = data.loc[mask, valid_features].mean(axis=0).values
@@ -194,6 +202,7 @@ def plot_vip(
             for spine in ax_cb.spines.values():
                 spine.set_linewidth(0.5)
 
+    fig.suptitle("PLS-DA VIP Scores", fontsize=12, fontweight="bold", y=1.01)
     if not has_heatmap:
         fig.tight_layout()
     return fig

@@ -22,6 +22,7 @@ _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _PROJECT_ROOT)
 
 import matplotlib  # noqa: E402
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
@@ -41,7 +42,11 @@ from core.input_resolver import (  # noqa: E402
 )
 from core.pipeline import MetaboAnalystPipeline  # noqa: E402
 from core.sample_interface import identify_sample_columns  # noqa: E402
-from core.sample_info import read_sample_info_sheet, build_aligned_factors, extract_subject_ids  # noqa: E402
+from core.sample_info import (
+    read_sample_info_sheet,
+    build_aligned_factors,
+    extract_subject_ids,
+)  # noqa: E402
 from analysis.outlier import run_outlier_detection  # noqa: E402
 from analysis.random_forest import run_random_forest  # noqa: E402
 from analysis.roc import run_roc_analysis  # noqa: E402
@@ -89,23 +94,33 @@ def _ensure_report_dirs(output_dir: str) -> dict[str, Path]:
     return report_dirs
 
 
-def _save_figure(fig: Any, path: Path) -> None:
-    """Save a matplotlib-compatible figure and close it."""
-    fig.savefig(path, dpi=150, bbox_inches="tight")
+def _save_figure(fig: Any, path: Path, *, draft_mode: bool = False) -> None:
+    """Save a matplotlib figure as PNG (and PDF in publication mode), then close."""
+    if draft_mode:
+        fig.savefig(path, dpi=150, bbox_inches="tight")
+    else:
+        fig.savefig(path, dpi=300, bbox_inches="tight")
+        fig.savefig(path.with_suffix(".pdf"), bbox_inches="tight")
     plt.close(fig)
 
 
 def _iter_output_files(output_dir: str) -> Iterable[Path]:
     """Yield every file under the output directory in stable relative order."""
     root = Path(output_dir)
-    yield from sorted((path for path in root.rglob("*") if path.is_file()), key=lambda path: str(path.relative_to(root)))
+    yield from sorted(
+        (path for path in root.rglob("*") if path.is_file()),
+        key=lambda path: str(path.relative_to(root)),
+    )
 
 
 # ── Config loader ─────────────────────────────────────────
 
+
 def load_config(path: str) -> dict:
     """Load and validate a YAML configuration file."""
-    return load_yaml_config(path, require_required_sections=True).to_dict(include_runtime=True)
+    return load_yaml_config(path, require_required_sections=True).to_dict(
+        include_runtime=True
+    )
 
 
 def parse_pair_config(
@@ -129,7 +144,9 @@ def parse_pair_config(
     return result
 
 
-def unique_group_pairs(parsed_pairs: list[tuple[str, str, bool]]) -> list[tuple[str, str]]:
+def unique_group_pairs(
+    parsed_pairs: list[tuple[str, str, bool]],
+) -> list[tuple[str, str]]:
     """Return de-duplicated ordered group pairs while ignoring paired-mode metadata."""
     seen: set[tuple[str, str]] = set()
     unique_pairs: list[tuple[str, str]] = []
@@ -144,9 +161,13 @@ def unique_group_pairs(parsed_pairs: list[tuple[str, str, bool]]) -> list[tuple[
 
 def resolve_volcano_test_mode(volcano_cfg: Mapping[str, Any]) -> tuple[str, bool, bool]:
     """Return (test_key, equal_var, nonpar) for volcano analysis."""
-    test_key = str(
-        volcano_cfg.get("test", volcano_cfg.get("parametric_test_default", "welch"))
-    ).strip().lower()
+    test_key = (
+        str(
+            volcano_cfg.get("test", volcano_cfg.get("parametric_test_default", "welch"))
+        )
+        .strip()
+        .lower()
+    )
     if test_key not in {"student", "welch", "wilcoxon"}:
         test_key = "welch"
     return test_key, test_key == "student", test_key == "wilcoxon"
@@ -163,7 +184,9 @@ def resolve_top_vip(plsda_cfg: Mapping[str, Any]) -> int:
     return max(1, int(plsda_cfg.get("top_vip", 15)))
 
 
-def resolve_volcano_fc_threshold(volcano_cfg: Mapping[str, Any]) -> tuple[float, float | None]:
+def resolve_volcano_fc_threshold(
+    volcano_cfg: Mapping[str, Any],
+) -> tuple[float, float | None]:
     """Return volcano FC thresholds while supporting legacy log2-only configs."""
     fc_thresh = volcano_cfg.get("fc_thresh")
     log2_fc_thresh = volcano_cfg.get("log2_fc_thresh")
@@ -176,12 +199,17 @@ def resolve_volcano_fc_threshold(volcano_cfg: Mapping[str, Any]) -> tuple[float,
 
 # ── Data loaders ──────────────────────────────────────────
 
+
 def _annotate_feature_table(
     df: pd.DataFrame,
     feature_metadata: pd.DataFrame | None,
     feature_column: str = "Feature",
 ) -> pd.DataFrame:
-    if feature_metadata is None or feature_metadata.empty or feature_column not in df.columns:
+    if (
+        feature_metadata is None
+        or feature_metadata.empty
+        or feature_column not in df.columns
+    ):
         return df
 
     meta = feature_metadata.copy()
@@ -198,7 +226,9 @@ def load_data(cfg: dict) -> tuple[pd.DataFrame, pd.Series, pd.DataFrame]:
     input_cfg = cfg["input"]
     input_file = input_cfg["file"]
     if not input_file:
-        raise ValueError("No input file specified. Use --input <path> on the command line.")
+        raise ValueError(
+            "No input file specified. Use --input <path> on the command line."
+        )
     fmt = input_cfg.get("format", "sample_type_row")
     is_excel_input = Path(input_file).suffix.lower() in {".xlsx", ".xls"}
 
@@ -222,11 +252,17 @@ def load_data(cfg: dict) -> tuple[pd.DataFrame, pd.Series, pd.DataFrame]:
         id_values = raw[feature_col].astype(str)
         group_rows = raw[id_values == str(sample_type_key)]
         if group_rows.empty:
-            raise ValueError("Sample_Type row could not be resolved from the selected worksheet.")
+            raise ValueError(
+                "Sample_Type row could not be resolved from the selected worksheet."
+            )
         if len(group_rows) > 1:
-            raise ValueError("Sample_Type row must be unique in the selected worksheet.")
+            raise ValueError(
+                "Sample_Type row must be unique in the selected worksheet."
+            )
         sample_type_row = group_rows.iloc[0]
-        valid_sample_cols = [col for col in sample_columns if pd.notna(sample_type_row.get(col))]
+        valid_sample_cols = [
+            col for col in sample_columns if pd.notna(sample_type_row.get(col))
+        ]
         feature_rows = raw[id_values != str(sample_type_key)].copy()
         feature_names = pd.Index(feature_rows[feature_col].astype(str), name="Feature")
         sample_types = sample_type_row.loc[valid_sample_cols].values
@@ -243,7 +279,9 @@ def load_data(cfg: dict) -> tuple[pd.DataFrame, pd.Series, pd.DataFrame]:
                 sample_info,
                 observed_label_name="Worksheet Sample_Type",
             )
-        feature_metadata = extract_feature_metadata(feature_rows.reset_index(drop=True), feature_names)
+        feature_metadata = extract_feature_metadata(
+            feature_rows.reset_index(drop=True), feature_names
+        )
 
     elif fmt == "plain":
         # All rows are features; groups inferred from column names
@@ -253,15 +291,20 @@ def load_data(cfg: dict) -> tuple[pd.DataFrame, pd.Series, pd.DataFrame]:
         data = raw.loc[:, sample_columns].values.T
         data = pd.DataFrame(data, columns=feature_names, index=sample_names)
         data = data.apply(pd.to_numeric, errors="coerce")
-        feature_metadata = extract_feature_metadata(raw.reset_index(drop=True), feature_names)
+        feature_metadata = extract_feature_metadata(
+            raw.reset_index(drop=True), feature_names
+        )
         if sample_info is not None:
-            labels = build_labels_from_sample_info(data.index, sample_info, label_name="Group")
+            labels = build_labels_from_sample_info(
+                data.index, sample_info, label_name="Group"
+            )
         elif input_cfg.get("plain_label_mode") == "column_names":
             labels = pd.Series(sample_names, index=sample_names, name="Group")
         else:
             labels = pd.Series(
                 [infer_group_from_sample_name(n) for n in sample_names],
-                index=sample_names, name="Group",
+                index=sample_names,
+                name="Group",
             )
 
         # Drop excluded samples
@@ -272,7 +315,9 @@ def load_data(cfg: dict) -> tuple[pd.DataFrame, pd.Series, pd.DataFrame]:
             data = data.loc[~exclude_mask]
             labels = labels.loc[~exclude_mask]
     else:
-        raise ValueError(f"Unknown input format: '{fmt}'. Use 'sample_type_row' or 'plain'.")
+        raise ValueError(
+            f"Unknown input format: '{fmt}'. Use 'sample_type_row' or 'plain'."
+        )
 
     if sample_info is not None:
         validate_sample_info_alignment(data.index, sample_info)
@@ -344,7 +389,11 @@ def _select_heatmap_matrix(
     else:
         significant = ranked.iloc[0:0]
     feature_rows = significant if not significant.empty else ranked
-    feature_names = [feat for feat in feature_rows["Feature"].astype(str).tolist() if feat in df.columns]
+    feature_names = [
+        feat
+        for feat in feature_rows["Feature"].astype(str).tolist()
+        if feat in df.columns
+    ]
     selected = feature_names[:feature_cap]
     if selected:
         return df.loc[:, selected].copy()
@@ -353,8 +402,11 @@ def _select_heatmap_matrix(
 
 # ── Significant features Excel export ────────────────────
 
+
 def _export_significant_features_excel(
-    sheets: dict, output_dir: str, top_n: int | None = None,
+    sheets: dict,
+    output_dir: str,
+    top_n: int | None = None,
 ):
     """
     Write a consolidated Excel workbook with significant features from all analyses.
@@ -369,7 +421,8 @@ def _export_significant_features_excel(
     excel_path = os.path.join(output_dir, "significant_features_summary.xlsx")
     summary_csv_path = os.path.join(output_dir, "Summary.csv")
     summary_sheet_filter = {
-        sheet_name: df for sheet_name, df in sheets.items()
+        sheet_name: df
+        for sheet_name, df in sheets.items()
         if "oplsda" not in sheet_name.lower()
     }
     feature_tags: dict[str, bool] = {}
@@ -443,7 +496,11 @@ def _export_significant_features_excel(
         name = sheet_name.lower()
         if "vip" in name and pd.notna(row.get("VIP")):
             return f"VIP={float(row['VIP']):.2f}"
-        if "volcano" in name and pd.notna(row.get("pvalue_adj")) and pd.notna(row.get("log2FC")):
+        if (
+            "volcano" in name
+            and pd.notna(row.get("pvalue_adj"))
+            and pd.notna(row.get("log2FC"))
+        ):
             return f"p_adj={float(row['pvalue_adj']):.2e};log2FC={float(row['log2FC']):.2f}"
         if "anova" in name and pd.notna(row.get("pvalue_adj")):
             return f"p_adj={float(row['pvalue_adj']):.2e}"
@@ -481,7 +538,9 @@ def _export_significant_features_excel(
 
     # Build summary DataFrame
     all_sheet_names = [
-        s for s in summary_sheet_filter.keys() if "Feature" in summary_sheet_filter[s].columns
+        s
+        for s in summary_sheet_filter.keys()
+        if "Feature" in summary_sheet_filter[s].columns
     ]
     summary_rows = []
     for feat in sorted(all_features):
@@ -533,11 +592,14 @@ def _export_significant_features_excel(
         print(f"  Saved {summary_csv_path}")
     print(f"  Sheets: {', '.join(['Summary'] + list(sheets.keys()))}")
     scope_text = "all rows" if top_n in (None, 0) else f"top {top_n} each"
-    print(f"  Summary: {len(summary_df)} unique features across "
-          f"{len(all_sheet_names)} analyses ({scope_text})")
+    print(
+        f"  Summary: {len(summary_df)} unique features across "
+        f"{len(all_sheet_names)} analyses ({scope_text})"
+    )
 
 
 # ── Main analysis ─────────────────────────────────────────
+
 
 def run_analysis(cfg: dict) -> dict[str, str]:
     """Execute the full analysis pipeline from a config dict."""
@@ -551,12 +613,20 @@ def run_analysis(cfg: dict) -> dict[str, str]:
     input_stem = os.path.splitext(os.path.basename(cfg["input"]["file"]))[0]
     base_suffix = cfg["output"].get("suffix", "")
     auto_timestamp = bool(cfg["output"].get("auto_timestamp", True))
-    resolved_suffix = compose_output_suffix(base_suffix, include_timestamp=auto_timestamp)
+    resolved_suffix = compose_output_suffix(
+        base_suffix, include_timestamp=auto_timestamp
+    )
     cfg["output"]["base_suffix"] = base_suffix
     cfg["output"]["suffix"] = resolved_suffix
     output_dir = os.path.join(results_root, input_stem + resolved_suffix)
     os.makedirs(output_dir, exist_ok=True)
     report_dirs = _ensure_report_dirs(output_dir)
+
+    draft_mode = bool(cfg.get("output", {}).get("draft_mode", False))
+    if not draft_mode:
+        from visualization.theme import apply_publication_export_style
+
+        apply_publication_export_style()
 
     # ── Build SpecNorm factors if needed ──────────────────
     factors = None
@@ -604,10 +674,14 @@ def run_analysis(cfg: dict) -> dict[str, str]:
     print("\nPipeline log:")
     for line in pipeline.log:
         print(f"  {line}")
-    print(f"\nProcessed data: {processed.shape[0]} samples x {processed.shape[1]} features")
+    print(
+        f"\nProcessed data: {processed.shape[0]} samples x {processed.shape[1]} features"
+    )
 
     included_groups = cfg["groups"].get("include", [])
-    final_labels = pipeline.processed_labels if pipeline.processed_labels is not None else labels
+    final_labels = (
+        pipeline.processed_labels if pipeline.processed_labels is not None else labels
+    )
     final_feature_metadata = (
         pipeline.processed_feature_metadata
         if pipeline.processed_feature_metadata is not None
@@ -627,27 +701,45 @@ def run_analysis(cfg: dict) -> dict[str, str]:
     feat_std = processed.std()
     zero_var_feats = feat_std[feat_std == 0].index.tolist()
     if zero_var_feats:
-        print(f"  Dropping {len(zero_var_feats)} zero-variance features (constant after QC removal)")
+        print(
+            f"  Dropping {len(zero_var_feats)} zero-variance features (constant after QC removal)"
+        )
 
-    processed, final_labels = _finalize_analysis_matrix(processed, final_labels, included_groups)
+    processed, final_labels = _finalize_analysis_matrix(
+        processed, final_labels, included_groups
+    )
     final_feature_metadata = final_feature_metadata.reindex(processed.columns).copy()
     volcano_matrix, _ = _finalize_analysis_matrix(
         pipeline.steps["transformed"].copy(),
-        (pipeline.processed_labels if pipeline.processed_labels is not None else labels).copy(),
+        (
+            pipeline.processed_labels
+            if pipeline.processed_labels is not None
+            else labels
+        ).copy(),
         included_groups,
     )
     anova_matrix = volcano_matrix.copy()
     volcano_fc_matrix, _ = _finalize_analysis_matrix(
         pipeline.steps["row_normed"].copy(),
-        (pipeline.processed_labels if pipeline.processed_labels is not None else labels).copy(),
+        (
+            pipeline.processed_labels
+            if pipeline.processed_labels is not None
+            else labels
+        ).copy(),
         included_groups,
     )
     pre_norm_matrix, _ = _finalize_analysis_matrix(
         pipeline.steps["filtered"].copy(),
-        (pipeline.processed_labels if pipeline.processed_labels is not None else labels).copy(),
+        (
+            pipeline.processed_labels
+            if pipeline.processed_labels is not None
+            else labels
+        ).copy(),
         included_groups,
     )
-    pre_norm_matrix = pre_norm_matrix.reindex(index=processed.index, columns=processed.columns)
+    pre_norm_matrix = pre_norm_matrix.reindex(
+        index=processed.index, columns=processed.columns
+    )
 
     raw_volcano_pairs = parse_pair_config(cfg["groups"].get("volcano_pairs", []))
     raw_oplsda_pairs = parse_pair_config(cfg["groups"].get("oplsda_pairs", []))
@@ -661,23 +753,28 @@ def run_analysis(cfg: dict) -> dict[str, str]:
     paired_resolution_audit_rows: list[dict[str, Any]] = []
 
     # Save processed data
-    processed.to_csv(os.path.join(output_dir, "processed_data.csv"))
-    final_labels.to_csv(os.path.join(output_dir, "sample_labels.csv"))
+    processed.to_csv(os.path.join(report_dirs["qc"], "processed_data.csv"))
+    final_labels.to_csv(os.path.join(report_dirs["qc"], "sample_labels.csv"))
     final_feature_metadata.to_csv(
-        os.path.join(output_dir, "feature_metadata.csv"),
+        os.path.join(report_dirs["qc"], "feature_metadata.csv"),
         index_label="Feature",
     )
     qc_rsd_audit = pipeline.step_feature_metadata.get("qc_rsd")
     if qc_rsd_audit is not None and not qc_rsd_audit.empty:
         qc_rsd_audit.to_csv(
-            os.path.join(output_dir, "qc_rsd_audit.csv"),
+            os.path.join(report_dirs["qc"], "qc_rsd_audit.csv"),
             index_label="Feature",
         )
 
     # Save a copy of the config used
-    config_copy_path = os.path.join(output_dir, "config_used.yaml")
+    config_copy_path = os.path.join(report_dirs["qc"], "config_used.yaml")
     with open(config_copy_path, "w", encoding="utf-8") as f:
         f.write(dump_yaml(cfg, include_runtime=False))
+
+    log_path = os.path.join(report_dirs["qc"], "pipeline_log.txt")
+    with open(log_path, "w", encoding="utf-8") as f:
+        for line in pipeline.log:
+            f.write(line + "\n")
     print(f"  Saved to {output_dir}")
 
     # ── QC / preprocessing report ────────────────────────
@@ -686,7 +783,9 @@ def run_analysis(cfg: dict) -> dict[str, str]:
 
     fig = plt.figure(figsize=(12, 8))
     plot_norm_comparison(pre_norm_matrix, processed, final_labels, fig=fig)
-    _save_figure(fig, report_dirs["qc"] / "normalization_comparison.png")
+    _save_figure(
+        fig, report_dirs["qc"] / "normalization_comparison.png", draft_mode=draft_mode
+    )
     print(f"  Saved {REPORT_SUBDIRS['qc']}\\normalization_comparison.png")
 
     # ── PCA ───────────────────────────────────────────────
@@ -695,12 +794,14 @@ def run_analysis(cfg: dict) -> dict[str, str]:
     n_comp = analysis_cfg["pca"]["n_components"]
     pca_result = run_pca(processed, final_labels, n_components=n_comp)
     evr = pca_result.explained_variance_ratio
-    print(f"  Variance explained (PC1-{min(n_comp,5)}): "
-          f"{[f'{v*100:.1f}%' for v in evr[:5]]}")
+    print(
+        f"  Variance explained (PC1-{min(n_comp, 5)}): "
+        f"{[f'{v * 100:.1f}%' for v in evr[:5]]}"
+    )
 
     fig = plt.figure(figsize=(10, 8))
     plot_pca_score(pca_result, pc_x=0, pc_y=1, fig=fig)
-    _save_figure(fig, report_dirs["qc"] / "pca_score_plot.png")
+    _save_figure(fig, report_dirs["qc"] / "pca_score_plot.png", draft_mode=draft_mode)
     print(f"  Saved {REPORT_SUBDIRS['qc']}\\pca_score_plot.png")
 
     # ── ANOVA ─────────────────────────────────────────────
@@ -709,35 +810,43 @@ def run_analysis(cfg: dict) -> dict[str, str]:
     group_list = sorted(final_labels.unique())
     print(f"Running ANOVA ({' vs '.join(group_list)})...")
     anova_result = run_anova(
-        anova_matrix, final_labels,
+        anova_matrix,
+        final_labels,
         p_thresh=anova_cfg["p_thresh"],
         nonpar=anova_cfg["nonpar"],
         use_fdr=anova_cfg["use_fdr"],
         posthoc=anova_cfg["posthoc"],
     )
-    print(f"  Significant (FDR < {anova_cfg['p_thresh']}): "
-          f"{anova_result.n_significant} / {len(anova_result.result_df)}")
+    print(
+        f"  Significant (FDR < {anova_cfg['p_thresh']}): "
+        f"{anova_result.n_significant} / {len(anova_result.result_df)}"
+    )
 
-    anova_result.result_df = _annotate_feature_table(anova_result.result_df, final_feature_metadata)
-    anova_result.result_df.to_csv(os.path.join(output_dir, "anova_results.csv"), index=False)
+    anova_result.result_df = _annotate_feature_table(
+        anova_result.result_df, final_feature_metadata
+    )
+    anova_result.result_df.to_csv(
+        os.path.join(report_dirs["feature"], "anova_results.csv"), index=False
+    )
 
     # Collect full ANOVA table for Excel export and summary scoring.
-    _anova_sig = (anova_result.result_df
-                  .sort_values("pvalue_adj")
-                  [[
-                      "Feature",
-                      "pvalue",
-                      "pvalue_adj",
-                      "neg_log10p",
-                      "significant",
-                      FEATURE_MARKER_COLUMN,
-                  ]]
-                  .copy())
+    _anova_sig = anova_result.result_df.sort_values("pvalue_adj")[
+        [
+            "Feature",
+            "pvalue",
+            "pvalue_adj",
+            "neg_log10p",
+            "significant",
+            FEATURE_MARKER_COLUMN,
+        ]
+    ].copy()
     _excel_sheets["ANOVA_All"] = _anova_sig
 
     fig = plt.figure(figsize=(10, 8))
     plot_anova_importance(anova_result, top_n=25, fig=fig)
-    _save_figure(fig, report_dirs["feature"] / "anova_importance.png")
+    _save_figure(
+        fig, report_dirs["feature"] / "anova_importance.png", draft_mode=draft_mode
+    )
 
     anova_ranked = anova_result.result_df.sort_values("pvalue_adj").copy()
     anova_feature_pool = anova_ranked["Feature"].tolist()
@@ -758,7 +867,11 @@ def run_analysis(cfg: dict) -> dict[str, str]:
             max_features=min(int(heatmap_cfg.get("max_features", 50)), 50),
             top_by=str(heatmap_cfg.get("top_by", "var")),
         )
-        _save_figure(heatmap_fig, report_dirs["global"] / "heatmap_top50.png")
+        _save_figure(
+            heatmap_fig,
+            report_dirs["global"] / "heatmap_top50.png",
+            draft_mode=draft_mode,
+        )
         print(f"  Saved {REPORT_SUBDIRS['global']}\\heatmap_top50.png")
 
     anova_pairs = report_pairs
@@ -771,7 +884,9 @@ def run_analysis(cfg: dict) -> dict[str, str]:
         if pair_data.empty or pair_labels.nunique() < 2:
             continue
 
-        candidate_features = sig_feature_pool if sig_feature_pool else anova_feature_pool
+        candidate_features = (
+            sig_feature_pool if sig_feature_pool else anova_feature_pool
+        )
         pair_means = pair_data.groupby(pair_labels).mean(numeric_only=True)
         if g1 not in pair_means.index or g2 not in pair_means.index:
             continue
@@ -788,6 +903,7 @@ def run_analysis(cfg: dict) -> dict[str, str]:
             _save_figure(
                 fig,
                 report_dirs["supplementary"] / f"anova_boxplot_{g1}_vs_{g2}_top{i}.png",
+                draft_mode=draft_mode,
             )
             saved_anova_boxplots += 1
     print(f"  Saved {REPORT_SUBDIRS['feature']}\\anova_importance.png")
@@ -814,8 +930,14 @@ def run_analysis(cfg: dict) -> dict[str, str]:
             all_plsda_result = run_plsda(processed, final_labels, n_components=n_comp)
             fig = plt.figure(figsize=(8, 6))
             plot_plsda_score(all_plsda_result, fig=fig)
-            _save_figure(fig, report_dirs["supplementary"] / "plsda_score_all_groups.png")
-            print(f"  Saved {REPORT_SUBDIRS['supplementary']}\\plsda_score_all_groups.png")
+            _save_figure(
+                fig,
+                report_dirs["supplementary"] / "plsda_score_all_groups.png",
+                draft_mode=draft_mode,
+            )
+            print(
+                f"  Saved {REPORT_SUBDIRS['supplementary']}\\plsda_score_all_groups.png"
+            )
         except Exception as e:
             print(f"  All-group PLS-DA error: {e}")
 
@@ -827,19 +949,34 @@ def run_analysis(cfg: dict) -> dict[str, str]:
                 pair_labels = final_labels.loc[pair_mask]
 
                 plsda_result = run_plsda(pair_data, pair_labels, n_components=n_comp)
-                print(f"    VIP range: {plsda_result.vips.min():.2f} - "
-                      f"{plsda_result.vips.max():.2f}")
+                print(
+                    f"    VIP range: {plsda_result.vips.min():.2f} - "
+                    f"{plsda_result.vips.max():.2f}"
+                )
 
                 # Collect VIP scores for Excel export
-                vip_df = _annotate_feature_table(plsda_result.get_vip_df(), final_feature_metadata)
+                vip_df = _annotate_feature_table(
+                    plsda_result.get_vip_df(), final_feature_metadata
+                )
                 vip_df.insert(0, "Rank", range(1, len(vip_df) + 1))
                 _excel_sheets[f"VIP_{g1}_vs_{g2}"] = vip_df
 
                 fig = plt.figure(figsize=(10, max(6, top_vip * 0.32)))
-                plot_vip(plsda_result, top_n=top_vip,
-                         data=pair_data, labels=pair_labels, fig=fig)
-                _save_figure(fig, report_dirs["feature"] / f"plsda_vip_{g1}_vs_{g2}.png")
-                print(f"    Saved {REPORT_SUBDIRS['feature']}\\plsda_vip_{g1}_vs_{g2}.png")
+                plot_vip(
+                    plsda_result,
+                    top_n=top_vip,
+                    data=pair_data,
+                    labels=pair_labels,
+                    fig=fig,
+                )
+                _save_figure(
+                    fig,
+                    report_dirs["feature"] / f"plsda_vip_{g1}_vs_{g2}.png",
+                    draft_mode=draft_mode,
+                )
+                print(
+                    f"    Saved {REPORT_SUBDIRS['feature']}\\plsda_vip_{g1}_vs_{g2}.png"
+                )
             except Exception as e:
                 print(f"    Error: {e}")
 
@@ -864,11 +1001,15 @@ def run_analysis(cfg: dict) -> dict[str, str]:
                 pair_labels = final_labels.loc[pair_mask]
 
                 oplsda_result = run_oplsda(pair_data, pair_labels)
-                print(f"    R2Y={oplsda_result.r2y:.3f}, Q2={oplsda_result.q2:.3f}, "
-                      f"backend={oplsda_result.backend}")
+                print(
+                    f"    R2Y={oplsda_result.r2y:.3f}, Q2={oplsda_result.q2:.3f}, "
+                    f"backend={oplsda_result.backend}"
+                )
 
                 # Collect OPLS-DA loadings for Excel export
-                imp_df = _annotate_feature_table(oplsda_result.get_importance_df(), final_feature_metadata)
+                imp_df = _annotate_feature_table(
+                    oplsda_result.get_importance_df(), final_feature_metadata
+                )
                 if not imp_df.empty:
                     imp_df.insert(0, "Rank", range(1, len(imp_df) + 1))
                     _excel_sheets[f"OPLSDA_{g1}_vs_{g2}"] = imp_df
@@ -876,14 +1017,26 @@ def run_analysis(cfg: dict) -> dict[str, str]:
                 # Score plot
                 fig = plt.figure(figsize=(8, 6))
                 plot_oplsda_score(oplsda_result, fig=fig)
-                _save_figure(fig, report_dirs["feature"] / f"oplsda_score_{g1}_vs_{g2}.png")
+                _save_figure(
+                    fig,
+                    report_dirs["feature"] / f"oplsda_score_{g1}_vs_{g2}.png",
+                    draft_mode=draft_mode,
+                )
 
                 fig = plt.figure(figsize=(8, 6))
                 plot_oplsda_splot(oplsda_result, top_n=10, fig=fig)
-                _save_figure(fig, report_dirs["feature"] / f"oplsda_splot_{g1}_vs_{g2}.png")
+                _save_figure(
+                    fig,
+                    report_dirs["feature"] / f"oplsda_splot_{g1}_vs_{g2}.png",
+                    draft_mode=draft_mode,
+                )
 
-                print(f"    Saved {REPORT_SUBDIRS['feature']}\\oplsda_score_{g1}_vs_{g2}.png")
-                print(f"    Saved {REPORT_SUBDIRS['feature']}\\oplsda_splot_{g1}_vs_{g2}.png")
+                print(
+                    f"    Saved {REPORT_SUBDIRS['feature']}\\oplsda_score_{g1}_vs_{g2}.png"
+                )
+                print(
+                    f"    Saved {REPORT_SUBDIRS['feature']}\\oplsda_splot_{g1}_vs_{g2}.png"
+                )
             except Exception as e:
                 print(f"    Error: {e}")
 
@@ -894,7 +1047,9 @@ def run_analysis(cfg: dict) -> dict[str, str]:
 
     vol_cfg = analysis_cfg["volcano"]
     volcano_pairs = raw_volcano_pairs
-    volcano_test_key, volcano_equal_var, volcano_nonpar = resolve_volcano_test_mode(vol_cfg)
+    volcano_test_key, volcano_equal_var, volcano_nonpar = resolve_volcano_test_mode(
+        vol_cfg
+    )
     volcano_fc_thresh, volcano_log2_fc_thresh = resolve_volcano_fc_threshold(vol_cfg)
     paired_resolution_cfg = cfg["groups"].get("paired_resolution")
 
@@ -905,8 +1060,10 @@ def run_analysis(cfg: dict) -> dict[str, str]:
     if has_any_paired:
         subject_ids = extract_subject_ids(processed.index, pattern=pair_id_pattern)
         n_with_id = (subject_ids != "").sum()
-        print(f"  Subject IDs extracted: {n_with_id}/{len(subject_ids)} "
-              f"(pattern: {pair_id_pattern})")
+        print(
+            f"  Subject IDs extracted: {n_with_id}/{len(subject_ids)} "
+            f"(pattern: {pair_id_pattern})"
+        )
 
     for g1, g2, is_paired in volcano_pairs:
         test_label = "paired" if is_paired else "unpaired"
@@ -915,8 +1072,10 @@ def run_analysis(cfg: dict) -> dict[str, str]:
             if volcano_nonpar:
                 print(f"    Configured volcano test: {volcano_test_key}")
             vresult = volcano_analysis(
-                volcano_matrix, final_labels,
-                group1=g1, group2=g2,
+                volcano_matrix,
+                final_labels,
+                group1=g1,
+                group2=g2,
                 fc_thresh=volcano_fc_thresh,
                 log2_fc_thresh=volcano_log2_fc_thresh,
                 p_thresh=vol_cfg["p_thresh"],
@@ -930,10 +1089,14 @@ def run_analysis(cfg: dict) -> dict[str, str]:
             )
             pair_info = f", Pairs: {vresult.n_pairs}" if is_paired else ""
             print(f"    Method: {vresult.test_label}")
-            print(f"    Significant: {vresult.n_significant} "
-                  f"(Up: {vresult.n_up}, Down: {vresult.n_down}{pair_info})")
+            print(
+                f"    Significant: {vresult.n_significant} "
+                f"(Up: {vresult.n_up}, Down: {vresult.n_down}{pair_info})"
+            )
             if is_paired and vresult.resolution_overrides_applied:
-                print(f"    Paired overrides applied: {len(vresult.resolution_overrides_applied)}")
+                print(
+                    f"    Paired overrides applied: {len(vresult.resolution_overrides_applied)}"
+                )
                 for record in vresult.resolution_overrides_applied:
                     paired_resolution_audit_rows.append(
                         {
@@ -947,7 +1110,9 @@ def run_analysis(cfg: dict) -> dict[str, str]:
                         }
                     )
             if is_paired and vresult.resolution_warnings:
-                print(f"    Paired resolution warnings: {len(vresult.resolution_warnings)}")
+                print(
+                    f"    Paired resolution warnings: {len(vresult.resolution_warnings)}"
+                )
                 for warning in vresult.resolution_warnings:
                     print(f"      - {warning}")
                     paired_resolution_audit_rows.append(
@@ -961,20 +1126,28 @@ def run_analysis(cfg: dict) -> dict[str, str]:
                             "candidates": "",
                         }
                     )
-            vresult.result_df = _annotate_feature_table(vresult.result_df, final_feature_metadata)
+            vresult.result_df = _annotate_feature_table(
+                vresult.result_df, final_feature_metadata
+            )
             vresult.result_df.to_csv(
-                os.path.join(output_dir, f"volcano_{g1}_vs_{g2}.csv"),
+                os.path.join(report_dirs["feature"], f"volcano_{g1}_vs_{g2}.csv"),
                 index=False,
             )
 
             # Collect volcano significant features for Excel export
-            vol_sig = _annotate_feature_table(vresult.significant.copy(), final_feature_metadata)
+            vol_sig = _annotate_feature_table(
+                vresult.significant.copy(), final_feature_metadata
+            )
             if not vol_sig.empty:
                 vol_sig = vol_sig.sort_values("pvalue_adj").head(50)
                 _excel_sheets[f"Volcano_{g1}_vs_{g2}"] = vol_sig
             fig = plt.figure(figsize=(10, 8))
             plot_volcano(vresult, fig=fig)
-            _save_figure(fig, report_dirs["feature"] / f"volcano_{g1}_vs_{g2}.png")
+            _save_figure(
+                fig,
+                report_dirs["feature"] / f"volcano_{g1}_vs_{g2}.png",
+                draft_mode=draft_mode,
+            )
             print(f"    Saved {REPORT_SUBDIRS['feature']}\\volcano_{g1}_vs_{g2}.png")
         except Exception as e:
             print(f"    Error: {e}")
@@ -1006,20 +1179,30 @@ def run_analysis(cfg: dict) -> dict[str, str]:
                 cv_folds=roc_cv_folds,
             )
             roc_result.summary_df.to_csv(
-                os.path.join(output_dir, f"roc_{g1}_vs_{g2}.csv"),
+                os.path.join(report_dirs["validation"], f"roc_{g1}_vs_{g2}.csv"),
                 index=False,
             )
 
             fig = plt.figure(figsize=(8, 6))
             plot_roc_curves(roc_result, fig=fig)
-            _save_figure(fig, report_dirs["validation"] / f"roc_{g1}_vs_{g2}.png")
+            _save_figure(
+                fig,
+                report_dirs["validation"] / f"roc_{g1}_vs_{g2}.png",
+                draft_mode=draft_mode,
+            )
 
             fig = plt.figure(figsize=(8, 6))
             plot_auc_ranking(roc_result, fig=fig)
-            _save_figure(fig, report_dirs["validation"] / f"auc_ranking_{g1}_vs_{g2}.png")
+            _save_figure(
+                fig,
+                report_dirs["validation"] / f"auc_ranking_{g1}_vs_{g2}.png",
+                draft_mode=draft_mode,
+            )
 
             print(f"    Saved {REPORT_SUBDIRS['validation']}\\roc_{g1}_vs_{g2}.png")
-            print(f"    Saved {REPORT_SUBDIRS['validation']}\\auc_ranking_{g1}_vs_{g2}.png")
+            print(
+                f"    Saved {REPORT_SUBDIRS['validation']}\\auc_ranking_{g1}_vs_{g2}.png"
+            )
         except Exception as e:
             print(f"    Error: {e}")
 
@@ -1034,17 +1217,23 @@ def run_analysis(cfg: dict) -> dict[str, str]:
             alpha=float(outlier_cfg.get("alpha", 0.05)),
         )
         outlier_result.get_outlier_df().to_csv(
-            os.path.join(output_dir, "outlier_results.csv"),
+            os.path.join(report_dirs["supplementary"], "outlier_results.csv"),
             index=False,
         )
 
         fig = plt.figure(figsize=(8, 6))
         plot_outlier_score(outlier_result, labels=final_labels, fig=fig)
-        _save_figure(fig, report_dirs["supplementary"] / "outlier_t2.png")
+        _save_figure(
+            fig, report_dirs["supplementary"] / "outlier_t2.png", draft_mode=draft_mode
+        )
 
         fig = plt.figure(figsize=(8, 6))
         plot_dmodx(outlier_result, labels=final_labels, fig=fig)
-        _save_figure(fig, report_dirs["supplementary"] / "outlier_dmodx.png")
+        _save_figure(
+            fig,
+            report_dirs["supplementary"] / "outlier_dmodx.png",
+            draft_mode=draft_mode,
+        )
         print(f"  Saved {REPORT_SUBDIRS['supplementary']}\\outlier_t2.png")
         print(f"  Saved {REPORT_SUBDIRS['supplementary']}\\outlier_dmodx.png")
     except Exception as e:
@@ -1057,6 +1246,10 @@ def run_analysis(cfg: dict) -> dict[str, str]:
     rf_trees = int(rf_cfg.get("n_trees", 500))
     rf_cv_folds = int(rf_cfg.get("cv_folds", 5))
     rf_top_n = int(rf_cfg.get("top_n", 25))
+
+    # Pass 1: collect RF results and find global vmax for confusion matrices
+    rf_results: list[tuple[str, str, Any]] = []
+    global_cm_vmax = 0
     for g1, g2 in report_pairs:
         print(f"  RF {g1} vs {g2}...")
         try:
@@ -1074,26 +1267,49 @@ def run_analysis(cfg: dict) -> dict[str, str]:
                 cv_folds=rf_cv_folds,
                 top_n=rf_top_n,
             )
-            rf_result.feature_importance.to_csv(
-                os.path.join(output_dir, f"rf_importance_{g1}_vs_{g2}.csv"),
-                index=False,
-            )
-
-            fig = plt.figure(figsize=(8, 6))
-            plot_rf_importance(rf_result, top_n=rf_top_n, fig=fig)
-            _save_figure(fig, report_dirs["supplementary"] / f"rf_importance_{g1}_vs_{g2}.png")
-
-            fig = plt.figure(figsize=(6, 5))
-            plot_confusion_matrix(rf_result, fig=fig)
-            _save_figure(fig, report_dirs["supplementary"] / f"rf_confusion_matrix_{g1}_vs_{g2}.png")
-
-            print(f"    Saved {REPORT_SUBDIRS['supplementary']}\\rf_importance_{g1}_vs_{g2}.png")
-            print(f"    Saved {REPORT_SUBDIRS['supplementary']}\\rf_confusion_matrix_{g1}_vs_{g2}.png")
+            rf_results.append((g1, g2, rf_result))
+            global_cm_vmax = max(global_cm_vmax, int(rf_result.confusion_mat.max()))
         except Exception as e:
             print(f"    Error: {e}")
 
+    # Pass 2: render figures with unified color scale
+    for g1, g2, rf_result in rf_results:
+        rf_result.feature_importance.to_csv(
+            os.path.join(
+                report_dirs["supplementary"], f"rf_importance_{g1}_vs_{g2}.csv"
+            ),
+            index=False,
+        )
+
+        fig = plt.figure(figsize=(8, 6))
+        plot_rf_importance(rf_result, top_n=rf_top_n, fig=fig)
+        _save_figure(
+            fig,
+            report_dirs["supplementary"] / f"rf_importance_{g1}_vs_{g2}.png",
+            draft_mode=draft_mode,
+        )
+
+        fig = plt.figure(figsize=(6, 5))
+        plot_confusion_matrix(
+            rf_result, fig=fig, vmax=global_cm_vmax if len(rf_results) > 1 else None
+        )
+        _save_figure(
+            fig,
+            report_dirs["supplementary"] / f"rf_confusion_matrix_{g1}_vs_{g2}.png",
+            draft_mode=draft_mode,
+        )
+
+        print(
+            f"    Saved {REPORT_SUBDIRS['supplementary']}\\rf_importance_{g1}_vs_{g2}.png"
+        )
+        print(
+            f"    Saved {REPORT_SUBDIRS['supplementary']}\\rf_confusion_matrix_{g1}_vs_{g2}.png"
+        )
+
     if paired_resolution_audit_rows:
-        audit_path = os.path.join(output_dir, "paired_resolution_audit.csv")
+        audit_path = os.path.join(
+            report_dirs["supplementary"], "paired_resolution_audit.csv"
+        )
         pd.DataFrame(paired_resolution_audit_rows).to_csv(audit_path, index=False)
         print(f"  Saved {audit_path}")
 
@@ -1103,7 +1319,9 @@ def run_analysis(cfg: dict) -> dict[str, str]:
     export_top_n = cfg.get("output", {}).get("export_top_n")
     try:
         _export_significant_features_excel(
-            _excel_sheets, output_dir, top_n=export_top_n,
+            _excel_sheets,
+            output_dir,
+            top_n=export_top_n,
         )
     except Exception as e:
         print(f"  Excel export error: {e}")
@@ -1123,6 +1341,7 @@ def run_analysis(cfg: dict) -> dict[str, str]:
 
 # ── CLI entry point ───────────────────────────────────────
 
+
 def main():
     parser = argparse.ArgumentParser(
         description="Run MetaboAnalyst pipeline from a YAML config file.",
@@ -1133,12 +1352,14 @@ def main():
         help="Path to YAML configuration file (e.g., configs/step4_dnp_specnorm.yaml)",
     )
     parser.add_argument(
-        "--input", "-i",
+        "--input",
+        "-i",
         help="Override the input file path from config (e.g., path/to/data.xlsx)",
         default=None,
     )
     parser.add_argument(
-        "--suffix", "-s",
+        "--suffix",
+        "-s",
         help="Append a suffix to the output folder name (e.g., _control, _strict)",
         default=None,
     )

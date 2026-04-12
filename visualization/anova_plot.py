@@ -49,7 +49,9 @@ def plot_anova_importance(
     df = df.iloc[::-1]
 
     palette = get_group_colors(theme, 2)
-    bar_colors = [palette[0] if is_sig else config["grid"] for is_sig in df["significant"]]
+    bar_colors = [
+        palette[0] if is_sig else config["grid"] for is_sig in df["significant"]
+    ]
 
     ax.barh(range(len(df)), df["neg_log10p"].values, color=bar_colors, height=0.7)
     ax.set_yticks(range(len(df)))
@@ -65,7 +67,11 @@ def plot_anova_importance(
     ax.set_xlabel("-log10(adj. p-value)")
     ax.tick_params(axis="x", labelsize=9)
     method_key = str(getattr(anova_result, "method_key", "anova")).lower()
-    title = "Kruskal-Wallis: Important Features" if method_key == "kruskal" else "ANOVA: Important Features"
+    title = (
+        "Kruskal-Wallis: Important Features"
+        if method_key == "kruskal"
+        else "ANOVA: Important Features"
+    )
     ax.set_title(title)
     ax.legend(loc="lower right", fontsize=8)
     fig.tight_layout(pad=1.0)
@@ -83,9 +89,14 @@ def _build_stat_annotation(
             grouped_values.append(values)
 
     if annotation_method == "mannwhitney":
-        if len(grouped_values) != 2 or min(len(grouped_values[0]), len(grouped_values[1])) < 2:
+        if (
+            len(grouped_values) != 2
+            or min(len(grouped_values[0]), len(grouped_values[1])) < 2
+        ):
             return ""
-        u_stat, p_val = mannwhitneyu(grouped_values[0], grouped_values[1], alternative="two-sided")
+        u_stat, p_val = mannwhitneyu(
+            grouped_values[0], grouped_values[1], alternative="two-sided"
+        )
         return f"P = {p_val:.2e}\nMann-Whitney U = {u_stat:.4f}"
 
     if annotation_method == "kruskal":
@@ -139,7 +150,9 @@ def _draw_r_style_boxplot(
             patch_artist=True,
             showmeans=False,
             showfliers=True,
-            boxprops=dict(facecolor=color, edgecolor=config["axes_line"], linewidth=1.0),
+            boxprops=dict(
+                facecolor=color, edgecolor=config["axes_line"], linewidth=1.0
+            ),
             medianprops=dict(color=config["text"], linewidth=1.5),
             whiskerprops=dict(color=config["axes_line"], linewidth=1.0),
             capprops=dict(color=config["axes_line"], linewidth=1.0),
@@ -160,6 +173,18 @@ def _draw_r_style_boxplot(
             markeredgecolor="#B8860B",
             markeredgewidth=0.7,
             zorder=4,
+        )
+        # Overlay jittered raw data points
+        jitter = np.random.default_rng(42).uniform(-0.15, 0.15, size=len(clean))
+        ax.scatter(
+            positions[idx] + jitter,
+            clean,
+            c=color,
+            s=18,
+            alpha=0.5,
+            edgecolors="white",
+            linewidths=0.3,
+            zorder=3,
         )
 
     ax.set_xticks(positions)
@@ -220,7 +245,9 @@ def plot_feature_boxplot(
 
     groups = sorted(plot_data["Group"].unique())
     data_by_group = [
-        pd.to_numeric(plot_data.loc[plot_data["Group"] == group, "Value"], errors="coerce")
+        pd.to_numeric(
+            plot_data.loc[plot_data["Group"] == group, "Value"], errors="coerce"
+        )
         .dropna()
         .to_numpy()
         for group in groups
@@ -234,15 +261,17 @@ def plot_feature_boxplot(
     ax.tick_params(axis="x", labelsize=8)
 
     stat_text = _build_stat_annotation(plot_data, annotation_method=annotation_method)
-    fig.tight_layout()
+    fig.tight_layout(rect=[0, 0, 1, 0.90])
     if stat_text:
-        fig.text(
-            0.02,
+        ax.text(
             0.98,
+            1.02,
             stat_text,
-            va="top",
-            ha="left",
+            va="bottom",
+            ha="right",
             fontsize=9,
+            transform=ax.transAxes,
+            clip_on=False,
             bbox={
                 "boxstyle": "round,pad=0.3",
                 "facecolor": config["background"],
