@@ -263,13 +263,14 @@ def plot_feature_boxplot(
     stat_text = _build_stat_annotation(plot_data, annotation_method=annotation_method)
     fig.tight_layout()
     if stat_text:
-        fig.text(
-            0.02,
+        ax.text(
+            0.98,
             0.98,
             stat_text,
             va="top",
-            ha="left",
+            ha="right",
             fontsize=9,
+            transform=ax.transAxes,
             bbox={
                 "boxstyle": "round,pad=0.3",
                 "facecolor": config["background"],

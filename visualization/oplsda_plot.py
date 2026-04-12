@@ -171,7 +171,7 @@ def plot_oplsda_score(
         )
     else:
         ax.set_ylabel(f"Orthogonal T score [1] ({var_o:.1f} %)", fontsize=10.5)
-    ax.set_title("Scores Plot", fontsize=12, fontweight="bold", pad=10)
+    ax.set_title("OPLS-DA Scores Plot", fontsize=12, fontweight="bold", pad=10)
     ax.legend(
         handles=legend_handles,
         bbox_to_anchor=(1.05, 1),

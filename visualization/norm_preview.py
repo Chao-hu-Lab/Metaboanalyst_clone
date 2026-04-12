@@ -54,7 +54,9 @@ def plot_norm_comparison(
 
     groups = _unique_preserve_order(labels_arr)
     if not groups:
-        _draw_empty_norm_figure(fig, "Normalization Comparison", "No samples available.")
+        _draw_empty_norm_figure(
+            fig, "Normalization Comparison", "No samples available."
+        )
         return fig
 
     palette = get_group_colors(theme, len(groups))
@@ -72,7 +74,9 @@ def plot_norm_comparison(
     )
 
     ax1 = fig.add_subplot(gs[0, 0])
-    _draw_group_box(ax1, before_df, labels_arr, groups, color_map, "Before normalization")
+    _draw_group_box(
+        ax1, before_df, labels_arr, groups, color_map, "Before normalization"
+    )
     ax1.set_title("Before normalization", fontsize=10.5, fontweight="bold", pad=8)
 
     ax2 = fig.add_subplot(gs[0, 1])
@@ -80,35 +84,36 @@ def plot_norm_comparison(
     ax2.set_title("After normalization", fontsize=10.5, fontweight="bold", pad=8)
 
     ax3 = fig.add_subplot(gs[1, 0])
-    _draw_density(ax3, before_df, labels_arr, groups, color_map, density_x, "Before density")
+    _draw_density(
+        ax3, before_df, labels_arr, groups, color_map, density_x, "Before density"
+    )
     ax3.set_title("Before density", fontsize=10.5, fontweight="bold", pad=8)
 
     ax4 = fig.add_subplot(gs[1, 1])
-    _draw_density(ax4, after_df, labels_arr, groups, color_map, density_x, "After density")
+    _draw_density(
+        ax4, after_df, labels_arr, groups, color_map, density_x, "After density"
+    )
     ax4.set_title("After density", fontsize=10.5, fontweight="bold", pad=8)
 
     handles = [
-        Patch(facecolor=color_map[group], edgecolor=color_map[group], label=str(group), alpha=0.7)
+        Patch(
+            facecolor=color_map[group],
+            edgecolor=color_map[group],
+            label=str(group),
+            alpha=0.7,
+        )
         for group in groups
     ]
     fig.suptitle("Normalization Comparison", fontsize=14, fontweight="bold", y=0.98)
     fig.legend(
         handles=handles,
         loc="lower center",
-        bbox_to_anchor=(0.5, 0.02),
+        bbox_to_anchor=(0.5, 0.0),
         ncol=min(len(handles), 4),
         frameon=False,
         fontsize=8.5,
     )
-    fig.text(
-        0.5,
-        0.06,
-        "Top row: grouped boxplots. Bottom row: density curves. Shared x-limits are used for direct before/after comparison.",
-        ha="center",
-        va="center",
-        fontsize=8,
-    )
-    fig.tight_layout(rect=[0.02, 0.10, 0.98, 0.95])
+    fig.tight_layout(rect=[0.02, 0.06, 0.98, 0.95])
     return fig
 
 

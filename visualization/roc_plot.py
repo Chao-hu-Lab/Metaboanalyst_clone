@@ -68,8 +68,14 @@ def plot_roc_curves(
         best_idx = int(np.argmax(roc.tpr - roc.fpr))
         ax.plot(roc.fpr[best_idx], roc.tpr[best_idx], "o", color=color, markersize=6)
 
-    if show_multi and roc_result.multi_fpr is not None and roc_result.multi_tpr is not None:
-        multi_auc = roc_result.multi_auc if roc_result.multi_auc is not None else float("nan")
+    if (
+        show_multi
+        and roc_result.multi_fpr is not None
+        and roc_result.multi_tpr is not None
+    ):
+        multi_auc = (
+            roc_result.multi_auc if roc_result.multi_auc is not None else float("nan")
+        )
         ax.plot(
             roc_result.multi_fpr,
             roc_result.multi_tpr,
@@ -136,9 +142,14 @@ def plot_auc_ranking(
     ax.set_yticklabels(summary["Feature"].astype(str).values, fontsize=8)
     ax.set_xlabel("AUC")
     ax.set_title("AUC Ranking")
-    ax.axvline(x=0.5, color=palette[2], linestyle="--", alpha=0.6, label="Random")
-    ax.axvline(x=0.7, color=palette[0], linestyle="--", alpha=0.6, label="Good")
-    ax.legend(fontsize=8)
+    ax.axvline(x=0.5, color=palette[2], linestyle="--", alpha=0.6)
+    ax.axvline(x=0.7, color=palette[0], linestyle="--", alpha=0.6)
+    ax.text(
+        0.51, len(summary) - 0.5, "Random", color=palette[2], fontsize=7.5, va="bottom"
+    )
+    ax.text(
+        0.71, len(summary) - 0.5, "Good", color=palette[0], fontsize=7.5, va="bottom"
+    )
     ax.invert_yaxis()
     ax.set_xlim([0, 1])
     fig.tight_layout()
@@ -193,7 +204,9 @@ def plot_roc_interactive(
         )
 
     if roc_result.multi_fpr is not None and roc_result.multi_tpr is not None:
-        multi_auc = roc_result.multi_auc if roc_result.multi_auc is not None else float("nan")
+        multi_auc = (
+            roc_result.multi_auc if roc_result.multi_auc is not None else float("nan")
+        )
         fig.add_trace(
             go.Scatter(
                 x=roc_result.multi_fpr,

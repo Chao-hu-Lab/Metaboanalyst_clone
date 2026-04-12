@@ -84,12 +84,17 @@ def plot_heatmap(
             linewidths=0,
             xticklabels=False if plot_df.shape[1] > 50 else True,
             yticklabels=False if plot_df.shape[0] > 50 else True,
+            cbar_pos=(0.88, 0.06, 0.03, 0.16),
         )
-        cluster_grid.fig.suptitle("Heatmap with Hierarchical Clustering", y=1.01, fontsize=12)
+        cluster_grid.fig.suptitle(
+            "Heatmap with Hierarchical Clustering", y=1.01, fontsize=12
+        )
 
         from matplotlib.patches import Patch
 
-        legend_elements = [Patch(facecolor=palette[group], label=str(group)) for group in groups]
+        legend_elements = [
+            Patch(facecolor=palette[group], label=str(group)) for group in groups
+        ]
         cluster_grid.ax_heatmap.legend(
             handles=legend_elements,
             loc="upper left",
