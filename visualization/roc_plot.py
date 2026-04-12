@@ -144,13 +144,27 @@ def plot_auc_ranking(
     ax.set_title("AUC Ranking")
     ax.axvline(x=0.5, color=palette[2], linestyle="--", alpha=0.6)
     ax.axvline(x=0.7, color=palette[0], linestyle="--", alpha=0.6)
-    ax.text(
-        0.51, len(summary) - 0.5, "Random", color=palette[2], fontsize=7.5, va="bottom"
-    )
-    ax.text(
-        0.71, len(summary) - 0.5, "Good", color=palette[0], fontsize=7.5, va="bottom"
-    )
     ax.invert_yaxis()
+    # Use transAxes so y position is independent of feature count and invert_yaxis.
+    # y=0.05 sits just above the x-axis without touching it.
+    ax.text(
+        0.51,
+        0.05,
+        "Random",
+        color=palette[2],
+        fontsize=7.5,
+        va="bottom",
+        transform=ax.transAxes,
+    )
+    ax.text(
+        0.71,
+        0.05,
+        "Good",
+        color=palette[0],
+        fontsize=7.5,
+        va="bottom",
+        transform=ax.transAxes,
+    )
     ax.set_xlim([0, 1])
     fig.tight_layout()
     return fig
