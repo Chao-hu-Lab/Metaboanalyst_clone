@@ -261,16 +261,17 @@ def plot_feature_boxplot(
     ax.tick_params(axis="x", labelsize=8)
 
     stat_text = _build_stat_annotation(plot_data, annotation_method=annotation_method)
-    fig.tight_layout()
+    fig.tight_layout(rect=[0, 0, 1, 0.90])
     if stat_text:
         ax.text(
             0.98,
-            0.98,
+            1.02,
             stat_text,
-            va="top",
+            va="bottom",
             ha="right",
             fontsize=9,
             transform=ax.transAxes,
+            clip_on=False,
             bbox={
                 "boxstyle": "round,pad=0.3",
                 "facecolor": config["background"],
