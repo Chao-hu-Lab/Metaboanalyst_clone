@@ -165,7 +165,14 @@ def plot_auc_ranking(
             label="Good (AUC≥0.7)",
         ),
     ]
-    ax.legend(handles=legend_handles, loc="upper right", fontsize=8, framealpha=0.85)
+    ax.legend(
+        handles=legend_handles,
+        loc="lower right",
+        bbox_to_anchor=(1.0, 1.0),
+        fontsize=8,
+        framealpha=0.85,
+        borderaxespad=0.3,
+    )
     ax.set_xlim([0, 1])
     fig.tight_layout()
     return fig
