@@ -1,15 +1,11 @@
 """Smoke tests for publication report v2 improvements."""
 
-import os
-from pathlib import Path
-from unittest.mock import patch
 
 import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
-import pytest
 
 
 class TestPublicationExportStyle:
