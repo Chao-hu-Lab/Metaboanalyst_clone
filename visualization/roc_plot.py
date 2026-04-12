@@ -145,26 +145,27 @@ def plot_auc_ranking(
     ax.axvline(x=0.5, color=palette[2], linestyle="--", alpha=0.6)
     ax.axvline(x=0.7, color=palette[0], linestyle="--", alpha=0.6)
     ax.invert_yaxis()
-    # Use transAxes so y position is independent of feature count and invert_yaxis.
-    # y=0.05 sits just above the x-axis without touching it.
-    ax.text(
-        0.51,
-        0.05,
-        "Random",
-        color=palette[2],
-        fontsize=7.5,
-        va="bottom",
-        transform=ax.transAxes,
-    )
-    ax.text(
-        0.71,
-        0.05,
-        "Good",
-        color=palette[0],
-        fontsize=7.5,
-        va="bottom",
-        transform=ax.transAxes,
-    )
+    from matplotlib.lines import Line2D
+
+    legend_handles = [
+        Line2D(
+            [0],
+            [0],
+            color=palette[2],
+            linestyle="--",
+            alpha=0.8,
+            label="Random (AUC=0.5)",
+        ),
+        Line2D(
+            [0],
+            [0],
+            color=palette[0],
+            linestyle="--",
+            alpha=0.8,
+            label="Good (AUC≥0.7)",
+        ),
+    ]
+    ax.legend(handles=legend_handles, loc="upper right", fontsize=8, framealpha=0.85)
     ax.set_xlim([0, 1])
     fig.tight_layout()
     return fig
