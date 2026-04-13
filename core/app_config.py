@@ -342,6 +342,7 @@ class OutputConfig:
     suffix: str = ""
     auto_timestamp: bool = True
     export_top_n: int | None = None
+    save_pdf: bool = False
     extras: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -350,12 +351,13 @@ class OutputConfig:
         extras = {
             key: copy.deepcopy(value)
             for key, value in data.items()
-            if key not in {"suffix", "auto_timestamp", "export_top_n"}
+            if key not in {"suffix", "auto_timestamp", "export_top_n", "save_pdf"}
         }
         return cls(
             suffix=str(mapping.get("suffix", "")),
             auto_timestamp=bool(mapping.get("auto_timestamp", True)),
             export_top_n=mapping.get("export_top_n"),
+            save_pdf=bool(mapping.get("save_pdf", False)),
             extras=extras,
         )
 
@@ -365,6 +367,7 @@ class OutputConfig:
             "suffix": self.suffix,
             "auto_timestamp": self.auto_timestamp,
             "export_top_n": self.export_top_n,
+            "save_pdf": self.save_pdf,
         }
         data.update(copy.deepcopy(self.extras))
         return data

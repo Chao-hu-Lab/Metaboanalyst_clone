@@ -31,14 +31,24 @@ class TestPublicationExportStyle:
         assert plt.rcParams["legend.frameon"] is False
 
 
-class TestSaveFigureDualOutput:
-    def test_publication_mode_creates_png_and_pdf(self, tmp_path):
+class TestSaveFigureOutputFormats:
+    def test_publication_mode_defaults_to_png_only(self, tmp_path):
         from scripts.run_from_config import _save_figure
 
         fig = plt.figure()
         fig.add_subplot(111).plot([1, 2], [3, 4])
         out = tmp_path / "test.png"
         _save_figure(fig, out, draft_mode=False)
+        assert out.exists()
+        assert not out.with_suffix(".pdf").exists()
+
+    def test_save_pdf_option_creates_png_and_pdf(self, tmp_path):
+        from scripts.run_from_config import _save_figure
+
+        fig = plt.figure()
+        fig.add_subplot(111).plot([1, 2], [3, 4])
+        out = tmp_path / "test.png"
+        _save_figure(fig, out, draft_mode=False, save_pdf=True)
         assert out.exists()
         assert out.with_suffix(".pdf").exists()
 

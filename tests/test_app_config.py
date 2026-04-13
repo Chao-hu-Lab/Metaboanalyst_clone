@@ -41,6 +41,7 @@ def test_normalize_config_merges_shared_defaults() -> None:
     assert normalized["analysis"]["volcano"]["parametric_test_default"] == "welch"
     assert normalized["analysis"]["volcano"]["test"] == "welch"
     assert normalized["output"]["auto_timestamp"] is True
+    assert normalized["output"]["save_pdf"] is False
 
 
 def test_load_yaml_config_allows_partial_gui_preset(tmp_path: Path) -> None:
@@ -53,7 +54,7 @@ def test_load_yaml_config_allows_partial_gui_preset(tmp_path: Path) -> None:
                     "qc_rsd_enabled": True,
                 },
                 "groups": {"include": ["Tumor", "Normal"]},
-                "output": {"suffix": "gui_preset"},
+                "output": {"suffix": "gui_preset", "save_pdf": True},
             },
             allow_unicode=True,
             sort_keys=False,
@@ -67,6 +68,7 @@ def test_load_yaml_config_allows_partial_gui_preset(tmp_path: Path) -> None:
     assert config.groups["include"] == ["Tumor", "Normal"]
     assert config.analysis["pca"]["n_components"] == 5
     assert config.output.suffix == "gui_preset"
+    assert config.output.save_pdf is True
     assert config.spec_norm == {}
     assert config.source_sections == frozenset({"pipeline", "groups", "output"})
     assert config.to_pipeline_params()["qc_rsd_enabled"] is True

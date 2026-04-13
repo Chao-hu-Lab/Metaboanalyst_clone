@@ -446,6 +446,8 @@ def test_publication_report_smoke_layout_and_pruning(
     for file_path in expected_files:
         assert file_path.is_file(), f"missing report file: {file_path}"
 
+    assert not list(output_dir.rglob("*.pdf")), "PDF figures should be opt-in"
+
     for file_path in legacy_files:
         assert not file_path.exists(), (
             f"legacy output should not be emitted: {file_path}"
