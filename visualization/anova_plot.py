@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.figure import Figure
+from matplotlib.ticker import FuncFormatter
 from scipy.stats import f_oneway, kruskal, mannwhitneyu, ttest_ind
 
 from visualization.theme import COLORS, apply_publication_style, get_group_colors
@@ -196,6 +197,44 @@ def _draw_r_style_boxplot(
     ax.spines["bottom"].set_linewidth(0.8)
 
 
+def _set_intensity_ylabel(
+    ax,
+    data_by_group: list[np.ndarray],
+    *,
+    fontsize: float = 10,
+) -> None:
+    """Move scientific y-axis scaling into the axis label for readability."""
+    finite_chunks = []
+    for values in data_by_group:
+        if len(values) == 0:
+            continue
+        clean = np.asarray(values, dtype=float)
+        finite_chunks.append(clean[np.isfinite(clean)])
+
+    if not finite_chunks:
+        ax.set_ylabel("Intensity", fontsize=fontsize)
+        return
+
+    finite_values = np.concatenate(finite_chunks)
+    if finite_values.size == 0:
+        ax.set_ylabel("Intensity", fontsize=fontsize)
+        return
+
+    max_abs = float(np.max(np.abs(finite_values)))
+    use_scientific = max_abs >= 1e4 or 0 < max_abs < 1e-3
+    if not use_scientific:
+        ax.set_ylabel("Intensity", fontsize=fontsize)
+        return
+
+    exponent = int(np.floor(np.log10(max_abs)))
+    scale = 10.0**exponent
+    ax.yaxis.set_major_formatter(
+        FuncFormatter(lambda value, _position: f"{value / scale:g}")
+    )
+    ax.yaxis.offsetText.set_visible(False)
+    ax.set_ylabel(fr"Intensity ($\times 10^{{{exponent}}}$)", fontsize=fontsize)
+
+
 def plot_feature_boxplot(
     df: pd.DataFrame,
     labels,
@@ -257,7 +296,7 @@ def plot_feature_boxplot(
     _draw_r_style_boxplot(ax, data_by_group, groups, box_colors, config)
 
     ax.set_title(str(feature_name), fontsize=11, fontweight="bold")
-    ax.set_ylabel("Value", fontsize=10)
+    _set_intensity_ylabel(ax, data_by_group, fontsize=10)
     ax.tick_params(axis="x", labelsize=8)
 
     stat_text = _build_stat_annotation(plot_data, annotation_method=annotation_method)

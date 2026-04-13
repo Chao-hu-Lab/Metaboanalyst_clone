@@ -112,6 +112,35 @@ class TestAnovaBoxplotJitter:
         )
         plt.close(fig)
 
+    def test_scientific_scale_is_folded_into_ylabel(self):
+        import pandas as pd
+
+        from visualization.anova_plot import plot_feature_boxplot
+
+        df = pd.DataFrame(
+            {
+                "5-hmdC": [
+                    1.2e5,
+                    2.4e5,
+                    3.6e5,
+                    4.8e5,
+                    5.0e5,
+                    6.2e5,
+                    7.4e5,
+                    8.6e5,
+                ]
+            }
+        )
+        labels = pd.Series(["Exposure"] * 4 + ["Normal"] * 4)
+
+        fig = plot_feature_boxplot(df, labels, "5-hmdC")
+        ax = fig.axes[0]
+        fig.canvas.draw()
+
+        assert ax.get_ylabel() == r"Intensity ($\times 10^{5}$)"
+        assert ax.yaxis.get_offset_text().get_text() == ""
+        plt.close(fig)
+
 
 class TestOutlierPlotLayout:
     def test_outlier_score_figsize_2_to_1(self):
