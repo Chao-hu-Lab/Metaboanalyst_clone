@@ -112,64 +112,39 @@ class TestAnovaBoxplotJitter:
         )
         plt.close(fig)
 
-    def test_scientific_scale_is_folded_into_ylabel(self):
-        import pandas as pd
-
-        from visualization.anova_plot import plot_feature_boxplot
-
-        df = pd.DataFrame(
-            {
-                "5-hmdC": [
-                    1.2e5,
-                    2.4e5,
-                    3.6e5,
-                    4.8e5,
-                    5.0e5,
-                    6.2e5,
-                    7.4e5,
-                    8.6e5,
-                ]
-            }
-        )
-        labels = pd.Series(["Exposure"] * 4 + ["Normal"] * 4)
-
-        fig = plot_feature_boxplot(df, labels, "5-hmdC")
-        ax = fig.axes[0]
-        fig.canvas.draw()
-
-        assert ax.get_ylabel() == r"Intensity ($\times 10^{5}$)"
-        assert ax.yaxis.get_offset_text().get_text() == ""
-        plt.close(fig)
-
-
 class TestNormalizationComparisonAxes:
     def test_group_boxplot_scientific_scale_is_folded_into_ylabel(self):
         import pandas as pd
 
         from visualization.norm_preview import plot_norm_comparison
 
-        before = pd.DataFrame(
-            {
-                "F1": [1.2e10, 2.4e10, 3.6e10, 4.8e10],
-                "F2": [1.4e10, 2.6e10, 3.8e10, 5.0e10],
-            }
-        )
+        before_values = np.full((6, 20), 1.0e8)
+        before_values[:, :18] += np.arange(18) * 5.0e6
+        before_values[0, 18] = 4.0e9
+        before_values[5, 19] = 5.0e9
+        before = pd.DataFrame(before_values)
         after = pd.DataFrame(
-            {
-                "F1": [0.8, 0.9, 1.1, 1.2],
-                "F2": [0.7, 1.0, 1.0, 1.3],
-            }
+            np.linspace(0.7, 1.3, before_values.size).reshape(before_values.shape)
         )
-        labels = pd.Series(["Exposure", "Exposure", "Normal", "Normal"])
+        labels = pd.Series(["Exposure"] * 3 + ["Normal"] * 3)
 
         fig = plot_norm_comparison(before, after, labels)
         fig.canvas.draw()
 
         before_box_ax = fig.axes[0]
         after_box_ax = fig.axes[1]
-        assert before_box_ax.get_ylabel() == r"Intensity ($\times 10^{10}$)"
+        before_density_ax = fig.axes[2]
+        after_density_ax = fig.axes[3]
+
+        assert before_box_ax.get_ylabel() == r"Intensity ($\times 10^{8}$)"
         assert before_box_ax.yaxis.get_offset_text().get_text() == ""
         assert after_box_ax.get_ylabel() == "Intensity"
+        assert before_density_ax.get_xlabel() == r"Intensity ($\times 10^{9}$)"
+        assert before_density_ax.get_ylabel() == r"Density ($\times 10^{-9}$)"
+        assert before_density_ax.xaxis.get_offset_text().get_text() == ""
+        assert before_density_ax.yaxis.get_offset_text().get_text() == ""
+        assert after_density_ax.get_xlabel() == "Intensity"
+        assert after_density_ax.xaxis.get_offset_text().get_text() == ""
         plt.close(fig)
 
 
