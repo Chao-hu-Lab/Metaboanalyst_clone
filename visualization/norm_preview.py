@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 from matplotlib.figure import Figure
 from matplotlib.patches import Patch
+from matplotlib.ticker import FuncFormatter
 from scipy.stats import gaussian_kde
 
 from visualization.theme import apply_publication_style, get_group_colors
@@ -197,11 +198,40 @@ def _draw_group_box(ax, df, labels_arr, groups, color_map, title: str) -> None:
 
     ax.set_xticks(positions)
     ax.set_xticklabels([str(group)[:12] for group in groups], fontsize=8)
-    ax.set_ylabel("Intensity", fontsize=9.5)
+    _set_intensity_ylabel(ax, data_by_group, fontsize=9.5)
     ax.tick_params(axis="x", pad=2)
     ax.grid(axis="y", alpha=0.12, linewidth=0.6)
     ax.set_xlabel("Group", fontsize=9)
     ax.set_xlim(0.5, len(groups) + 0.5)
+
+
+def _set_intensity_ylabel(ax, data_by_group: list[np.ndarray], *, fontsize: float) -> None:
+    """Move scientific y-axis scaling into the axis label for readability."""
+    finite_chunks = []
+    for values in data_by_group:
+        clean = np.asarray(values, dtype=float)
+        clean = clean[np.isfinite(clean)]
+        if clean.size:
+            finite_chunks.append(clean)
+
+    if not finite_chunks:
+        ax.set_ylabel("Intensity", fontsize=fontsize)
+        return
+
+    finite_values = np.concatenate(finite_chunks)
+    max_abs = float(np.max(np.abs(finite_values)))
+    use_scientific = max_abs >= 1e4 or 0 < max_abs < 1e-3
+    if not use_scientific:
+        ax.set_ylabel("Intensity", fontsize=fontsize)
+        return
+
+    exponent = int(np.floor(np.log10(max_abs)))
+    scale = 10.0**exponent
+    ax.yaxis.set_major_formatter(
+        FuncFormatter(lambda value, _position: f"{value / scale:g}")
+    )
+    ax.yaxis.offsetText.set_visible(False)
+    ax.set_ylabel(fr"Intensity ($\times 10^{{{exponent}}}$)", fontsize=fontsize)
 
 
 def _draw_density(ax, df, labels_arr, groups, color_map, x_range, title: str) -> None:

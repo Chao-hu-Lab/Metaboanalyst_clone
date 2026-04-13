@@ -142,6 +142,37 @@ class TestAnovaBoxplotJitter:
         plt.close(fig)
 
 
+class TestNormalizationComparisonAxes:
+    def test_group_boxplot_scientific_scale_is_folded_into_ylabel(self):
+        import pandas as pd
+
+        from visualization.norm_preview import plot_norm_comparison
+
+        before = pd.DataFrame(
+            {
+                "F1": [1.2e10, 2.4e10, 3.6e10, 4.8e10],
+                "F2": [1.4e10, 2.6e10, 3.8e10, 5.0e10],
+            }
+        )
+        after = pd.DataFrame(
+            {
+                "F1": [0.8, 0.9, 1.1, 1.2],
+                "F2": [0.7, 1.0, 1.0, 1.3],
+            }
+        )
+        labels = pd.Series(["Exposure", "Exposure", "Normal", "Normal"])
+
+        fig = plot_norm_comparison(before, after, labels)
+        fig.canvas.draw()
+
+        before_box_ax = fig.axes[0]
+        after_box_ax = fig.axes[1]
+        assert before_box_ax.get_ylabel() == r"Intensity ($\times 10^{10}$)"
+        assert before_box_ax.yaxis.get_offset_text().get_text() == ""
+        assert after_box_ax.get_ylabel() == "Intensity"
+        plt.close(fig)
+
+
 class TestOutlierPlotLayout:
     def test_outlier_score_figsize_2_to_1(self):
         from unittest.mock import MagicMock
