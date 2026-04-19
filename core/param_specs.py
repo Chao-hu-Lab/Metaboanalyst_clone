@@ -406,6 +406,13 @@ PARAM_SPECS: dict[str, ParamSpec] = {
         scope="shared-readonly",
         gui_label="Top-N export limit",
     ),
+    "output.save_pdf": ParamSpec(
+        path="output.save_pdf",
+        default=False,
+        value_type=bool,
+        scope="shared-readonly",
+        gui_label="Save PDF figures",
+    ),
     "spec_norm.factor_column": ParamSpec(
         path="spec_norm.factor_column",
         default=None,

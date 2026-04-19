@@ -31,14 +31,24 @@ class TestPublicationExportStyle:
         assert plt.rcParams["legend.frameon"] is False
 
 
-class TestSaveFigureDualOutput:
-    def test_publication_mode_creates_png_and_pdf(self, tmp_path):
+class TestSaveFigureOutputFormats:
+    def test_publication_mode_defaults_to_png_only(self, tmp_path):
         from scripts.run_from_config import _save_figure
 
         fig = plt.figure()
         fig.add_subplot(111).plot([1, 2], [3, 4])
         out = tmp_path / "test.png"
         _save_figure(fig, out, draft_mode=False)
+        assert out.exists()
+        assert not out.with_suffix(".pdf").exists()
+
+    def test_save_pdf_option_creates_png_and_pdf(self, tmp_path):
+        from scripts.run_from_config import _save_figure
+
+        fig = plt.figure()
+        fig.add_subplot(111).plot([1, 2], [3, 4])
+        out = tmp_path / "test.png"
+        _save_figure(fig, out, draft_mode=False, save_pdf=True)
         assert out.exists()
         assert out.with_suffix(".pdf").exists()
 
@@ -100,6 +110,54 @@ class TestAnovaBoxplotJitter:
         assert len(scatter_collections) >= 2, (
             "Expected jittered scatter overlays for each group"
         )
+        plt.close(fig)
+
+    def test_boxplot_fliers_are_hidden_when_raw_points_are_overlaid(self):
+        from visualization.anova_plot import _draw_r_style_boxplot
+        from visualization.theme import COLORS
+
+        fig, ax = plt.subplots()
+        config = COLORS["light"]
+        data = [np.array([1.0, 2.0, 3.0, 4.0, 100.0])]
+        _draw_r_style_boxplot(ax, data, ["A"], ["#E64B35"], config)
+
+        flier_lines = [line for line in ax.lines if line.get_marker() == "o"]
+        assert flier_lines == []
+        plt.close(fig)
+
+class TestNormalizationComparisonAxes:
+    def test_group_boxplot_scientific_scale_is_folded_into_ylabel(self):
+        import pandas as pd
+
+        from visualization.norm_preview import plot_norm_comparison
+
+        before_values = np.full((6, 20), 1.0e8)
+        before_values[:, :18] += np.arange(18) * 5.0e6
+        before_values[0, 18] = 4.0e9
+        before_values[5, 19] = 5.0e9
+        before = pd.DataFrame(before_values)
+        after = pd.DataFrame(
+            np.linspace(0.7, 1.3, before_values.size).reshape(before_values.shape)
+        )
+        labels = pd.Series(["Exposure"] * 3 + ["Normal"] * 3)
+
+        fig = plot_norm_comparison(before, after, labels)
+        fig.canvas.draw()
+
+        before_box_ax = fig.axes[0]
+        after_box_ax = fig.axes[1]
+        before_density_ax = fig.axes[2]
+        after_density_ax = fig.axes[3]
+
+        assert before_box_ax.get_ylabel() == r"Intensity ($\times 10^{8}$)"
+        assert before_box_ax.yaxis.get_offset_text().get_text() == ""
+        assert after_box_ax.get_ylabel() == "Intensity"
+        assert before_density_ax.get_xlabel() == r"Intensity ($\times 10^{9}$)"
+        assert before_density_ax.get_ylabel() == r"Density ($\times 10^{-9}$)"
+        assert before_density_ax.xaxis.get_offset_text().get_text() == ""
+        assert before_density_ax.yaxis.get_offset_text().get_text() == ""
+        assert after_density_ax.get_xlabel() == "Intensity"
+        assert after_density_ax.xaxis.get_offset_text().get_text() == ""
         plt.close(fig)
 
 

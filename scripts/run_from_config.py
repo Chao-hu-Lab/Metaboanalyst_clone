@@ -94,12 +94,17 @@ def _ensure_report_dirs(output_dir: str) -> dict[str, Path]:
     return report_dirs
 
 
-def _save_figure(fig: Any, path: Path, *, draft_mode: bool = False) -> None:
-    """Save a matplotlib figure as PNG (and PDF in publication mode), then close."""
-    if draft_mode:
-        fig.savefig(path, dpi=150, bbox_inches="tight")
-    else:
-        fig.savefig(path, dpi=300, bbox_inches="tight")
+def _save_figure(
+    fig: Any,
+    path: Path,
+    *,
+    draft_mode: bool = False,
+    save_pdf: bool = False,
+) -> None:
+    """Save a matplotlib figure as PNG, optionally adding a PDF companion."""
+    dpi = 150 if draft_mode else 300
+    fig.savefig(path, dpi=dpi, bbox_inches="tight")
+    if save_pdf:
         fig.savefig(path.with_suffix(".pdf"), bbox_inches="tight")
     plt.close(fig)
 
@@ -622,7 +627,9 @@ def run_analysis(cfg: dict) -> dict[str, str]:
     os.makedirs(output_dir, exist_ok=True)
     report_dirs = _ensure_report_dirs(output_dir)
 
-    draft_mode = bool(cfg.get("output", {}).get("draft_mode", False))
+    output_cfg = cfg.get("output", {})
+    draft_mode = bool(output_cfg.get("draft_mode", False))
+    save_pdf = bool(output_cfg.get("save_pdf", False))
     if not draft_mode:
         from visualization.theme import apply_publication_export_style
 
@@ -784,7 +791,10 @@ def run_analysis(cfg: dict) -> dict[str, str]:
     fig = plt.figure(figsize=(12, 8))
     plot_norm_comparison(pre_norm_matrix, processed, final_labels, fig=fig)
     _save_figure(
-        fig, report_dirs["qc"] / "normalization_comparison.png", draft_mode=draft_mode
+        fig,
+        report_dirs["qc"] / "normalization_comparison.png",
+        draft_mode=draft_mode,
+        save_pdf=save_pdf,
     )
     print(f"  Saved {REPORT_SUBDIRS['qc']}\\normalization_comparison.png")
 
@@ -801,7 +811,12 @@ def run_analysis(cfg: dict) -> dict[str, str]:
 
     fig = plt.figure(figsize=(10, 8))
     plot_pca_score(pca_result, pc_x=0, pc_y=1, fig=fig)
-    _save_figure(fig, report_dirs["qc"] / "pca_score_plot.png", draft_mode=draft_mode)
+    _save_figure(
+        fig,
+        report_dirs["qc"] / "pca_score_plot.png",
+        draft_mode=draft_mode,
+        save_pdf=save_pdf,
+    )
     print(f"  Saved {REPORT_SUBDIRS['qc']}\\pca_score_plot.png")
 
     # ── ANOVA ─────────────────────────────────────────────
@@ -845,7 +860,10 @@ def run_analysis(cfg: dict) -> dict[str, str]:
     fig = plt.figure(figsize=(10, 8))
     plot_anova_importance(anova_result, top_n=25, fig=fig)
     _save_figure(
-        fig, report_dirs["feature"] / "anova_importance.png", draft_mode=draft_mode
+        fig,
+        report_dirs["feature"] / "anova_importance.png",
+        draft_mode=draft_mode,
+        save_pdf=save_pdf,
     )
 
     anova_ranked = anova_result.result_df.sort_values("pvalue_adj").copy()
@@ -871,6 +889,7 @@ def run_analysis(cfg: dict) -> dict[str, str]:
             heatmap_fig,
             report_dirs["global"] / "heatmap_top50.png",
             draft_mode=draft_mode,
+            save_pdf=save_pdf,
         )
         print(f"  Saved {REPORT_SUBDIRS['global']}\\heatmap_top50.png")
 
@@ -904,6 +923,7 @@ def run_analysis(cfg: dict) -> dict[str, str]:
                 fig,
                 report_dirs["supplementary"] / f"anova_boxplot_{g1}_vs_{g2}_top{i}.png",
                 draft_mode=draft_mode,
+                save_pdf=save_pdf,
             )
             saved_anova_boxplots += 1
     print(f"  Saved {REPORT_SUBDIRS['feature']}\\anova_importance.png")
@@ -934,6 +954,7 @@ def run_analysis(cfg: dict) -> dict[str, str]:
                 fig,
                 report_dirs["supplementary"] / "plsda_score_all_groups.png",
                 draft_mode=draft_mode,
+                save_pdf=save_pdf,
             )
             print(
                 f"  Saved {REPORT_SUBDIRS['supplementary']}\\plsda_score_all_groups.png"
@@ -973,6 +994,7 @@ def run_analysis(cfg: dict) -> dict[str, str]:
                     fig,
                     report_dirs["feature"] / f"plsda_vip_{g1}_vs_{g2}.png",
                     draft_mode=draft_mode,
+                    save_pdf=save_pdf,
                 )
                 print(
                     f"    Saved {REPORT_SUBDIRS['feature']}\\plsda_vip_{g1}_vs_{g2}.png"
@@ -1021,6 +1043,7 @@ def run_analysis(cfg: dict) -> dict[str, str]:
                     fig,
                     report_dirs["feature"] / f"oplsda_score_{g1}_vs_{g2}.png",
                     draft_mode=draft_mode,
+                    save_pdf=save_pdf,
                 )
 
                 fig = plt.figure(figsize=(8, 6))
@@ -1029,6 +1052,7 @@ def run_analysis(cfg: dict) -> dict[str, str]:
                     fig,
                     report_dirs["feature"] / f"oplsda_splot_{g1}_vs_{g2}.png",
                     draft_mode=draft_mode,
+                    save_pdf=save_pdf,
                 )
 
                 print(
@@ -1147,6 +1171,7 @@ def run_analysis(cfg: dict) -> dict[str, str]:
                 fig,
                 report_dirs["feature"] / f"volcano_{g1}_vs_{g2}.png",
                 draft_mode=draft_mode,
+                save_pdf=save_pdf,
             )
             print(f"    Saved {REPORT_SUBDIRS['feature']}\\volcano_{g1}_vs_{g2}.png")
         except Exception as e:
@@ -1189,6 +1214,7 @@ def run_analysis(cfg: dict) -> dict[str, str]:
                 fig,
                 report_dirs["validation"] / f"roc_{g1}_vs_{g2}.png",
                 draft_mode=draft_mode,
+                save_pdf=save_pdf,
             )
 
             fig = plt.figure(figsize=(8, 6))
@@ -1197,6 +1223,7 @@ def run_analysis(cfg: dict) -> dict[str, str]:
                 fig,
                 report_dirs["validation"] / f"auc_ranking_{g1}_vs_{g2}.png",
                 draft_mode=draft_mode,
+                save_pdf=save_pdf,
             )
 
             print(f"    Saved {REPORT_SUBDIRS['validation']}\\roc_{g1}_vs_{g2}.png")
@@ -1224,7 +1251,10 @@ def run_analysis(cfg: dict) -> dict[str, str]:
         fig = plt.figure(figsize=(8, 6))
         plot_outlier_score(outlier_result, labels=final_labels, fig=fig)
         _save_figure(
-            fig, report_dirs["supplementary"] / "outlier_t2.png", draft_mode=draft_mode
+            fig,
+            report_dirs["supplementary"] / "outlier_t2.png",
+            draft_mode=draft_mode,
+            save_pdf=save_pdf,
         )
 
         fig = plt.figure(figsize=(8, 6))
@@ -1233,6 +1263,7 @@ def run_analysis(cfg: dict) -> dict[str, str]:
             fig,
             report_dirs["supplementary"] / "outlier_dmodx.png",
             draft_mode=draft_mode,
+            save_pdf=save_pdf,
         )
         print(f"  Saved {REPORT_SUBDIRS['supplementary']}\\outlier_t2.png")
         print(f"  Saved {REPORT_SUBDIRS['supplementary']}\\outlier_dmodx.png")
@@ -1287,6 +1318,7 @@ def run_analysis(cfg: dict) -> dict[str, str]:
             fig,
             report_dirs["supplementary"] / f"rf_importance_{g1}_vs_{g2}.png",
             draft_mode=draft_mode,
+            save_pdf=save_pdf,
         )
 
         fig = plt.figure(figsize=(6, 5))
@@ -1297,6 +1329,7 @@ def run_analysis(cfg: dict) -> dict[str, str]:
             fig,
             report_dirs["supplementary"] / f"rf_confusion_matrix_{g1}_vs_{g2}.png",
             draft_mode=draft_mode,
+            save_pdf=save_pdf,
         )
 
         print(

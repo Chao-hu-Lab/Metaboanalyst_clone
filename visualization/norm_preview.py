@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 from matplotlib.figure import Figure
 from matplotlib.patches import Patch
+from matplotlib.ticker import FuncFormatter
 from scipy.stats import gaussian_kde
 
 from visualization.theme import apply_publication_style, get_group_colors
@@ -62,8 +63,10 @@ def plot_norm_comparison(
     palette = get_group_colors(theme, len(groups))
     color_map = dict(zip(groups, palette))
 
-    before_min, before_max = _shared_value_limits(before_df, after_df)
-    density_x = np.linspace(before_min, before_max, 240)
+    before_min, before_max = _shared_value_limits(before_df)
+    after_min, after_max = _shared_value_limits(after_df)
+    before_density_x = np.linspace(before_min, before_max, 240)
+    after_density_x = np.linspace(after_min, after_max, 240)
 
     gs = fig.add_gridspec(
         2,
@@ -85,13 +88,25 @@ def plot_norm_comparison(
 
     ax3 = fig.add_subplot(gs[1, 0])
     _draw_density(
-        ax3, before_df, labels_arr, groups, color_map, density_x, "Before density"
+        ax3,
+        before_df,
+        labels_arr,
+        groups,
+        color_map,
+        before_density_x,
+        "Before density",
     )
     ax3.set_title("Before density", fontsize=10.5, fontweight="bold", pad=8)
 
     ax4 = fig.add_subplot(gs[1, 1])
     _draw_density(
-        ax4, after_df, labels_arr, groups, color_map, density_x, "After density"
+        ax4,
+        after_df,
+        labels_arr,
+        groups,
+        color_map,
+        after_density_x,
+        "After density",
     )
     ax4.set_title("After density", fontsize=10.5, fontweight="bold", pad=8)
 
@@ -197,11 +212,45 @@ def _draw_group_box(ax, df, labels_arr, groups, color_map, title: str) -> None:
 
     ax.set_xticks(positions)
     ax.set_xticklabels([str(group)[:12] for group in groups], fontsize=8)
-    ax.set_ylabel("Intensity", fontsize=9.5)
     ax.tick_params(axis="x", pad=2)
     ax.grid(axis="y", alpha=0.12, linewidth=0.6)
     ax.set_xlabel("Group", fontsize=9)
     ax.set_xlim(0.5, len(groups) + 0.5)
+    _fold_scientific_axis_label(ax, axis="y", label="Intensity", fontsize=9.5)
+
+
+def _fold_scientific_axis_label(
+    ax,
+    *,
+    axis: str,
+    label: str,
+    fontsize: float | None = None,
+) -> None:
+    """Move visible scientific scaling into an axis label."""
+    if axis == "x":
+        values = np.asarray(ax.get_xlim(), dtype=float)
+        formatter_axis = ax.xaxis
+        set_label = ax.set_xlabel
+    elif axis == "y":
+        values = np.asarray(ax.get_ylim(), dtype=float)
+        formatter_axis = ax.yaxis
+        set_label = ax.set_ylabel
+    else:
+        raise ValueError("axis must be 'x' or 'y'.")
+
+    max_abs = float(np.max(np.abs(values[np.isfinite(values)])))
+    use_scientific = max_abs >= 1e4 or 0 < max_abs < 1e-3
+    if not use_scientific:
+        set_label(label, fontsize=fontsize)
+        return
+
+    exponent = int(np.floor(np.log10(max_abs)))
+    scale = 10.0**exponent
+    formatter_axis.set_major_formatter(
+        FuncFormatter(lambda value, _position: f"{value / scale:g}")
+    )
+    formatter_axis.offsetText.set_visible(False)
+    set_label(fr"{label} ($\times 10^{{{exponent}}}$)", fontsize=fontsize)
 
 
 def _draw_density(ax, df, labels_arr, groups, color_map, x_range, title: str) -> None:
@@ -246,6 +295,8 @@ def _draw_density(ax, df, labels_arr, groups, color_map, x_range, title: str) ->
     ax.set_xlim(float(x_range[0]), float(x_range[-1]))
     if y_max > 0:
         ax.set_ylim(0, y_max * 1.08)
+    _fold_scientific_axis_label(ax, axis="x", label="Intensity")
+    _fold_scientific_axis_label(ax, axis="y", label="Density")
 
 
 def _draw_empty_norm_figure(fig: Figure, title: str, message: str) -> None:

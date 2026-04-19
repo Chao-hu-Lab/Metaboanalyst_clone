@@ -25,9 +25,18 @@ class SheetPreference:
 
 
 SHEET_PREFERENCES: tuple[SheetPreference, ...] = (
+    SheetPreference(
+        "QC_Batch_Scaling_result",
+        ("QC_Batch_Scaling_result", "Batch_scaling"),
+        ("qcbatch", "batchscaling", "batch"),
+    ),
+    SheetPreference(
+        "SpecNorm_PQN_Result",
+        ("SpecNorm_PQN_Result",),
+        ("specnormpqn", "specnorm"),
+    ),
     SheetPreference("PQN_Result", ("PQN_Result",), ("pqn",)),
     SheetPreference("SpecNorm_Result", ("SpecNorm_Result",), ("specnorm",)),
-    SheetPreference("Batch_scaling", ("Batch_scaling",), ("batch", "batchscaling")),
     SheetPreference(
         "QC LOESS result",
         ("QC LOESS result", "QC_LOESS_result", "QCLOESS"),
@@ -77,7 +86,8 @@ def resolve_primary_sheet_name_from_names(file_name: str, sheet_names: Sequence[
 
     raise ValueError(
         "Could not resolve a usable data worksheet. Expected one of: "
-        "PQN_Result, SpecNorm_Result, Batch_scaling, QC LOESS result, ISTD, RawIntensity."
+        "QC_Batch_Scaling_result, SpecNorm_PQN_Result, PQN_Result, "
+        "SpecNorm_Result, Batch_scaling, QC LOESS result, ISTD, RawIntensity."
     )
 
 
