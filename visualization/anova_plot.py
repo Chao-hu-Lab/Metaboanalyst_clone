@@ -149,7 +149,7 @@ def _draw_r_style_boxplot(
             widths=0.55,
             patch_artist=True,
             showmeans=False,
-            showfliers=True,
+            showfliers=False,
             boxprops=dict(
                 facecolor=color, edgecolor=config["axes_line"], linewidth=1.0
             ),

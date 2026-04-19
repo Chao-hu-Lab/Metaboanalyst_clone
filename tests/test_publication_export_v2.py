@@ -112,6 +112,19 @@ class TestAnovaBoxplotJitter:
         )
         plt.close(fig)
 
+    def test_boxplot_fliers_are_hidden_when_raw_points_are_overlaid(self):
+        from visualization.anova_plot import _draw_r_style_boxplot
+        from visualization.theme import COLORS
+
+        fig, ax = plt.subplots()
+        config = COLORS["light"]
+        data = [np.array([1.0, 2.0, 3.0, 4.0, 100.0])]
+        _draw_r_style_boxplot(ax, data, ["A"], ["#E64B35"], config)
+
+        flier_lines = [line for line in ax.lines if line.get_marker() == "o"]
+        assert flier_lines == []
+        plt.close(fig)
+
 class TestNormalizationComparisonAxes:
     def test_group_boxplot_scientific_scale_is_folded_into_ylabel(self):
         import pandas as pd
