@@ -3,7 +3,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from core.input_resolver import resolve_primary_sheet_name_from_names
+from core.input_resolver import read_input_table, resolve_primary_sheet_name_from_names
 from scripts.run_from_config import (
     _export_significant_features_excel,
     load_data,
@@ -390,6 +390,73 @@ def test_resolve_primary_sheet_name_prefers_filename_hint_with_priority():
     )
 
     assert resolved == "SpecNorm_Result"
+
+
+def test_resolve_primary_sheet_name_prefers_final_dnp_batch_result():
+    resolved = resolve_primary_sheet_name_from_names(
+        "single_or_multi_batch_dnp_export.xlsx",
+        [
+            "Overview",
+            "PQN_Result",
+            "SpecNorm_PQN_Result",
+            "QC_Batch_Scaling_result",
+            "SampleInfo",
+        ],
+    )
+
+    assert resolved == "QC_Batch_Scaling_result"
+
+
+def test_resolve_primary_sheet_name_prefers_specnorm_pqn_when_batch_result_absent():
+    resolved = resolve_primary_sheet_name_from_names(
+        "single_batch_dnp_export.xlsx",
+        ["Overview", "PQN_Result", "SpecNorm_PQN_Result", "SampleInfo"],
+    )
+
+    assert resolved == "SpecNorm_PQN_Result"
+
+
+def test_resolve_primary_sheet_name_keeps_pqn_as_dnp_fallback():
+    resolved = resolve_primary_sheet_name_from_names(
+        "single_batch_dnp_export.xlsx",
+        ["Overview", "PQN_Result", "SampleInfo"],
+    )
+
+    assert resolved == "PQN_Result"
+
+
+def test_resolve_primary_sheet_name_keeps_legacy_batch_scaling_alias():
+    resolved = resolve_primary_sheet_name_from_names(
+        "legacy_batch_export.xlsx",
+        ["Overview", "PQN_Result", "Batch_scaling", "SampleInfo"],
+    )
+
+    assert resolved == "Batch_scaling"
+
+
+def test_read_input_table_loads_specnorm_pqn_sheet_without_fallback(tmp_path: Path):
+    xlsx_path = tmp_path / "dnp_single_batch_specnorm_pqn.xlsx"
+    overview_df = pd.DataFrame({"Status": ["not data"]})
+    matrix_df = pd.DataFrame(
+        {
+            "Mz/RT": ["Sample_Type", "100.1/1.1"],
+            "Sample_A": ["Exposure", 1.0],
+            "Sample_B": ["Normal", 2.0],
+        }
+    )
+    with pd.ExcelWriter(xlsx_path) as writer:
+        overview_df.to_excel(writer, sheet_name="Overview", index=False)
+        matrix_df.to_excel(writer, sheet_name="SpecNorm_PQN_Result", index=False)
+        _sample_info(["Sample_A", "Sample_B"], ["Exposure", "Normal"]).to_excel(
+            writer,
+            sheet_name="SampleInfo",
+            index=False,
+        )
+
+    loaded = read_input_table(str(xlsx_path))
+
+    assert loaded.sheet_name == "SpecNorm_PQN_Result"
+    assert list(loaded.table.columns) == ["Mz/RT", "Sample_A", "Sample_B"]
 
 
 def test_summary_export_keeps_features_with_zero_significant_hits(tmp_path: Path):
