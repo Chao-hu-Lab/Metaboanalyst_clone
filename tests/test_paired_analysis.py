@@ -206,7 +206,42 @@ class TestAlignPairedSamples:
         assert meta["overrides_applied"][0]["selected_sample"] == "TumorBC2286_DNA"
         assert meta["warnings"] == []
 
-    def test_duplicate_subjects_warn_keep_first_without_override(self):
+    def test_duplicate_subjects_override_matches_normalized_candidate_name(self):
+        names = pd.Index([
+            "Tumor tissue BC2286_ DNA +RNA",
+            "Tumor tissue BC2286_DNA",
+            "Normal tissue BC2286_DNA",
+        ])
+        labels = pd.Series(["Exposure", "Exposure", "Normal"], index=names)
+        df = pd.DataFrame(
+            [[1, 2], [3, 4], [5, 6]], index=names, columns=["f1", "f2"]
+        )
+        pair_ids = extract_subject_ids(names)
+
+        df1, df2, matched, meta = align_paired_samples_with_meta(
+            df,
+            labels,
+            "Exposure",
+            "Normal",
+            pair_ids,
+            paired_resolution={
+                "on_duplicate": "prefer_override",
+                "on_unresolved": "warn_keep_first",
+                "overrides": {
+                    "Exposure": {
+                        "BC2286": "TumorBC2286_DNA",
+                    }
+                },
+            },
+        )
+
+        assert len(matched) == 1
+        assert df1.index.tolist() == ["Tumor tissue BC2286_DNA"]
+        assert df2.index.tolist() == ["Normal tissue BC2286_DNA"]
+        assert meta["overrides_applied"][0]["selected_sample"] == "Tumor tissue BC2286_DNA"
+        assert meta["warnings"] == []
+
+    def test_duplicate_subjects_warn_keep_prioritized_dna_without_override(self):
         names = pd.Index([
             "TumorBC2286_DNAandRNA",
             "TumorBC2286_DNA",
@@ -230,8 +265,9 @@ class TestAlignPairedSamples:
             },
         )
 
-        assert df1.index.tolist() == ["TumorBC2286_DNAandRNA"]
+        assert df1.index.tolist() == ["TumorBC2286_DNA"]
         assert len(meta["warnings"]) == 1
+        assert "prioritized sample 'TumorBC2286_DNA'" in meta["warnings"][0]
 
     def test_duplicate_subjects_error_when_policy_requires_resolution(self):
         names = pd.Index([
