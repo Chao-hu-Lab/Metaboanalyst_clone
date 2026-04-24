@@ -95,6 +95,31 @@ def _normalize_categorical_series(series: pd.Series) -> pd.Series:
     return series.astype("string").fillna(pd.NA)
 
 
+def _relevel_single_batch_covariate(
+    covariate: pd.Series,
+    batch_labels: pd.Series,
+) -> tuple[pd.Series, list[str]]:
+    """Order batch-exclusive levels first so they act as baseline categories when possible."""
+    aligned_covariate = _normalize_categorical_series(covariate)
+    aligned_batches = _normalize_categorical_series(batch_labels)
+    table = pd.crosstab(aligned_batches, aligned_covariate, dropna=False)
+    level_batch_counts = (table > 0).sum(axis=0)
+    single_batch_levels = [str(value) for value in level_batch_counts[level_batch_counts <= 1].index]
+    if not single_batch_levels:
+        return aligned_covariate, []
+
+    existing_levels = [str(value) for value in aligned_covariate.dropna().unique()]
+    ordered_levels = single_batch_levels + [
+        level for level in existing_levels if level not in single_batch_levels
+    ]
+    categorical = pd.Categorical(
+        aligned_covariate,
+        categories=ordered_levels,
+        ordered=True,
+    )
+    return pd.Series(categorical, index=aligned_covariate.index, name=aligned_covariate.name), single_batch_levels
+
+
 def _is_excluded_covariate_column(column: str) -> bool:
     normalized = str(column).strip().lower()
     if normalized in _EXCLUDED_COVARIATE_COLUMNS:
@@ -142,12 +167,14 @@ def identify_combat_sample_info_covariates(
 def _build_covariate_frame(
     sample_ids: pd.Index,
     aligned_sample_info: pd.DataFrame,
+    batch_labels: pd.Series,
     *,
     labels: pd.Series | None = None,
     covariate_columns: Sequence[str] | None = None,
-) -> tuple[pd.DataFrame | None, list[str]]:
+) -> tuple[pd.DataFrame | None, list[str], dict[str, list[str]]]:
     frames: list[pd.Series] = []
     names: list[str] = []
+    reference_levels: dict[str, list[str]] = {}
     allowed_covariates, rejected_covariates = identify_combat_sample_info_covariates(aligned_sample_info)
     allowed_set = set(allowed_covariates)
 
@@ -156,9 +183,15 @@ def _build_covariate_frame(
         if aligned_labels.isna().any():
             raise ValueError("ComBat labels could not be aligned to all samples.")
         label_series = _normalize_categorical_series(aligned_labels.rename("Condition"))
+        label_series, label_reference_levels = _relevel_single_batch_covariate(
+            label_series,
+            batch_labels,
+        )
         if label_series.nunique(dropna=True) > 1:
             frames.append(label_series)
             names.append("Condition")
+            if label_reference_levels:
+                reference_levels["Condition"] = label_reference_levels
 
     for column in covariate_columns or ():
         if column not in aligned_sample_info.columns:
@@ -169,14 +202,20 @@ def _build_covariate_frame(
         covariate = _normalize_categorical_series(aligned_sample_info[column].rename(str(column)))
         if covariate.isna().any():
             raise ValueError(f"ComBat covariate '{column}' contains missing values.")
+        covariate, covariate_reference_levels = _relevel_single_batch_covariate(
+            covariate,
+            batch_labels,
+        )
         if covariate.nunique(dropna=True) <= 1:
             continue
         frames.append(covariate)
         names.append(str(column))
+        if covariate_reference_levels:
+            reference_levels[str(column)] = covariate_reference_levels
 
     if not frames:
-        return None, []
-    return pd.concat(frames, axis=1), names
+        return None, [], reference_levels
+    return pd.concat(frames, axis=1), names, reference_levels
 
 
 def build_combat_design(
@@ -202,15 +241,17 @@ def build_combat_design(
     if batch_labels.nunique(dropna=True) < 2:
         raise ValueError("ComBat requires at least two distinct batches.")
 
-    covariates, covariate_names = _build_covariate_frame(
+    covariates, covariate_names, reference_levels = _build_covariate_frame(
         sample_ids,
         aligned_sample_info,
+        batch_labels=batch_labels,
         labels=labels,
         covariate_columns=covariate_columns,
     )
     meta = {
         "batch_source": "SampleInfo.Batch",
         "covariate_columns": covariate_names,
+        "covariate_reference_levels": reference_levels,
         "n_batches": int(batch_labels.nunique(dropna=True)),
         "batch_counts": batch_labels.value_counts(dropna=False).to_dict(),
     }
@@ -333,7 +374,8 @@ def evaluate_combat_design(
             )
         if single_batch_levels:
             warnings.append(
-                f"Covariate '{column}' levels present in only one batch: {', '.join(single_batch_levels)}."
+                f"Covariate '{column}' levels present in only one batch: {', '.join(single_batch_levels)}. "
+                "These levels are ordered as baseline categories when possible."
             )
         if small_levels:
             details = ", ".join(f"{level} (n={count})" for level, count in small_levels.items())
@@ -432,16 +474,21 @@ def apply_batch_correction(
     if batch_labels is None:
         raise ValueError("ComBat requires batch_labels.")
 
-    aligned_batches = _validate_batch_labels(df, batch_labels)
+    try:
+        numeric_df = df.apply(pd.to_numeric, errors="raise")
+    except (TypeError, ValueError) as exc:
+        raise ValueError("ComBat requires a numeric expression matrix.") from exc
+
+    aligned_batches = _validate_batch_labels(numeric_df, batch_labels)
     aligned_covariates = None
     if covariates is not None:
-        aligned_covariates = covariates.reindex(df.index)
+        aligned_covariates = covariates.reindex(numeric_df.index)
         if aligned_covariates.isna().any().any():
             raise ValueError("ComBat covariates are missing for one or more samples.")
 
     pycombat_norm = _load_pycombat_norm()
     corrected = pycombat_norm(
-        counts=df.T,
+        counts=numeric_df.T,
         batch=aligned_batches.tolist(),
         covar_mod=aligned_covariates,
         par_prior=par_prior,
@@ -449,7 +496,7 @@ def apply_batch_correction(
         ref_batch=ref_batch,
         prior_plots=False,
     )
-    corrected_df = pd.DataFrame(corrected, index=df.columns, columns=df.index).T
-    corrected_df.index = df.index
-    corrected_df.columns = df.columns
+    corrected_df = pd.DataFrame(corrected, index=numeric_df.columns, columns=numeric_df.index).T
+    corrected_df.index = numeric_df.index
+    corrected_df.columns = numeric_df.columns
     return corrected_df

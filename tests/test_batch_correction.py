@@ -37,8 +37,10 @@ def test_build_combat_design_aligns_sample_info_and_condition_covariate() -> Non
     assert list(covariates.columns) == ["Condition"]
     assert list(covariates.index) == list(sample_ids)
     assert list(covariates["Condition"].values) == ["Tumor", "Normal", "Tumor"]
+    assert list(covariates["Condition"].cat.categories) == ["Normal", "Tumor"]
     assert meta["batch_source"] == "SampleInfo.Batch"
     assert meta["covariate_columns"] == ["Condition"]
+    assert meta["covariate_reference_levels"] == {"Condition": ["Normal"]}
 
 
 def test_build_combat_design_rejects_multi_batch_sample_assignment() -> None:
@@ -193,3 +195,40 @@ def test_evaluate_combat_design_warns_on_small_batches_and_overlap() -> None:
     assert report["covariates"]["Sample_Type"]["association"]["method"] == "fisher_exact"
     assert report["covariates"]["Sample_Type"]["association"]["p_value"] is not None
     assert report["covariates"]["Sample_Type"]["association"]["cramers_v"] is not None
+
+
+def test_build_combat_design_prioritizes_single_batch_covariate_levels_as_baseline() -> None:
+    from core.batch_correction import build_combat_design
+
+    sample_ids = pd.Index(
+        [
+            "QC_A",
+            "Tumor_A",
+            "Normal_A",
+            "Tumor_B",
+            "Normal_B",
+            "Control_A",
+        ]
+    )
+    sample_info = pd.DataFrame(
+        {
+            "Sample_Name": sample_ids,
+            "Sample_Type": ["QC", "Tumor", "Normal", "Tumor", "Normal", "Control"],
+            "Batch": ["A", "A", "A", "B", "B", "A"],
+        }
+    )
+
+    _, covariates, meta = build_combat_design(
+        sample_ids,
+        sample_info,
+        covariate_columns=["Sample_Type"],
+    )
+
+    assert covariates is not None
+    assert list(covariates["Sample_Type"].cat.categories) == [
+        "Control",
+        "QC",
+        "Tumor",
+        "Normal",
+    ]
+    assert meta["covariate_reference_levels"] == {"Sample_Type": ["Control", "QC"]}
