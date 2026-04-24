@@ -283,6 +283,28 @@ def test_missing_value_method_labels_follow_active_locale(qapp) -> None:
         close_window(window, qapp)
 
 
+def test_combat_warning_text_follows_active_locale(qapp) -> None:
+    window = MainWindow()
+    try:
+        window._current_locale = "en"
+        assert window.norm_tab._combat_warning_dialog_title() == "ComBat Risk Warning"
+        english_text = window.norm_tab._combat_warning_dialog_text(
+            ["Batch and type show strong overlap."]
+        )
+        assert "Batch and type appear to overlap strongly" in english_text
+        assert "Continue anyway?" in english_text
+
+        window._current_locale = "zh_TW"
+        assert window.norm_tab._combat_warning_dialog_title() == "ComBat 風險提醒"
+        chinese_text = window.norm_tab._combat_warning_dialog_text(
+            ["Batch and type show strong overlap."]
+        )
+        assert "批次與類型可能高度重合" in chinese_text
+        assert "仍要繼續嗎" in chinese_text
+    finally:
+        close_window(window, qapp)
+
+
 def test_missing_value_tab_displays_marker_aware_imputation_note(qapp) -> None:
     window = MainWindow()
     try:

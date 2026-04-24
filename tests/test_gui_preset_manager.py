@@ -8,6 +8,7 @@ from typing import Iterable
 import pandas as pd
 import pytest
 import yaml
+from PySide6.QtCore import Qt
 
 from core.app_config import load_yaml_config
 from gui.main_window import MainWindow
@@ -34,6 +35,17 @@ def _sample_info() -> pd.DataFrame:
         {
             "Sample": ["S1", "S2"],
             "NormalizationFactor": [1.1, 0.9],
+        }
+    )
+
+
+def _combat_sample_info() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "Sample_Name": ["S1", "S2"],
+            "Sample_Type": ["Case", "Control"],
+            "Batch": ["A", "B"],
+            "Sex": ["F", "M"],
         }
     )
 
@@ -163,6 +175,7 @@ def test_main_window_save_preset_to_path_round_trips_current_gui_state(
         {
             "pipeline": {
                 "missing_thresh": 0.35,
+                "batch_correction": "None",
             },
             "groups": {
                 "include": ["Tumor", "Normal"],
@@ -179,15 +192,54 @@ def test_main_window_save_preset_to_path_round_trips_current_gui_state(
     assert "legacy_bundle" in window.preset_bar.ignored_value_label.text()
 
     window.mv_tab.thresh_spin.setValue(0.40)
+    window.norm_tab.batch_combo.setCurrentIndex(window.norm_tab.batch_combo.findData("ComBat"))
     qapp.processEvents()
     window._save_preset_to_path(save_path)
 
     reloaded = load_yaml_config(save_path, require_required_sections=False)
 
     assert reloaded.pipeline.missing_thresh == 0.40
+    assert reloaded.pipeline.batch_correction == "ComBat"
     assert reloaded.groups["include"] == ["Tumor", "Normal"]
     assert window.preset_bar.state_value_label.text() == "Local Preset"
     assert window.preset_bar.source_value_label.text().endswith("saved_preset.yaml")
+
+    window.close()
+
+
+def test_main_window_preset_round_trip_preserves_combat_sample_info_covariates(
+    tmp_path: Path,
+    qapp,
+) -> None:
+    window = MainWindow()
+    matrix = _sample_matrix()
+    window.set_data(
+        matrix,
+        _sample_labels(matrix),
+        sample_col="Sample",
+        group_col="Group",
+        sample_info=_combat_sample_info(),
+    )
+    save_path = tmp_path / "combat_preset.yaml"
+
+    window.norm_tab.batch_combo.setCurrentIndex(window.norm_tab.batch_combo.findData("ComBat"))
+    window.norm_tab.combat_mode_combo.setCurrentIndex(
+        window.norm_tab.combat_mode_combo.findData("sample_info")
+    )
+    for i in range(window.norm_tab.combat_covariate_list.count()):
+        item = window.norm_tab.combat_covariate_list.item(i)
+        if item.data(Qt.ItemDataRole.UserRole) == "Sex":
+            item.setCheckState(Qt.CheckState.Checked)
+    window.norm_tab.combat_mean_only_check.setChecked(True)
+    qapp.processEvents()
+
+    window._save_preset_to_path(save_path)
+    reloaded = load_yaml_config(save_path, require_required_sections=False)
+
+    assert reloaded.pipeline.batch_correction == "ComBat"
+    assert reloaded.combat["covariate_mode"] == "sample_info"
+    assert reloaded.combat["sample_info_covariates"] == ["Sex"]
+    assert reloaded.combat["mean_only"] is True
 
     window.close()
 

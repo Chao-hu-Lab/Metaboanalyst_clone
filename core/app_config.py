@@ -26,6 +26,7 @@ VOLCANO_TEST_CHOICES: frozenset[str] = frozenset({"student", "welch", "wilcoxon"
 PAIRED_RESOLUTION_SCOPE_CHOICES: frozenset[str] = frozenset({"paired_only"})
 PAIRED_RESOLUTION_DUPLICATE_CHOICES: frozenset[str] = frozenset({"prefer_override"})
 PAIRED_RESOLUTION_UNRESOLVED_CHOICES: frozenset[str] = frozenset({"warn_keep_first", "error"})
+COMBAT_COVARIATE_MODE_CHOICES: frozenset[str] = frozenset({"none", "labels", "sample_info"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -247,6 +248,25 @@ def _normalize_analysis_config(raw_analysis: Mapping[str, Any]) -> dict[str, Any
     return analysis
 
 
+def _normalize_combat_config(raw_combat: Mapping[str, Any]) -> dict[str, Any]:
+    """Apply shared ComBat defaults and compatibility validation."""
+    combat = _deep_merge(build_section_defaults("combat"), raw_combat)
+    combat["covariate_mode"] = _validate_choice(
+        "combat.covariate_mode",
+        combat.get("covariate_mode", "labels"),
+        COMBAT_COVARIATE_MODE_CHOICES,
+    )
+    covariates = combat.get("sample_info_covariates", [])
+    if not isinstance(covariates, list):
+        raise ValueError("Config field 'combat.sample_info_covariates' must be a list.")
+    combat["sample_info_covariates"] = [str(value) for value in covariates if str(value).strip()]
+    combat["mean_only"] = bool(combat.get("mean_only", False))
+    combat["par_prior"] = bool(combat.get("par_prior", True))
+    ref_batch = combat.get("ref_batch")
+    combat["ref_batch"] = None if ref_batch in {None, ""} else str(ref_batch)
+    return combat
+
+
 def _normalize_raw_config(
     raw_config: Mapping[str, Any],
     *,
@@ -270,6 +290,8 @@ def _normalize_raw_config(
         section_mapping = _coerce_mapping(section, raw_value)
         if section == "analysis":
             normalized[section] = _normalize_analysis_config(section_mapping)
+        elif section == "combat":
+            normalized[section] = _normalize_combat_config(section_mapping)
         elif section == "spec_norm":
             merged_spec_norm = _deep_merge(default_value, section_mapping)
             normalized[section] = {
@@ -304,9 +326,16 @@ class PipelineConfig:
     qc_rsd_threshold: float = 0.2
     row_norm: str = "None"
     transform: str = "None"
+    batch_correction: str = "None"
     scaling: str = "None"
     factors: Any | None = None
     factor_source: str | None = None
+    batch_labels: Any | None = None
+    combat_covariates: Any | None = None
+    combat_par_prior: bool = True
+    combat_mean_only: bool = False
+    combat_ref_batch: str | None = None
+    combat_source: str | None = None
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, Any]) -> "PipelineConfig":
@@ -325,9 +354,16 @@ class PipelineConfig:
             "qc_rsd_threshold": self.qc_rsd_threshold,
             "row_norm": self.row_norm,
             "transform": self.transform,
+            "batch_correction": self.batch_correction,
             "scaling": self.scaling,
             "factors": self.factors,
             "factor_source": self.factor_source,
+            "batch_labels": self.batch_labels,
+            "combat_covariates": self.combat_covariates,
+            "combat_par_prior": self.combat_par_prior,
+            "combat_mean_only": self.combat_mean_only,
+            "combat_ref_batch": self.combat_ref_batch,
+            "combat_source": self.combat_source,
         }
         if not include_runtime:
             for key in PIPELINE_RUNTIME_KEYS:
@@ -379,6 +415,7 @@ class AppConfig:
 
     input: dict[str, Any]
     pipeline: PipelineConfig
+    combat: dict[str, Any]
     groups: dict[str, Any]
     analysis: dict[str, Any]
     output: OutputConfig = field(default_factory=OutputConfig)
@@ -400,6 +437,7 @@ class AppConfig:
         return cls(
             input=_coerce_mapping("input", normalized["input"]),
             pipeline=PipelineConfig.from_mapping(normalized["pipeline"]),
+            combat=_coerce_mapping("combat", normalized["combat"]),
             groups=_coerce_mapping("groups", normalized["groups"]),
             analysis=_coerce_mapping("analysis", normalized["analysis"]),
             output=OutputConfig.from_mapping(normalized["output"]),
@@ -413,6 +451,7 @@ class AppConfig:
         normalized = {
             "input": copy.deepcopy(self.input),
             "pipeline": self.pipeline.to_dict(include_runtime=include_runtime),
+            "combat": copy.deepcopy(self.combat),
             "groups": copy.deepcopy(self.groups),
             "analysis": copy.deepcopy(self.analysis),
             "output": self.output.to_dict(),

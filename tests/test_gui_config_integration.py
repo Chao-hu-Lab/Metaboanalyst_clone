@@ -31,7 +31,13 @@ def test_main_window_apply_loaded_config_updates_pipeline_widgets(qapp) -> None:
                 "qc_rsd_threshold": 0.30,
                 "row_norm": "MedianNorm",
                 "transform": "LogNorm",
+                "batch_correction": "ComBat",
                 "scaling": "ParetoNorm",
+            },
+            "combat": {
+                "covariate_mode": "labels",
+                "mean_only": True,
+                "par_prior": False,
             },
             "groups": {"include": ["Tumor", "Normal"]},
             "analysis": {"pca": {"n_components": 4}},
@@ -50,6 +56,7 @@ def test_main_window_apply_loaded_config_updates_pipeline_widgets(qapp) -> None:
     assert window.pipeline_params["qc_rsd_threshold"] == 0.30
     assert window.pipeline_params["row_norm"] == "MedianNorm"
     assert window.pipeline_params["transform"] == "LogNorm"
+    assert window.pipeline_params["batch_correction"] == "ComBat"
     assert window.pipeline_params["scaling"] == "ParetoNorm"
 
     assert window.mv_tab.thresh_spin.value() == 0.35
@@ -61,6 +68,10 @@ def test_main_window_apply_loaded_config_updates_pipeline_widgets(qapp) -> None:
     assert window.filter_tab.qc_thresh_spin.value() == 0.30
     assert window.norm_tab.row_combo.currentData() == "MedianNorm"
     assert window.norm_tab.trans_combo.currentData() == "LogNorm"
+    assert window.norm_tab.batch_combo.currentData() == "ComBat"
+    assert window.norm_tab.combat_mode_combo.currentData() == "labels"
+    assert window.norm_tab.combat_mean_only_check.isChecked() is True
+    assert window.norm_tab.combat_par_prior_check.isChecked() is False
     assert window.norm_tab.scale_combo.currentData() == "ParetoNorm"
     assert applied_sections[0] == "pipeline"
     assert "groups (stored for later phases)" in applied_sections

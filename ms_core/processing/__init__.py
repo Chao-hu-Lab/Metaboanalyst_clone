@@ -5,6 +5,7 @@ import sys
 
 
 _ALIASES = {
+    "batch_correction": "core.batch_correction",
     "feature_filter": "core.filtering",
     "missing_values": "core.missing_values",
     "normalization": "core.normalization",

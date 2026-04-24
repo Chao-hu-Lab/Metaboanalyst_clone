@@ -31,6 +31,10 @@ def test_gui_state_round_trip_restores_shared_widget_state(qapp) -> None:
 
     _set_combo_to_data(window.norm_tab.row_combo, "MedianNorm")
     _set_combo_to_data(window.norm_tab.trans_combo, "LogNorm")
+    _set_combo_to_data(window.norm_tab.batch_combo, "ComBat")
+    _set_combo_to_data(window.norm_tab.combat_mode_combo, "labels")
+    window.norm_tab.combat_mean_only_check.setChecked(True)
+    window.norm_tab.combat_par_prior_check.setChecked(False)
     _set_combo_to_data(window.norm_tab.scale_combo, "ParetoNorm")
 
     window.stats_tab.pca_ncomp.setValue(4)
@@ -66,6 +70,10 @@ def test_gui_state_round_trip_restores_shared_widget_state(qapp) -> None:
     assert reloaded_window.filter_tab.qc_thresh_spin.value() == 0.30
     assert reloaded_window.norm_tab.row_combo.currentData() == "MedianNorm"
     assert reloaded_window.norm_tab.trans_combo.currentData() == "LogNorm"
+    assert reloaded_window.norm_tab.batch_combo.currentData() == "ComBat"
+    assert reloaded_window.norm_tab.combat_mode_combo.currentData() == "labels"
+    assert reloaded_window.norm_tab.combat_mean_only_check.isChecked() is True
+    assert reloaded_window.norm_tab.combat_par_prior_check.isChecked() is False
     assert reloaded_window.norm_tab.scale_combo.currentData() == "ParetoNorm"
 
     assert reloaded_window.stats_tab.pca_ncomp.value() == 4
