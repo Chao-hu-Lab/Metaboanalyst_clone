@@ -726,6 +726,15 @@ class MainWindow(QMainWindow):
             factor_text = str(factor_column)
             if self.norm_tab.factor_combo.findData(factor_text) < 0 and self.norm_tab.factor_combo.findText(factor_text) < 0:
                 pending.append("spec_norm.factor_column")
+        combat_covariates = config.combat.get("sample_info_covariates", []) if hasattr(config, "combat") else []
+        if combat_covariates:
+            available = set()
+            for i in range(self.norm_tab.combat_covariate_list.count()):
+                item = self.norm_tab.combat_covariate_list.item(i)
+                available.add(str(item.data(Qt.ItemDataRole.UserRole)))
+            missing = [value for value in combat_covariates if str(value) not in available]
+            if missing:
+                pending.append("combat.sample_info_covariates")
         return pending
 
     def _collect_ignored_preset_fields(self, config: AppConfig | None) -> list[str]:
@@ -1195,7 +1204,7 @@ class MainWindow(QMainWindow):
             return None
 
         multivariate = pipeline.processed.copy()
-        univariate = pipeline.steps["transformed"].copy()
+        univariate = pipeline.steps["batch_corrected"].copy()
         volcano_fc = pipeline.steps["row_normed"].copy()
         aligned_labels = align_labels_to_data(multivariate, labels)
         multivariate, filtered_labels, removed_qc = exclude_qc_samples(
@@ -1273,6 +1282,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, "norm_tab"):
             self._set_combo_value(self.norm_tab.row_combo, params["row_norm"])
             self._set_combo_value(self.norm_tab.trans_combo, params["transform"])
+            self._set_combo_value(self.norm_tab.batch_combo, params["batch_correction"])
             self._set_combo_value(self.norm_tab.scale_combo, params["scaling"])
             factor_source = params.get("factor_source")
             if factor_source is not None:
@@ -1323,6 +1333,8 @@ class MainWindow(QMainWindow):
                 applied_sections.append(self.tr("spec_norm"))
             else:
                 applied_sections.append(self.tr("spec_norm (stored for later phases)"))
+        if "combat" in config.source_sections:
+            applied_sections.append(self.tr("combat"))
         return applied_sections
 
     def _apply_loaded_config(
@@ -1420,12 +1432,14 @@ class MainWindow(QMainWindow):
                 filter_method="None",
                 row_norm="None",
                 transform="None",
+                batch_correction="None",
                 scaling="None",
             )
         elif stage == "filter":
             params.update(
                 row_norm="None",
                 transform="None",
+                batch_correction="None",
                 scaling="None",
             )
         elif stage == "norm":

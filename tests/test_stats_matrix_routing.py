@@ -304,7 +304,7 @@ def test_run_pipeline_until_norm_builds_stats_matrix_bundle_from_pipeline(qapp) 
     )
     pdt.assert_frame_equal(
         bundle["univariate_data"],
-        pipeline.steps["transformed"],
+        pipeline.steps["batch_corrected"],
         check_dtype=False,
     )
     pdt.assert_frame_equal(
@@ -356,7 +356,7 @@ def test_run_pipeline_until_norm_builds_bundle_for_preprocessing_variants(
     expected_processed = pipeline.run_pipeline(**window.pipeline_params)
 
     pdt.assert_frame_equal(bundle["multivariate_data"], expected_processed, check_dtype=False)
-    pdt.assert_frame_equal(bundle["univariate_data"], pipeline.steps["transformed"], check_dtype=False)
+    pdt.assert_frame_equal(bundle["univariate_data"], pipeline.steps["batch_corrected"], check_dtype=False)
     pdt.assert_frame_equal(bundle["volcano_fc_data"], pipeline.steps["row_normed"], check_dtype=False)
     pdt.assert_series_equal(
         bundle["labels"],

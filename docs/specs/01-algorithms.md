@@ -157,6 +157,24 @@ class DataTransformer:
         return np.sign(df) * np.abs(df) ** (1/3)
 ```
 
+## Batch Correction (`core/batch_correction.py`)
+
+All methods operate on a transformed matrix with **samples as rows** and **features as columns**.
+
+| Key | Algorithm | Notes |
+|---|---|---|
+| `"None"` | No batch correction | Return input unchanged |
+| `"ComBat"` | Empirical Bayes location/scale adjustment | Input is transposed to feature × sample for `inmoose.pycombat.pycombat_norm()` |
+
+**MA pipeline position:** apply batch correction **after transformation** and **before scaling**.
+
+**Current ComBat metadata contract:**
+
+- batch labels come from `SampleInfo.Batch`
+- labels/categorical covariates may be passed as `covar_mod` to preserve biological structure
+- each corrected sample must map to **exactly one** batch label
+- missing-value handling must be completed before ComBat
+
 ## Column-wise Scaling (`core/scaling.py`)
 
 All methods operate per column (feature). Mean-centers first, then divides by a scaling factor.

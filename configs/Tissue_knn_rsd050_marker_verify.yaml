@@ -37,7 +37,15 @@ pipeline:
   filter_cutoff: 0
   row_norm: "None"
   transform: "Log10Norm"
+  batch_correction: "None"
   scaling: "ParetoNorm"
+
+combat:
+  covariate_mode: "labels"
+  sample_info_covariates: []
+  mean_only: false
+  par_prior: true
+  ref_batch: null
 
 analysis:
   pca:

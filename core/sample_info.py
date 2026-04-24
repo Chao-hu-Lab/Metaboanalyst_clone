@@ -175,6 +175,50 @@ def _resolve_subject_candidate(
     if len(candidates) == 1:
         return candidates[0]
 
+    def _candidate_priority(candidate: Any) -> tuple[int, int, str]:
+        normalized = normalize_sample_name(candidate)
+        raw_text = str(candidate).strip().lower()
+        if "dnaandrna" in normalized or "dnaandrna" in raw_text:
+            rank = 1
+        elif normalized.endswith("dna") or raw_text.endswith("_dna") or raw_text.endswith(" dna"):
+            rank = 0
+        elif "dna" in normalized:
+            rank = 2
+        elif "rna" in normalized:
+            rank = 3
+        else:
+            rank = 4
+        return rank, len(normalized), normalized
+
+    prioritized = min(
+        enumerate(candidates),
+        key=lambda item: (_candidate_priority(item[1]), item[0]),
+    )[1]
+
+    def _match_override_candidate(override_value: Any) -> Any | None:
+        if override_value in candidates:
+            return override_value
+
+        normalized_override = normalize_sample_name(override_value)
+        if not normalized_override:
+            return None
+
+        normalized_matches = [
+            candidate
+            for candidate in candidates
+            if normalize_sample_name(candidate) == normalized_override
+        ]
+        if len(normalized_matches) == 1:
+            return normalized_matches[0]
+        if len(normalized_matches) > 1:
+            candidate_text = ", ".join(str(candidate) for candidate in candidates)
+            raise ValueError(
+                f"Paired override for group '{group}', subject '{subject_id}' "
+                f"matches multiple candidates after normalization. "
+                f"Override='{override_value}', candidates: {candidate_text}"
+            )
+        return None
+
     overrides = {}
     if isinstance(paired_resolution, Mapping):
         raw_overrides = paired_resolution.get("overrides", {})
@@ -185,7 +229,8 @@ def _resolve_subject_candidate(
 
     override_sample = overrides.get(subject_id)
     if override_sample is not None:
-        if override_sample not in candidates:
+        matched_override = _match_override_candidate(override_sample)
+        if matched_override is None:
             candidate_text = ", ".join(str(candidate) for candidate in candidates)
             raise ValueError(
                 f"Paired override for group '{group}', subject '{subject_id}' "
@@ -195,11 +240,11 @@ def _resolve_subject_candidate(
             {
                 "group": group,
                 "subject_id": subject_id,
-                "selected_sample": str(override_sample),
+                "selected_sample": str(matched_override),
                 "candidates": [str(candidate) for candidate in candidates],
             }
         )
-        return override_sample
+        return matched_override
 
     unresolved_policy = "warn_keep_first"
     if isinstance(paired_resolution, Mapping) and "on_unresolved" in paired_resolution:
@@ -214,9 +259,9 @@ def _resolve_subject_candidate(
 
     warnings.append(
         f"Multiple paired candidates found for group '{group}', subject '{subject_id}'. "
-        f"Using first sample '{candidates[0]}'. Candidates: {candidate_text}"
+        f"Using prioritized sample '{prioritized}'. Candidates: {candidate_text}"
     )
-    return candidates[0]
+    return prioritized
 
 
 def resolve_paired_sample_indices(
