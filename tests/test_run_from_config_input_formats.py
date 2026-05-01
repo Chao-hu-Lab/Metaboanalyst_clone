@@ -2,6 +2,8 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
 
 from core.input_resolver import read_input_table, resolve_primary_sheet_name_from_names
 from scripts.run_from_config import (
@@ -684,8 +686,33 @@ def test_summary_export_keeps_step4_metadata_columns(tmp_path: Path):
 
     assert "Feature_Filter_Keep_Reasons" in summary_df.columns
     assert "Imputation_Tag_Reasons" in summary_df.columns
-    assert "exposure_ratio" not in summary_df.columns
-    assert "QC_ratio" not in summary_df.columns
+    assert "exposure_ratio" in summary_df.columns
+    assert "QC_ratio" in summary_df.columns
     marker_row = summary_df.set_index("Feature").loc["F_marker"]
     assert marker_row["Feature_Filter_Keep_Reasons"] == "stable|mnar"
     assert marker_row["Imputation_Tag_Reasons"] == "low_overall_detection"
+    assert marker_row["exposure_ratio"] == 0.1
+    assert marker_row["QC_ratio"] == 1.0
+
+    workbook = load_workbook(tmp_path / "significant_features_summary.xlsx")
+    for sheet_name in ["Summary", "VIP_Tumor_vs_Normal"]:
+        worksheet = workbook[sheet_name]
+        headers = [cell.value for cell in worksheet[1]]
+        assert "is_Presence_Absence_Marker" in headers
+        assert "Feature_Filter_Keep_Reasons" in headers
+        assert "Imputation_Tag_Reasons" in headers
+        assert "exposure_ratio" in headers
+        assert "QC_ratio" in headers
+
+        marker_letter = get_column_letter(headers.index("is_Presence_Absence_Marker") + 1)
+        assert not worksheet.column_dimensions[marker_letter].hidden
+
+        for column in [
+            "Feature_Filter_Keep_Reasons",
+            "Imputation_Tag_Reasons",
+            "exposure_ratio",
+            "QC_ratio",
+        ]:
+            letter = get_column_letter(headers.index(column) + 1)
+            assert worksheet.column_dimensions[letter].hidden is True
+            assert worksheet.column_dimensions[letter].outlineLevel == 1

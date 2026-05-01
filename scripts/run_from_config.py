@@ -28,6 +28,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 from openpyxl.styles import PatternFill  # noqa: E402
+from openpyxl.utils import get_column_letter  # noqa: E402
 
 from core.app_config import apply_cli_overrides, dump_yaml, load_yaml_config  # noqa: E402
 from core.batch_correction import build_combat_design, evaluate_combat_design  # noqa: E402
@@ -454,6 +455,73 @@ def _export_significant_features_excel(
     }
     feature_metadata_by_feature: dict[str, dict[str, Any]] = {}
     summary_metadata_columns: list[str] = []
+    excel_detail_metadata_columns: list[str] = []
+
+    def is_excel_detail_metadata_column(column: str) -> bool:
+        return column in STEP4_REASON_COLUMNS or is_step4_ratio_column(column)
+
+    def apply_step4_excel_outline(worksheet) -> None:
+        headers = [cell.value for cell in worksheet[1]]
+        detail_indexes = [
+            index
+            for index, header in enumerate(headers, start=1)
+            if isinstance(header, str) and is_excel_detail_metadata_column(header)
+        ]
+        if not detail_indexes:
+            return
+
+        worksheet.sheet_properties.outlinePr.summaryRight = True
+        max_column = len(headers)
+        ranges: list[tuple[int, int]] = []
+        start = previous = detail_indexes[0]
+        for index in detail_indexes[1:]:
+            if index == previous + 1:
+                previous = index
+                continue
+            ranges.append((start, previous))
+            start = previous = index
+        ranges.append((start, previous))
+
+        for start, end in ranges:
+            for index in range(start, end + 1):
+                dimension = worksheet.column_dimensions[get_column_letter(index)]
+                dimension.hidden = True
+                dimension.outlineLevel = 1
+            collapsed_index = min(end + 1, max_column)
+            worksheet.column_dimensions[get_column_letter(collapsed_index)].collapsed = True
+
+    def build_summary_excel_df(summary_df: pd.DataFrame) -> pd.DataFrame:
+        if summary_df.empty or not excel_detail_metadata_columns:
+            return summary_df
+
+        excel_df = summary_df.copy()
+        for column in excel_detail_metadata_columns:
+            if column in excel_df.columns:
+                continue
+            excel_df[column] = excel_df["Feature"].map(
+                lambda feat: feature_metadata_by_feature.get(feat, {}).get(column, "")
+            )
+
+        ordered_columns: list[str] = []
+        inserted_details = False
+        for column in excel_df.columns:
+            if column in excel_detail_metadata_columns:
+                continue
+            ordered_columns.append(column)
+            if column == FEATURE_MARKER_COLUMN:
+                ordered_columns.extend(
+                    detail
+                    for detail in excel_detail_metadata_columns
+                    if detail in excel_df.columns
+                )
+                inserted_details = True
+        if not inserted_details:
+            ordered_columns.extend(
+                detail
+                for detail in excel_detail_metadata_columns
+                if detail in excel_df.columns and detail not in ordered_columns
+            )
+        return excel_df.loc[:, ordered_columns]
 
     def passes_threshold(sheet_name: str, row: pd.Series) -> bool:
         name = sheet_name.lower()
@@ -555,15 +623,25 @@ def _export_significant_features_excel(
         metadata_columns = [
             column for column in SUMMARY_STEP4_METADATA_COLUMNS if column in df.columns
         ]
+        excel_metadata_columns = [
+            column for column in df.columns if is_excel_detail_metadata_column(column)
+        ]
         sheet_df = df if top_n in (None, 0) else df.head(top_n)
         for idx, row in sheet_df.iterrows():
             feat = row["Feature"]
             all_features.add(feat)
             if feat not in feature_metadata_by_feature:
                 feature_metadata_by_feature[feat] = {}
+            for column in excel_metadata_columns:
+                if column not in excel_detail_metadata_columns:
+                    excel_detail_metadata_columns.append(column)
             for column in metadata_columns:
                 if column not in summary_metadata_columns:
                     summary_metadata_columns.append(column)
+            for column in excel_metadata_columns:
+                if column not in summary_metadata_columns:
+                    summary_metadata_columns.append(column)
+            for column in list(dict.fromkeys(metadata_columns + excel_metadata_columns)):
                 value = row.get(column)
                 if column in feature_metadata_by_feature[feat] and pd.isna(value):
                     continue
@@ -602,12 +680,13 @@ def _export_significant_features_excel(
         ).reset_index(drop=True)
         summary_df.insert(0, "Rank", range(1, len(summary_df) + 1))
         summary_df.to_csv(summary_csv_path, index=False)
+    summary_excel_df = build_summary_excel_df(summary_df)
 
     # Write all sheets
     with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
         # Summary first
-        if not summary_df.empty:
-            summary_df.to_excel(writer, sheet_name="Summary", index=False)
+        if not summary_excel_df.empty:
+            summary_excel_df.to_excel(writer, sheet_name="Summary", index=False)
 
         # Individual analysis sheets (top_n rows each)
         for sheet_name, df in prepared_sheets.items():
@@ -617,11 +696,14 @@ def _export_significant_features_excel(
             sheet_df.to_excel(writer, sheet_name=safe_name, index=False)
 
         workbook = writer.book
+        if not summary_excel_df.empty:
+            apply_step4_excel_outline(workbook["Summary"])
         for sheet_name, df in prepared_sheets.items():
             sheet_df = df if top_n in (None, 0) else df.head(top_n)
+            safe_name = sheet_name[:31]
+            apply_step4_excel_outline(workbook[safe_name])
             if "significant" not in sheet_df.columns:
                 continue
-            safe_name = sheet_name[:31]
             worksheet = workbook[safe_name]
             significant_col = sheet_df.columns.get_loc("significant") + 1
             for row_idx, value in enumerate(sheet_df["significant"], start=2):
