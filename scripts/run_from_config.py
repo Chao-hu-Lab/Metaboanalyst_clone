@@ -35,6 +35,7 @@ from core.feature_metadata import (  # noqa: E402
     FEATURE_MARKER_COLUMN,
     STEP4_REASON_COLUMNS,
     extract_feature_metadata,
+    is_step4_feature_metadata_column,
     is_step4_ratio_column,
 )
 from core.input_resolver import (  # noqa: E402
@@ -451,7 +452,8 @@ def _export_significant_features_excel(
         for sheet_name, df in sheets.items()
         if "oplsda" not in sheet_name.lower()
     }
-    feature_tags: dict[str, bool] = {}
+    feature_metadata_by_feature: dict[str, dict[str, Any]] = {}
+    summary_metadata_columns: list[str] = []
 
     def passes_threshold(sheet_name: str, row: pd.Series) -> bool:
         name = sheet_name.lower()
@@ -550,12 +552,22 @@ def _export_significant_features_excel(
     }.items():
         if "Feature" not in df.columns:
             continue
+        metadata_columns = [
+            column for column in df.columns if is_step4_feature_metadata_column(column)
+        ]
         sheet_df = df if top_n in (None, 0) else df.head(top_n)
         for idx, row in sheet_df.iterrows():
             feat = row["Feature"]
             all_features.add(feat)
-            if feat not in feature_tags and "is_Presence_Absence_Marker" in row.index:
-                feature_tags[feat] = bool(row.get("is_Presence_Absence_Marker", False))
+            if feat not in feature_metadata_by_feature:
+                feature_metadata_by_feature[feat] = {}
+            for column in metadata_columns:
+                if column not in summary_metadata_columns:
+                    summary_metadata_columns.append(column)
+                value = row.get(column)
+                if column in feature_metadata_by_feature[feat] and pd.isna(value):
+                    continue
+                feature_metadata_by_feature[feat][column] = value
             if not passes_threshold(sheet_name, row):
                 continue
             if feat not in feature_counts:
@@ -571,11 +583,14 @@ def _export_significant_features_excel(
     summary_rows = []
     for feat in sorted(all_features):
         appearances = feature_counts.get(feat, {})
+        metadata_values = feature_metadata_by_feature.get(feat, {})
         row = {
             "Feature": feat,
-            "is_Presence_Absence_Marker": feature_tags.get(feat, False),
             "Passed_in_N_analyses": len(appearances),
         }
+        for column in summary_metadata_columns:
+            default_value = False if column == FEATURE_MARKER_COLUMN else ""
+            row[column] = metadata_values.get(column, default_value)
         for sn in all_sheet_names:
             row[sn] = appearances.get(sn, "")
         summary_rows.append(row)

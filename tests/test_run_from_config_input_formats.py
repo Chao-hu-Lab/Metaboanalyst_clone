@@ -648,3 +648,38 @@ def test_summary_export_keeps_features_with_zero_significant_hits(tmp_path: Path
     assert summary_df["Feature"].tolist() == ["F_keep", "F_zero"]
     assert summary_df["Passed_in_N_analyses"].tolist() == [2, 0]
     assert summary_df["is_Presence_Absence_Marker"].tolist() == [False, True]
+
+
+def test_summary_export_keeps_step4_metadata_columns(tmp_path: Path):
+    sheets = {
+        "VIP_Tumor_vs_Normal": pd.DataFrame(
+            {
+                "Rank": [1, 2],
+                "Feature": ["F_marker", "F_regular"],
+                "VIP": [1.4, 0.2],
+                "is_Presence_Absence_Marker": [True, False],
+                "Feature_Filter_Keep_Reasons": ["stable|mnar", "stable"],
+                "Imputation_Tag_Reasons": ["low_overall_detection", ""],
+            }
+        ),
+        "Volcano_Tumor_vs_Normal": pd.DataFrame(
+            {
+                "Feature": ["F_marker", "F_regular"],
+                "log2FC": [2.0, 0.1],
+                "pvalue_adj": [0.01, 0.8],
+                "is_Presence_Absence_Marker": [True, False],
+                "Feature_Filter_Keep_Reasons": ["stable|mnar", "stable"],
+                "Imputation_Tag_Reasons": ["low_overall_detection", ""],
+            }
+        ),
+    }
+
+    _export_significant_features_excel(sheets, str(tmp_path), top_n=None)
+
+    summary_df = pd.read_csv(tmp_path / "Summary.csv")
+
+    assert "Feature_Filter_Keep_Reasons" in summary_df.columns
+    assert "Imputation_Tag_Reasons" in summary_df.columns
+    marker_row = summary_df.set_index("Feature").loc["F_marker"]
+    assert marker_row["Feature_Filter_Keep_Reasons"] == "stable|mnar"
+    assert marker_row["Imputation_Tag_Reasons"] == "low_overall_detection"
