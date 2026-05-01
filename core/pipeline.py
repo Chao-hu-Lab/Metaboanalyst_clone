@@ -195,14 +195,6 @@ class MetaboAnalystPipeline:
                 feature_metadata["kept_after_qc_rsd"] = True
                 self.step_feature_metadata["qc_rsd"] = feature_metadata.copy()
                 self.log.append("Step 3a: QC-RSD enabled but no QC samples detected")
-        else:
-            feature_metadata["qc_rsd"] = pd.NA
-            feature_metadata["qc_rsd_threshold"] = pd.NA
-            feature_metadata["qc_detect_ratio"] = pd.NA
-            feature_metadata["qc_rsd_pass"] = False
-            feature_metadata["qc_rsd_exempted"] = False
-            feature_metadata["kept_after_qc_rsd"] = True
-            self.step_feature_metadata["qc_rsd"] = feature_metadata.copy()
 
         # Step 3b: variable filtering
         if filter_method in (None, "None"):
