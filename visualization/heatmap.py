@@ -11,7 +11,6 @@ import seaborn as sns
 from matplotlib.colors import ListedColormap
 from matplotlib.figure import Figure
 from matplotlib.gridspec import GridSpec
-from matplotlib.patches import Patch
 
 from ms_core.analysis.clustering import select_top_features
 from visualization.theme import apply_publication_style, get_group_colors
@@ -91,8 +90,8 @@ def plot_grouped_heatmap(
     grid = GridSpec(
         1,
         3,
-        width_ratios=[0.18, 5.0, 0.22],
-        wspace=0.04,
+        width_ratios=[0.46, 5.0, 0.16],
+        wspace=0.03,
         figure=fig,
     )
     ax_group = fig.add_subplot(grid[0, 0])
@@ -107,20 +106,24 @@ def plot_grouped_heatmap(
     )
     ax_group.set_xticks([])
     ax_group.set_yticks([])
-    ax_group.set_ylabel("Group", fontsize=9)
+    ax_group.set_ylabel("")
 
     sns.heatmap(
         plot_df,
         cmap="RdBu_r",
         ax=ax_heat,
         cbar_ax=ax_cbar,
-        xticklabels=plot_df.shape[1] <= 50,
+        xticklabels=plot_df.shape[1] <= 35,
         yticklabels=plot_df.shape[0] <= 50,
         linewidths=0,
     )
-    ax_heat.set_title("Grouped Heatmap (Top ANOVA-ranked Features)", fontsize=12)
-    ax_heat.set_xlabel("Features")
-    ax_heat.set_ylabel("Samples")
+    ax_heat.set_title("Grouped Heatmap: Top 50 ANOVA Features", fontsize=11)
+    ax_heat.set_xlabel("Features", fontsize=9)
+    ax_heat.set_ylabel("")
+    ax_heat.tick_params(axis="x", labelsize=7)
+    ax_heat.tick_params(axis="y", labelsize=7)
+    ax_cbar.tick_params(labelsize=8)
+    ax_cbar.set_ylabel("Scaled intensity", fontsize=8)
 
     boundaries: list[int] = []
     previous = None
@@ -132,17 +135,24 @@ def plot_grouped_heatmap(
         ax_group.axhline(boundary - 0.5, color="white", linewidth=1.2)
         ax_heat.axhline(boundary, color="black", linewidth=0.7)
 
-    legend_handles = [
-        Patch(facecolor=palette[group], edgecolor="none", label=group) for group in groups
-    ]
-    ax_heat.legend(
-        handles=legend_handles,
-        loc="upper left",
-        bbox_to_anchor=(1.02, 1.0),
-        fontsize=8,
-        title="Group",
-    )
-    fig.tight_layout()
+    group_values = ordered_labels.astype(str).tolist()
+    for group in groups:
+        positions = [index for index, value in enumerate(group_values) if value == group]
+        if not positions:
+            continue
+        center = (positions[0] + positions[-1]) / 2
+        ax_group.text(
+            0,
+            center,
+            group,
+            ha="center",
+            va="center",
+            fontsize=8.5,
+            fontweight="bold",
+            color="black",
+        )
+
+    fig.subplots_adjust(left=0.04, right=0.95, top=0.90, bottom=0.12)
     return fig
 
 
