@@ -10,6 +10,7 @@ Usage (from project root):
 import argparse
 import json
 import os
+import shutil
 import sys
 import warnings
 from collections.abc import Iterable
@@ -28,10 +29,16 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 from openpyxl.styles import PatternFill  # noqa: E402
+from openpyxl.utils import get_column_letter  # noqa: E402
 
 from core.app_config import apply_cli_overrides, dump_yaml, load_yaml_config  # noqa: E402
 from core.batch_correction import build_combat_design, evaluate_combat_design  # noqa: E402
-from core.feature_metadata import FEATURE_MARKER_COLUMN, extract_feature_metadata  # noqa: E402
+from core.feature_metadata import (  # noqa: E402
+    FEATURE_MARKER_COLUMN,
+    STEP4_REASON_COLUMNS,
+    extract_feature_metadata,
+    is_step4_ratio_column,
+)
 from core.input_resolver import (  # noqa: E402
     build_labels_from_sample_info,
     detect_sample_type_row_key,
@@ -56,7 +63,7 @@ from ms_core.analysis.anova import run_anova  # noqa: E402
 from ms_core.analysis.univariate import volcano_analysis  # noqa: E402
 from ms_core.visualization.pca_plot import plot_pca_score  # noqa: E402
 from ms_core.visualization.anova_plot import plot_anova_importance, plot_feature_boxplot  # noqa: E402
-from visualization.heatmap import plot_heatmap  # noqa: E402
+from visualization.heatmap import plot_grouped_heatmap, plot_heatmap  # noqa: E402
 from visualization.norm_preview import plot_norm_comparison  # noqa: E402
 from visualization.oplsda_plot import plot_oplsda_splot  # noqa: E402
 from visualization.outlier_plot import plot_dmodx, plot_outlier_score  # noqa: E402
@@ -67,6 +74,20 @@ warnings.filterwarnings("ignore")
 
 TRUE_FILL = PatternFill(fill_type="solid", start_color="C6EFCE", end_color="C6EFCE")
 FALSE_FILL = PatternFill(fill_type="solid", start_color="FCE4D6", end_color="FCE4D6")
+EVIDENCE_TIER_FILLS = {
+    "Tier1_ConcordantPairwise": PatternFill(
+        fill_type="solid", start_color="FFC6EFCE", end_color="FFC6EFCE"
+    ),
+    "Tier2_MultiMethod": PatternFill(
+        fill_type="solid", start_color="FFD9EAF7", end_color="FFD9EAF7"
+    ),
+    "Tier3_SingleMethod": PatternFill(
+        fill_type="solid", start_color="FFFFF2CC", end_color="FFFFF2CC"
+    ),
+    "Tier0_NoStatEvidence": PatternFill(
+        fill_type="solid", start_color="FFE7E6E6", end_color="FFE7E6E6"
+    ),
+}
 REDUNDANT_EXPORT_COLUMNS = {
     "qc_rsd_exempted",
     "qc_rsd_threshold",
@@ -76,11 +97,20 @@ REDUNDANT_EXPORT_COLUMNS = {
     "significance_pvalue",
 }
 REPORT_SUBDIRS = {
+    "review": "00_Review_Pack",
     "qc": "01_QC_and_Preprocessing",
     "global": "02_Global_Profiling",
     "feature": "03_Feature_Selection",
     "validation": "04_Biomarker_Validation",
     "supplementary": "05_Supplementary",
+}
+SUMMARY_STEP4_METADATA_COLUMNS = (FEATURE_MARKER_COLUMN, *STEP4_REASON_COLUMNS)
+EVIDENCE_TIER_COLUMN = "Evidence_Tier"
+EVIDENCE_TIER_ORDER = {
+    "Tier1_ConcordantPairwise": 0,
+    "Tier2_MultiMethod": 1,
+    "Tier3_SingleMethod": 2,
+    "Tier0_NoStatEvidence": 3,
 }
 
 
@@ -108,6 +138,38 @@ def _save_figure(
     if save_pdf:
         fig.savefig(path.with_suffix(".pdf"), bbox_inches="tight")
     plt.close(fig)
+
+
+def _copy_review_pack_figures(
+    report_dirs: Mapping[str, Path],
+    report_pairs: list[tuple[str, str]],
+) -> int:
+    """Copy curated PNG figures into the review pack directory."""
+    review_dir = report_dirs["review"]
+    figure_sources: list[Path] = [
+        report_dirs["qc"] / "pca_score_plot.png",
+        report_dirs["global"] / "heatmap_top50_grouped.png",
+        report_dirs["feature"] / "anova_importance.png",
+        report_dirs["supplementary"] / "plsda_score_all_groups.png",
+    ]
+    for group1, group2 in report_pairs:
+        pair_name = f"{group1}_vs_{group2}"
+        figure_sources.extend(
+            [
+                report_dirs["feature"] / f"oplsda_score_{pair_name}.png",
+                report_dirs["feature"] / f"plsda_vip_{pair_name}.png",
+                report_dirs["feature"] / f"volcano_{pair_name}.png",
+            ]
+        )
+
+    copied = 0
+    for source in figure_sources:
+        if not source.is_file():
+            continue
+        copied += 1
+        destination = review_dir / f"{copied:02d}_{source.name}"
+        shutil.copy2(source, destination)
+    return copied
 
 
 def _iter_output_files(output_dir: str) -> Iterable[Path]:
@@ -334,6 +396,21 @@ def load_data(cfg: dict) -> tuple[pd.DataFrame, pd.Series, pd.DataFrame]:
     print(f"  Missing: {data.isna().sum().sum()} / {data.size}")
     marker_count = int(feature_metadata[FEATURE_MARKER_COLUMN].sum())
     print(f"  Presence/absence markers: {marker_count}")
+    if feature_metadata.attrs.get("step4_metadata_detected", False):
+        ratio_columns = [
+            str(column)
+            for column in feature_metadata.columns
+            if is_step4_ratio_column(column)
+        ]
+        reason_columns = [
+            column for column in STEP4_REASON_COLUMNS if column in feature_metadata.columns
+        ]
+        print("  Step4 metadata detected")
+        print(f"  Step4 ratio columns: {len(ratio_columns)}")
+        print(
+            "  Step4 reason columns: "
+            f"{', '.join(reason_columns) if reason_columns else 'none'}"
+        )
 
     return data, labels, feature_metadata
 
@@ -406,6 +483,79 @@ def _select_heatmap_matrix(
     return df.copy()
 
 
+def _summary_evidence_family(sheet_name: str) -> str | None:
+    """Return the summary evidence family represented by an Excel sheet name."""
+    normalized = sheet_name.strip().lower()
+    if normalized.startswith("anova"):
+        return "anova"
+    if normalized.startswith("vip_"):
+        return "vip"
+    if normalized.startswith("volcano_"):
+        return "volcano"
+    return None
+
+
+def _summary_pair_key(sheet_name: str, family: str | None) -> str | None:
+    """Return a normalized pair key for pairwise evidence sheets."""
+    if family not in {"vip", "volcano"}:
+        return None
+    prefix = f"{family}_"
+    normalized = sheet_name.strip().lower()
+    if not normalized.startswith(prefix):
+        return None
+    pair = normalized[len(prefix) :].strip()
+    return pair or None
+
+
+def _top15_features_for_evidence(sheet_name: str, df: pd.DataFrame) -> set[str]:
+    """Return the feature set eligible for top-15 pair concordance checks."""
+    family = _summary_evidence_family(sheet_name)
+    if family not in {"vip", "volcano"} or "Feature" not in df.columns:
+        return set()
+
+    if family == "vip":
+        if "Rank" in df.columns:
+            ranks = pd.to_numeric(df["Rank"], errors="coerce")
+            top_df = df.loc[ranks <= 15]
+        else:
+            top_df = df.head(15)
+        return set(top_df["Feature"].astype(str))
+
+    sortable = df.copy()
+    if "pvalue_adj" in sortable.columns:
+        sortable["_pvalue_adj_sort"] = pd.to_numeric(
+            sortable["pvalue_adj"], errors="coerce"
+        )
+    else:
+        sortable["_pvalue_adj_sort"] = np.nan
+    top_df = sortable.sort_values(
+        ["_pvalue_adj_sort", "Feature"], ascending=[True, True], na_position="last"
+    ).head(15)
+    return set(top_df["Feature"].astype(str))
+
+
+def _classify_evidence_tier(record: Mapping[str, Any] | None) -> str:
+    """Classify a feature-level cross-method evidence record."""
+    if not record:
+        return "Tier0_NoStatEvidence"
+
+    families = set(record.get("families", set()))
+    vip_top15_pairs = set(record.get("vip_top15_pairs", set()))
+    volcano_top15_pairs = set(record.get("volcano_top15_pairs", set()))
+    vip_pairs = set(record.get("vip_pairs", set()))
+    volcano_pairs = set(record.get("volcano_pairs", set()))
+
+    if vip_top15_pairs & volcano_top15_pairs:
+        return "Tier1_ConcordantPairwise"
+    if "anova" in families and (vip_pairs & volcano_pairs):
+        return "Tier1_ConcordantPairwise"
+    if len(families) >= 2:
+        return "Tier2_MultiMethod"
+    if len(families) == 1:
+        return "Tier3_SingleMethod"
+    return "Tier0_NoStatEvidence"
+
+
 # ── Significant features Excel export ────────────────────
 
 
@@ -431,7 +581,88 @@ def _export_significant_features_excel(
         for sheet_name, df in sheets.items()
         if "oplsda" not in sheet_name.lower()
     }
-    feature_tags: dict[str, bool] = {}
+    feature_metadata_by_feature: dict[str, dict[str, Any]] = {}
+    summary_metadata_columns: list[str] = []
+    excel_detail_metadata_columns: list[str] = []
+    evidence_records: dict[str, dict[str, set[str]]] = {}
+
+    def is_excel_detail_metadata_column(column: str) -> bool:
+        return column in STEP4_REASON_COLUMNS or is_step4_ratio_column(column)
+
+    def apply_step4_excel_outline(worksheet) -> None:
+        headers = [cell.value for cell in worksheet[1]]
+        detail_indexes = [
+            index
+            for index, header in enumerate(headers, start=1)
+            if isinstance(header, str) and is_excel_detail_metadata_column(header)
+        ]
+        if not detail_indexes:
+            return
+
+        worksheet.sheet_properties.outlinePr.summaryRight = True
+        max_column = len(headers)
+        ranges: list[tuple[int, int]] = []
+        start = previous = detail_indexes[0]
+        for index in detail_indexes[1:]:
+            if index == previous + 1:
+                previous = index
+                continue
+            ranges.append((start, previous))
+            start = previous = index
+        ranges.append((start, previous))
+
+        for start, end in ranges:
+            for index in range(start, end + 1):
+                dimension = worksheet.column_dimensions[get_column_letter(index)]
+                dimension.hidden = True
+                dimension.outlineLevel = 1
+            collapsed_index = min(end + 1, max_column)
+            worksheet.column_dimensions[get_column_letter(collapsed_index)].collapsed = True
+
+    def apply_evidence_tier_style(worksheet) -> None:
+        headers = [cell.value for cell in worksheet[1]]
+        if EVIDENCE_TIER_COLUMN not in headers:
+            return
+        tier_col = headers.index(EVIDENCE_TIER_COLUMN) + 1
+        worksheet.column_dimensions[get_column_letter(tier_col)].width = 28
+        for row_idx in range(2, worksheet.max_row + 1):
+            cell = worksheet.cell(row=row_idx, column=tier_col)
+            fill = EVIDENCE_TIER_FILLS.get(str(cell.value))
+            if fill is not None:
+                cell.fill = fill
+
+    def build_summary_excel_df(summary_df: pd.DataFrame) -> pd.DataFrame:
+        if summary_df.empty or not excel_detail_metadata_columns:
+            return summary_df
+
+        excel_df = summary_df.copy()
+        for column in excel_detail_metadata_columns:
+            if column in excel_df.columns:
+                continue
+            excel_df[column] = excel_df["Feature"].map(
+                lambda feat: feature_metadata_by_feature.get(feat, {}).get(column, "")
+            )
+
+        ordered_columns: list[str] = []
+        inserted_details = False
+        for column in excel_df.columns:
+            if column in excel_detail_metadata_columns:
+                continue
+            ordered_columns.append(column)
+            if column == FEATURE_MARKER_COLUMN:
+                ordered_columns.extend(
+                    detail
+                    for detail in excel_detail_metadata_columns
+                    if detail in excel_df.columns
+                )
+                inserted_details = True
+        if not inserted_details:
+            ordered_columns.extend(
+                detail
+                for detail in excel_detail_metadata_columns
+                if detail in excel_df.columns and detail not in ordered_columns
+            )
+        return excel_df.loc[:, ordered_columns]
 
     def passes_threshold(sheet_name: str, row: pd.Series) -> bool:
         name = sheet_name.lower()
@@ -530,13 +761,56 @@ def _export_significant_features_excel(
     }.items():
         if "Feature" not in df.columns:
             continue
+        evidence_family = _summary_evidence_family(sheet_name)
+        evidence_pair_key = _summary_pair_key(sheet_name, evidence_family)
+        metadata_columns = [
+            column for column in SUMMARY_STEP4_METADATA_COLUMNS if column in df.columns
+        ]
+        excel_metadata_columns = [
+            column for column in df.columns if is_excel_detail_metadata_column(column)
+        ]
         sheet_df = df if top_n in (None, 0) else df.head(top_n)
+        top15_features = _top15_features_for_evidence(sheet_name, sheet_df)
         for idx, row in sheet_df.iterrows():
             feat = row["Feature"]
             all_features.add(feat)
-            if feat not in feature_tags and "is_Presence_Absence_Marker" in row.index:
-                feature_tags[feat] = bool(row.get("is_Presence_Absence_Marker", False))
-            if not passes_threshold(sheet_name, row):
+            if feat not in feature_metadata_by_feature:
+                feature_metadata_by_feature[feat] = {}
+            for column in excel_metadata_columns:
+                if column not in excel_detail_metadata_columns:
+                    excel_detail_metadata_columns.append(column)
+            for column in metadata_columns:
+                if column not in summary_metadata_columns:
+                    summary_metadata_columns.append(column)
+            for column in excel_metadata_columns:
+                if column not in summary_metadata_columns:
+                    summary_metadata_columns.append(column)
+            for column in list(dict.fromkeys(metadata_columns + excel_metadata_columns)):
+                value = row.get(column)
+                if column in feature_metadata_by_feature[feat] and pd.isna(value):
+                    continue
+                feature_metadata_by_feature[feat][column] = value
+            passed = passes_threshold(sheet_name, row)
+            if passed and evidence_family is not None:
+                record = evidence_records.setdefault(
+                    feat,
+                    {
+                        "families": set(),
+                        "vip_pairs": set(),
+                        "volcano_pairs": set(),
+                        "vip_top15_pairs": set(),
+                        "volcano_top15_pairs": set(),
+                    },
+                )
+                record["families"].add(evidence_family)
+                if evidence_pair_key is not None and evidence_family in {
+                    "vip",
+                    "volcano",
+                }:
+                    record[f"{evidence_family}_pairs"].add(evidence_pair_key)
+                    if str(feat) in top15_features:
+                        record[f"{evidence_family}_top15_pairs"].add(evidence_pair_key)
+            if not passed:
                 continue
             if feat not in feature_counts:
                 feature_counts[feat] = {}
@@ -551,28 +825,40 @@ def _export_significant_features_excel(
     summary_rows = []
     for feat in sorted(all_features):
         appearances = feature_counts.get(feat, {})
+        metadata_values = feature_metadata_by_feature.get(feat, {})
         row = {
             "Feature": feat,
-            "is_Presence_Absence_Marker": feature_tags.get(feat, False),
+            EVIDENCE_TIER_COLUMN: _classify_evidence_tier(
+                evidence_records.get(feat)
+            ),
             "Passed_in_N_analyses": len(appearances),
         }
+        for column in summary_metadata_columns:
+            default_value = False if column == FEATURE_MARKER_COLUMN else ""
+            row[column] = metadata_values.get(column, default_value)
         for sn in all_sheet_names:
             row[sn] = appearances.get(sn, "")
         summary_rows.append(row)
 
     summary_df = pd.DataFrame(summary_rows)
     if not summary_df.empty:
+        summary_df["_Evidence_Tier_Rank"] = summary_df[EVIDENCE_TIER_COLUMN].map(
+            EVIDENCE_TIER_ORDER
+        )
         summary_df = summary_df.sort_values(
-            ["Passed_in_N_analyses", "Feature"], ascending=[False, True]
+            ["_Evidence_Tier_Rank", "Passed_in_N_analyses", "Feature"],
+            ascending=[True, False, True],
         ).reset_index(drop=True)
+        summary_df = summary_df.drop(columns=["_Evidence_Tier_Rank"])
         summary_df.insert(0, "Rank", range(1, len(summary_df) + 1))
         summary_df.to_csv(summary_csv_path, index=False)
+    summary_excel_df = build_summary_excel_df(summary_df)
 
     # Write all sheets
     with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
         # Summary first
-        if not summary_df.empty:
-            summary_df.to_excel(writer, sheet_name="Summary", index=False)
+        if not summary_excel_df.empty:
+            summary_excel_df.to_excel(writer, sheet_name="Summary", index=False)
 
         # Individual analysis sheets (top_n rows each)
         for sheet_name, df in prepared_sheets.items():
@@ -582,11 +868,16 @@ def _export_significant_features_excel(
             sheet_df.to_excel(writer, sheet_name=safe_name, index=False)
 
         workbook = writer.book
+        if not summary_excel_df.empty:
+            summary_worksheet = workbook["Summary"]
+            apply_evidence_tier_style(summary_worksheet)
+            apply_step4_excel_outline(summary_worksheet)
         for sheet_name, df in prepared_sheets.items():
             sheet_df = df if top_n in (None, 0) else df.head(top_n)
+            safe_name = sheet_name[:31]
+            apply_step4_excel_outline(workbook[safe_name])
             if "significant" not in sheet_df.columns:
                 continue
-            safe_name = sheet_name[:31]
             worksheet = workbook[safe_name]
             significant_col = sheet_df.columns.get_loc("significant") + 1
             for row_idx, value in enumerate(sheet_df["significant"], start=2):
@@ -958,6 +1249,22 @@ def run_analysis(cfg: dict) -> dict[str, str]:
             save_pdf=save_pdf,
         )
         print(f"  Saved {REPORT_SUBDIRS['global']}\\heatmap_top50.png")
+
+        grouped_heatmap_fig = plot_grouped_heatmap(
+            heatmap_df,
+            final_labels.reindex(heatmap_df.index),
+            group_order=included_groups,
+            scale=heatmap_cfg.get("scale", "row"),
+            max_features=None,
+            top_by=str(heatmap_cfg.get("top_by", "var")),
+        )
+        _save_figure(
+            grouped_heatmap_fig,
+            report_dirs["global"] / "heatmap_top50_grouped.png",
+            draft_mode=draft_mode,
+            save_pdf=save_pdf,
+        )
+        print(f"  Saved {REPORT_SUBDIRS['global']}\\heatmap_top50_grouped.png")
 
     anova_pairs = report_pairs
     saved_anova_boxplots = 0
@@ -1424,6 +1731,14 @@ def run_analysis(cfg: dict) -> dict[str, str]:
         )
     except Exception as e:
         print(f"  Excel export error: {e}")
+
+    print("\n" + "=" * 60)
+    print("Building review pack...")
+    copied_review_figures = _copy_review_pack_figures(report_dirs, report_pairs)
+    print(
+        f"  Saved {copied_review_figures} curated PNG(s) to "
+        f"{REPORT_SUBDIRS['review']}"
+    )
 
     # ── Summary ───────────────────────────────────────────
     print("\n" + "=" * 60)

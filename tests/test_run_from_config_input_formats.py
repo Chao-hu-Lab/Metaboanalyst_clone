@@ -2,9 +2,12 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
 
 from core.input_resolver import read_input_table, resolve_primary_sheet_name_from_names
 from scripts.run_from_config import (
+    _annotate_feature_table,
     _export_significant_features_excel,
     load_data,
     resolve_top_vip,
@@ -106,6 +109,148 @@ def test_load_data_sample_type_row_excludes_non_sample_columns_even_if_labeled(
     assert feature_metadata["is_Presence_Absence_Marker"].tolist() == [False, False]
 
 
+def test_load_data_sample_type_row_preserves_step4_metadata(tmp_path: Path):
+    xlsx_path = tmp_path / "test_step4_metadata.xlsx"
+    df = pd.DataFrame(
+        {
+            "FeatureID": ["Sample_Type", "F_marker", "F_regular"],
+            "QC_1": ["QC", 0.0, 1.2],
+            "Sample_A": ["Exposure", 10.0, 3.0],
+            "Sample_B": ["Normal", 0.0, 4.0],
+            "Original_CV%": ["Control", 10.0, 20.0],
+            "exposure_ratio": ["Control", "0.10", "0.95"],
+            "normal_ratio": ["Control", "0.00", "1.00"],
+            "QC_ratio": ["QC", "1.00", "1.00"],
+            "is_Presence_Absence_Marker": ["is_Presence_Absence_Marker", "TRUE", "0.0"],
+            "Feature_Filter_Keep_Reasons": [
+                "Feature_Filter_Keep_Reasons",
+                "stable|mnar",
+                "stable",
+            ],
+            "Imputation_Tag_Reasons": [
+                "Imputation_Tag_Reasons",
+                "low_overall_detection",
+                "",
+            ],
+            "Detection_Profile": ["Detection_Profile", "legacy_marker", "legacy_regular"],
+        }
+    )
+    _write_excel_with_sample_info(
+        xlsx_path,
+        df,
+        _sample_info(["QC_1", "Sample_A", "Sample_B"], ["QC", "Exposure", "Normal"]),
+    )
+
+    data, labels, feature_metadata = load_data(
+        {
+            "input": {
+                "file": str(xlsx_path),
+                "format": "sample_type_row",
+            }
+        }
+    )
+
+    assert list(data.index) == ["QC_1", "Sample_A", "Sample_B"]
+    assert list(data.columns) == ["F_marker", "F_regular"]
+    assert labels.to_dict() == {"QC_1": "QC", "Sample_A": "Exposure", "Sample_B": "Normal"}
+    assert feature_metadata["is_Presence_Absence_Marker"].tolist() == [True, False]
+    assert feature_metadata["Feature_Filter_Keep_Reasons"].tolist() == ["stable|mnar", "stable"]
+    assert feature_metadata["Imputation_Tag_Reasons"].fillna("").tolist() == [
+        "low_overall_detection",
+        "",
+    ]
+    assert feature_metadata["Detection_Profile"].tolist() == ["legacy_marker", "legacy_regular"]
+    assert feature_metadata["exposure_ratio"].tolist() == [0.10, 0.95]
+    assert feature_metadata["normal_ratio"].tolist() == [0.00, 1.00]
+    assert feature_metadata["QC_ratio"].tolist() == [1.00, 1.00]
+
+
+def test_load_data_step4_metadata_requires_marker_column(tmp_path: Path):
+    xlsx_path = tmp_path / "test_step4_missing_marker.xlsx"
+    df = pd.DataFrame(
+        {
+            "FeatureID": ["Sample_Type", "F1"],
+            "Sample_A": ["Exposure", 1.0],
+            "Sample_B": ["Normal", 2.0],
+            "Feature_Filter_Keep_Reasons": ["Feature_Filter_Keep_Reasons", "stable"],
+        }
+    )
+    _write_excel_with_sample_info(
+        xlsx_path,
+        df,
+        _sample_info(["Sample_A", "Sample_B"], ["Exposure", "Normal"]),
+    )
+
+    with pytest.raises(ValueError, match="is_Presence_Absence_Marker"):
+        load_data(
+            {
+                "input": {
+                    "file": str(xlsx_path),
+                    "format": "sample_type_row",
+                }
+            }
+        )
+
+
+def test_load_data_rejects_invalid_presence_absence_marker(tmp_path: Path):
+    xlsx_path = tmp_path / "test_step4_invalid_marker.xlsx"
+    df = pd.DataFrame(
+        {
+            "FeatureID": ["Sample_Type", "F1"],
+            "Sample_A": ["Exposure", 1.0],
+            "Sample_B": ["Normal", 2.0],
+            "is_Presence_Absence_Marker": ["is_Presence_Absence_Marker", "maybe"],
+        }
+    )
+    _write_excel_with_sample_info(
+        xlsx_path,
+        df,
+        _sample_info(["Sample_A", "Sample_B"], ["Exposure", "Normal"]),
+    )
+
+    with pytest.raises(ValueError, match="Invalid is_Presence_Absence_Marker"):
+        load_data(
+            {
+                "input": {
+                    "file": str(xlsx_path),
+                    "format": "sample_type_row",
+                }
+            }
+        )
+
+
+def test_load_data_step4_reason_columns_are_optional(tmp_path: Path):
+    xlsx_path = tmp_path / "test_step4_optional_reasons.xlsx"
+    df = pd.DataFrame(
+        {
+            "FeatureID": ["Sample_Type", "F1"],
+            "Sample_A": ["Exposure", 1.0],
+            "Sample_B": ["Normal", 2.0],
+            "exposure_ratio": ["Exposure", "1.0"],
+            "is_Presence_Absence_Marker": ["is_Presence_Absence_Marker", "false"],
+        }
+    )
+    _write_excel_with_sample_info(
+        xlsx_path,
+        df,
+        _sample_info(["Sample_A", "Sample_B"], ["Exposure", "Normal"]),
+    )
+
+    _data, _labels, feature_metadata = load_data(
+        {
+            "input": {
+                "file": str(xlsx_path),
+                "format": "sample_type_row",
+            }
+        }
+    )
+
+    assert feature_metadata["is_Presence_Absence_Marker"].tolist() == [False]
+    assert "Feature_Filter_Keep_Reasons" not in feature_metadata.columns
+    assert "Imputation_Tag_Reasons" not in feature_metadata.columns
+    assert feature_metadata["exposure_ratio"].tolist() == [1.0]
+
+
 def test_load_data_plain_excludes_summary_columns(tmp_path: Path):
     xlsx_path = tmp_path / "test_plain_non_sample_cols.xlsx"
     df = pd.DataFrame(
@@ -176,7 +321,7 @@ def test_load_data_plain_extracts_presence_absence_marker_metadata(tmp_path: Pat
             "Tumor_A": [1.0, 3.0, 0.0],
             "Normal_B": [2.0, 4.0, 0.0],
             "is_Presence_Absence_Marker": [
-                "is_Presence_Absence_Marker",
+                False,
                 True,
                 False,
             ],
@@ -202,6 +347,24 @@ def test_load_data_plain_extracts_presence_absence_marker_metadata(tmp_path: Pat
     assert labels.to_dict() == {"Tumor_A": "Tumor", "Normal_B": "Normal"}
     assert feature_metadata.index.tolist() == ["100.1/1.1", "200.2/2.2", "300.3/3.3"]
     assert feature_metadata["is_Presence_Absence_Marker"].tolist() == [False, True, False]
+
+
+def test_annotate_feature_table_preserves_step4_metadata_columns():
+    feature_metadata = pd.DataFrame(
+        {
+            "is_Presence_Absence_Marker": [True, False],
+            "Feature_Filter_Keep_Reasons": ["mnar", "stable"],
+            "exposure_ratio": [0.1, 1.0],
+        },
+        index=pd.Index(["F1", "F2"], name="Feature"),
+    )
+    stats_df = pd.DataFrame({"Feature": ["F2", "F1"], "pvalue": [0.2, 0.01]})
+
+    annotated = _annotate_feature_table(stats_df, feature_metadata)
+
+    assert annotated["is_Presence_Absence_Marker"].tolist() == [False, True]
+    assert annotated["Feature_Filter_Keep_Reasons"].tolist() == ["stable", "mnar"]
+    assert annotated["exposure_ratio"].tolist() == [1.0, 0.1]
 
 
 def test_load_data_plain_excel_without_sample_info_falls_back_to_name_inference(tmp_path: Path):
@@ -487,3 +650,149 @@ def test_summary_export_keeps_features_with_zero_significant_hits(tmp_path: Path
     assert summary_df["Feature"].tolist() == ["F_keep", "F_zero"]
     assert summary_df["Passed_in_N_analyses"].tolist() == [2, 0]
     assert summary_df["is_Presence_Absence_Marker"].tolist() == [False, True]
+
+
+def test_summary_export_keeps_step4_metadata_columns(tmp_path: Path):
+    sheets = {
+        "VIP_Tumor_vs_Normal": pd.DataFrame(
+            {
+                "Rank": [1, 2],
+                "Feature": ["F_marker", "F_regular"],
+                "VIP": [1.4, 0.2],
+                "is_Presence_Absence_Marker": [True, False],
+                "Feature_Filter_Keep_Reasons": ["stable|mnar", "stable"],
+                "Imputation_Tag_Reasons": ["low_overall_detection", ""],
+                "exposure_ratio": [0.1, 1.0],
+                "QC_ratio": [1.0, 1.0],
+            }
+        ),
+        "Volcano_Tumor_vs_Normal": pd.DataFrame(
+            {
+                "Feature": ["F_marker", "F_regular"],
+                "log2FC": [2.0, 0.1],
+                "pvalue_adj": [0.01, 0.8],
+                "is_Presence_Absence_Marker": [True, False],
+                "Feature_Filter_Keep_Reasons": ["stable|mnar", "stable"],
+                "Imputation_Tag_Reasons": ["low_overall_detection", ""],
+                "exposure_ratio": [0.1, 1.0],
+                "QC_ratio": [1.0, 1.0],
+            }
+        ),
+    }
+
+    _export_significant_features_excel(sheets, str(tmp_path), top_n=None)
+
+    summary_df = pd.read_csv(tmp_path / "Summary.csv")
+
+    assert "Feature_Filter_Keep_Reasons" in summary_df.columns
+    assert "Imputation_Tag_Reasons" in summary_df.columns
+    assert "exposure_ratio" in summary_df.columns
+    assert "QC_ratio" in summary_df.columns
+    marker_row = summary_df.set_index("Feature").loc["F_marker"]
+    assert marker_row["Feature_Filter_Keep_Reasons"] == "stable|mnar"
+    assert marker_row["Imputation_Tag_Reasons"] == "low_overall_detection"
+    assert marker_row["exposure_ratio"] == 0.1
+    assert marker_row["QC_ratio"] == 1.0
+
+    workbook = load_workbook(tmp_path / "significant_features_summary.xlsx")
+    for sheet_name in ["Summary", "VIP_Tumor_vs_Normal"]:
+        worksheet = workbook[sheet_name]
+        headers = [cell.value for cell in worksheet[1]]
+        assert "is_Presence_Absence_Marker" in headers
+        assert "Feature_Filter_Keep_Reasons" in headers
+        assert "Imputation_Tag_Reasons" in headers
+        assert "exposure_ratio" in headers
+        assert "QC_ratio" in headers
+
+        marker_letter = get_column_letter(headers.index("is_Presence_Absence_Marker") + 1)
+        assert not worksheet.column_dimensions[marker_letter].hidden
+
+        for column in [
+            "Feature_Filter_Keep_Reasons",
+            "Imputation_Tag_Reasons",
+            "exposure_ratio",
+            "QC_ratio",
+        ]:
+            letter = get_column_letter(headers.index(column) + 1)
+            assert worksheet.column_dimensions[letter].hidden is True
+            assert worksheet.column_dimensions[letter].outlineLevel == 1
+
+
+def test_summary_export_assigns_evidence_tiers(tmp_path: Path):
+    sheets = {
+        "ANOVA_All": pd.DataFrame(
+            {
+                "Feature": [
+                    "F_tier1",
+                    "F_tier2",
+                    "F_tier3",
+                    "F_cross_pair_only",
+                    "F_none",
+                ],
+                "pvalue_adj": [0.01, 0.02, 0.60, 0.80, 0.90],
+                "pvalue": [0.01, 0.02, 0.60, 0.80, 0.90],
+                "neg_log10p": [2.0, 1.7, 0.2, 0.1, 0.05],
+                "significant": [True, True, False, False, False],
+                "is_Presence_Absence_Marker": [False] * 5,
+            }
+        ),
+        "VIP_Tumor_vs_Normal": pd.DataFrame(
+            {
+                "Rank": [1, 2, 3, 4, 5],
+                "Feature": [
+                    "F_tier1",
+                    "F_tier2",
+                    "F_tier3",
+                    "F_cross_pair_only",
+                    "F_none",
+                ],
+                "VIP": [2.0, 1.4, 1.3, 1.6, 0.3],
+                "is_Presence_Absence_Marker": [False] * 5,
+            }
+        ),
+        "Volcano_Tumor_vs_Normal": pd.DataFrame(
+            {
+                "Feature": ["F_tier1", "F_tier2", "F_none"],
+                "log2FC": [1.5, 0.2, 0.1],
+                "pvalue_adj": [0.001, 0.80, 0.90],
+                "is_Presence_Absence_Marker": [False, False, False],
+            }
+        ),
+        "Volcano_Tumor_vs_Control": pd.DataFrame(
+            {
+                "Feature": ["F_cross_pair_only"],
+                "log2FC": [1.6],
+                "pvalue_adj": [0.002],
+                "is_Presence_Absence_Marker": [False],
+            }
+        ),
+    }
+
+    _export_significant_features_excel(sheets, str(tmp_path), top_n=None)
+
+    summary_df = pd.read_csv(tmp_path / "Summary.csv")
+    tiers = summary_df.set_index("Feature")["Evidence_Tier"].to_dict()
+
+    assert tiers["F_tier1"] == "Tier1_ConcordantPairwise"
+    assert tiers["F_tier2"] == "Tier2_MultiMethod"
+    assert tiers["F_tier3"] == "Tier3_SingleMethod"
+    assert tiers["F_cross_pair_only"] == "Tier2_MultiMethod"
+    assert tiers["F_none"] == "Tier0_NoStatEvidence"
+    assert summary_df.columns[:3].tolist() == ["Rank", "Feature", "Evidence_Tier"]
+    assert summary_df["Feature"].iloc[0] == "F_tier1"
+
+    workbook = load_workbook(tmp_path / "significant_features_summary.xlsx")
+    worksheet = workbook["Summary"]
+    headers = [cell.value for cell in worksheet[1]]
+    assert headers[:3] == ["Rank", "Feature", "Evidence_Tier"]
+    tier_col = headers.index("Evidence_Tier") + 1
+    tier_fills = {
+        worksheet.cell(row=row_idx, column=2).value: worksheet.cell(
+            row=row_idx, column=tier_col
+        ).fill.fgColor.rgb
+        for row_idx in range(2, worksheet.max_row + 1)
+    }
+    assert tier_fills["F_tier1"] == "FFC6EFCE"
+    assert tier_fills["F_tier2"] == "FFD9EAF7"
+    assert tier_fills["F_tier3"] == "FFFFF2CC"
+    assert tier_fills["F_none"] == "FFE7E6E6"

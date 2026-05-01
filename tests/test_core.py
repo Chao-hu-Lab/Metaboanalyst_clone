@@ -612,6 +612,45 @@ class TestPipeline:
         assert bool(pipe.step_feature_metadata["qc_rsd"].loc["F_drop", "kept_after_qc_rsd"]) is False
         assert any("Step 3a: QC-RSD filtering" in line for line in pipe.log)
 
+    def test_pipeline_disabled_qc_rsd_does_not_emit_qc_rsd_metadata(self):
+        from core.pipeline import MetaboAnalystPipeline
+
+        df = pd.DataFrame(
+            {
+                "F_marker": [0.0, 0.0, 10.0, 0.0],
+                "F_regular": [1.0, 1.1, 3.0, 4.0],
+            },
+            index=["QC_1", "QC_2", "S1", "S2"],
+        )
+        labels = pd.Series(["QC", "QC", "A", "B"], index=df.index)
+        feature_metadata = pd.DataFrame(
+            {"is_Presence_Absence_Marker": [True, False]},
+            index=["F_marker", "F_regular"],
+        )
+
+        pipe = MetaboAnalystPipeline(df, labels, feature_metadata=feature_metadata)
+        pipe.run_pipeline(
+            missing_thresh=1.0,
+            impute_method="knn",
+            filter_method="None",
+            row_norm="None",
+            transform="None",
+            scaling="None",
+            qc_rsd_enabled=False,
+            qc_rsd_threshold=0.50,
+        )
+
+        assert pipe.processed_feature_metadata is not None
+        assert "qc_rsd" not in pipe.step_feature_metadata
+        assert not {
+            "qc_rsd",
+            "qc_rsd_threshold",
+            "qc_detect_ratio",
+            "qc_rsd_pass",
+            "qc_rsd_exempted",
+            "kept_after_qc_rsd",
+        }.intersection(pipe.processed_feature_metadata.columns)
+
     def test_pipeline_marker_aware_imputation_and_qc_rsd_exemption(self):
         from core.pipeline import MetaboAnalystPipeline
 

@@ -39,7 +39,7 @@ from visualization.correlation_plot import (  # noqa: E402
     plot_correlation_network_interactive,
 )
 from visualization.density_plot import plot_density  # noqa: E402
-from visualization.heatmap import plot_heatmap  # noqa: E402
+from visualization.heatmap import plot_grouped_heatmap, plot_heatmap  # noqa: E402
 from visualization.norm_preview import plot_norm_comparison  # noqa: E402
 from visualization.outlier_plot import plot_dmodx, plot_outlier_score  # noqa: E402
 from visualization.oplsda_plot import plot_oplsda_score, plot_oplsda_splot  # noqa: E402
@@ -63,6 +63,7 @@ __all__ = [
     "plot_feature_boxplot",
     "plot_feature_boxplot_paired",
     "plot_group_boxplot",
+    "plot_grouped_heatmap",
     "plot_heatmap",
     "plot_norm_comparison",
     "plot_oplsda_score",

@@ -24,6 +24,26 @@ def _make_column_oriented_raw_df() -> pd.DataFrame:
             "S1": ["A", 10.0, 3.0, 20.0],
             "S2": ["B", 0.0, 4.0, 30.0],
             FEATURE_MARKER_COLUMN: [FEATURE_MARKER_COLUMN, True, False, False],
+            "Feature_Filter_Keep_Reasons": [
+                "Feature_Filter_Keep_Reasons",
+                "mnar",
+                "stable",
+                "stable",
+            ],
+            "Imputation_Tag_Reasons": [
+                "Imputation_Tag_Reasons",
+                "low_overall_detection",
+                "",
+                "",
+            ],
+            "exposure_ratio": ["exposure_ratio", 0.5, 1.0, 1.0],
+            "QC_ratio": ["QC_ratio", 1.0, 1.0, 1.0],
+            "Detection_Profile": [
+                "Detection_Profile",
+                "legacy_marker",
+                "legacy_regular",
+                "legacy_drop",
+            ],
             "Original_CV%": [None, 10.0, 20.0, 30.0],
         }
     )
@@ -87,6 +107,14 @@ def test_gui_import_pipeline_retains_feature_metadata(qapp) -> None:
     assert window.raw_feature_metadata is not None
     assert window.raw_feature_metadata.index.tolist() == ["F_marker", "F_regular", "F_drop"]
     assert window.raw_feature_metadata[FEATURE_MARKER_COLUMN].tolist() == [True, False, False]
+    assert window.raw_feature_metadata["Feature_Filter_Keep_Reasons"].tolist() == [
+        "mnar",
+        "stable",
+        "stable",
+    ]
+    assert window.raw_feature_metadata["exposure_ratio"].tolist() == [0.5, 1.0, 1.0]
+    assert "Step4 metadata detected" in window.import_tab.info_text.toPlainText()
+    assert "Presence/absence markers: 1" in window.import_tab.info_text.toPlainText()
 
     window.set_pipeline_params(**_marker_aware_params())
     payload = window.run_pipeline_until("filter")

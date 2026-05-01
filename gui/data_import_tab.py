@@ -34,7 +34,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from core.feature_metadata import default_feature_metadata, extract_feature_metadata
+from core.feature_metadata import (
+    FEATURE_MARKER_COLUMN,
+    STEP4_REASON_COLUMNS,
+    default_feature_metadata,
+    extract_feature_metadata,
+    is_step4_ratio_column,
+)
 from core.input_resolver import (
     build_labels_from_sample_info,
     detect_sample_type_row_key,
@@ -577,11 +583,12 @@ class DataImportTab(QWidget):
             self.tr(
                 "Dataset loaded into pipeline.\n"
                 "Samples: {samples}\nFeatures: {features}\n"
-                "Groups: {groups}"
+                "Groups: {groups}{metadata_summary}"
             ).format(
                 samples=matrix.shape[0],
                 features=matrix.shape[1],
                 groups=", ".join(sorted(set(labels.astype(str)))),
+                metadata_summary=self._format_step4_metadata_summary(feature_metadata),
             )
         )
         if announce_success:
@@ -715,3 +722,31 @@ class DataImportTab(QWidget):
             counts[key] = n + 1
             output.append(key if n == 0 else f"{key}_{n+1}")
         return output
+
+    @staticmethod
+    def _format_step4_metadata_summary(feature_metadata: pd.DataFrame) -> str:
+        if not feature_metadata.attrs.get("step4_metadata_detected", False):
+            return ""
+
+        marker_count = int(feature_metadata[FEATURE_MARKER_COLUMN].sum())
+        ratio_columns = [
+            str(column)
+            for column in feature_metadata.columns
+            if is_step4_ratio_column(column)
+        ]
+        present_reasons = [
+            column for column in STEP4_REASON_COLUMNS if column in feature_metadata.columns
+        ]
+        missing_reasons = [
+            column for column in STEP4_REASON_COLUMNS if column not in feature_metadata.columns
+        ]
+        present_text = ", ".join(present_reasons) if present_reasons else "none"
+        missing_text = ", ".join(missing_reasons) if missing_reasons else "none"
+        ratio_text = ", ".join(ratio_columns) if ratio_columns else "none"
+        return (
+            "\nStep4 metadata detected"
+            f"\nPresence/absence markers: {marker_count}"
+            f"\nRatio columns: {len(ratio_columns)} ({ratio_text})"
+            f"\nReason columns present: {present_text}"
+            f"\nReason columns missing: {missing_text}"
+        )
