@@ -191,7 +191,7 @@ def test_normalize_config_keeps_paired_resolution_contract() -> None:
                 "paired_resolution": {
                     "scope": "paired_only",
                     "on_duplicate": "prefer_override",
-                    "on_unresolved": "warn_keep_first",
+                    "on_unresolved": "warn_select_prioritized",
                     "overrides": {
                         "Exposure": {
                             "BC2286": "TumorBC2286_DNA",
@@ -205,8 +205,28 @@ def test_normalize_config_keeps_paired_resolution_contract() -> None:
 
     assert normalized["groups"]["paired_resolution"]["scope"] == "paired_only"
     assert normalized["groups"]["paired_resolution"]["on_duplicate"] == "prefer_override"
-    assert normalized["groups"]["paired_resolution"]["on_unresolved"] == "warn_keep_first"
+    assert normalized["groups"]["paired_resolution"]["on_unresolved"] == "warn_select_prioritized"
     assert normalized["groups"]["paired_resolution"]["overrides"]["Exposure"]["BC2286"] == "TumorBC2286_DNA"
+
+
+def test_normalize_config_maps_legacy_warn_keep_first_policy() -> None:
+    normalized = normalize_config(
+        {
+            "input": {"file": "demo.xlsx"},
+            "pipeline": {},
+            "groups": {
+                "paired_resolution": {
+                    "on_unresolved": "warn_keep_first",
+                }
+            },
+            "analysis": {},
+        }
+    )
+
+    assert (
+        normalized["groups"]["paired_resolution"]["on_unresolved"]
+        == "warn_select_prioritized"
+    )
 
 
 def test_load_yaml_config_rejects_invalid_volcano_parametric_default() -> None:

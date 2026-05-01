@@ -25,6 +25,7 @@ _EXCLUDED_COVARIATE_COLUMNS = {
     "injection_volume",
 }
 _EXCLUDED_COVARIATE_PATTERNS = ("order",)
+_CURRENT_LABELS_DIAGNOSTIC_COLUMN = "Current labels"
 
 
 def _load_pycombat_norm() -> Any:
@@ -93,6 +94,33 @@ def list_combat_reference_batches(sample_info: pd.DataFrame) -> list[str]:
 
 def _normalize_categorical_series(series: pd.Series) -> pd.Series:
     return series.astype("string").fillna(pd.NA)
+
+
+def _single_batch_error(source: str) -> ValueError:
+    return ValueError(
+        f"ComBat requires at least two distinct batches in {source}; got 1. "
+        "Disable pipeline.batch_correction or provide multi-batch metadata."
+    )
+
+
+def _is_current_labels_diagnostic(column: object) -> bool:
+    return str(column) == _CURRENT_LABELS_DIAGNOSTIC_COLUMN
+
+
+def _format_design_factor(column: object) -> str:
+    if _is_current_labels_diagnostic(column):
+        return "current sample labels"
+    return f"covariate '{column}'"
+
+
+def _format_design_factor_sentence_start(column: object) -> str:
+    if _is_current_labels_diagnostic(column):
+        return "Current sample labels"
+    return f"Covariate '{column}'"
+
+
+def _design_factor_verb_has(column: object) -> str:
+    return "have" if _is_current_labels_diagnostic(column) else "has"
 
 
 def _relevel_single_batch_covariate(
@@ -239,7 +267,7 @@ def build_combat_design(
 
     batch_labels = pd.Series(batch_values, index=sample_ids, name="Batch", dtype="string")
     if batch_labels.nunique(dropna=True) < 2:
-        raise ValueError("ComBat requires at least two distinct batches.")
+        raise _single_batch_error("SampleInfo.Batch")
 
     covariates, covariate_names, reference_levels = _build_covariate_frame(
         sample_ids,
@@ -350,11 +378,19 @@ def evaluate_combat_design(
         }
 
         if perfectly_confounded:
-            blocking_errors.append(
-                f"ComBat covariate '{column}' is perfectly confounded with Batch and cannot be used safely."
-            )
+            if _is_current_labels_diagnostic(column):
+                blocking_errors.append(
+                    "Current sample labels are perfectly confounded with Batch. "
+                    "ComBat cannot safely run because labels and batches are indistinguishable."
+                )
+            else:
+                blocking_errors.append(
+                    f"ComBat covariate '{column}' is perfectly confounded with Batch "
+                    "and cannot be used safely."
+                )
             continue
         if strongly_overlapping:
+            factor_text = _format_design_factor(column)
             if association["method"] == "fisher_exact":
                 stat_text = (
                     f"Fisher exact p={association['p_value']:.3g}, odds_ratio={association['odds_ratio']:.3g}"
@@ -365,22 +401,30 @@ def evaluate_combat_design(
                     f"cramers_v={association['cramers_v']:.3g}"
                 )
             warnings.append(
-                f"Batch and covariate '{column}' show strong overlap. ComBat may remove biological signal "
+                f"Batch and {factor_text} show strong overlap. ComBat may remove biological signal "
                 f"({stat_text})."
             )
         if single_level_batches:
+            factor_text = _format_design_factor_sentence_start(column)
+            verb = _design_factor_verb_has(column)
             warnings.append(
-                f"Covariate '{column}' has only one level inside batch(es): {', '.join(single_level_batches)}."
+                f"{factor_text} {verb} only one level inside batch(es): "
+                f"{', '.join(single_level_batches)}."
             )
         if single_batch_levels:
+            factor_text = _format_design_factor_sentence_start(column)
             warnings.append(
-                f"Covariate '{column}' levels present in only one batch: {', '.join(single_batch_levels)}. "
-                "These levels are ordered as baseline categories when possible."
+                f"{factor_text} levels present in only one batch: "
+                f"{', '.join(single_batch_levels)}. These levels are ordered as baseline "
+                "categories when possible."
             )
         if small_levels:
             details = ", ".join(f"{level} (n={count})" for level, count in small_levels.items())
+            factor_text = _format_design_factor_sentence_start(column)
+            verb = _design_factor_verb_has(column)
             warnings.append(
-                f"Covariate '{column}' has sparse levels: {details}. Interpret corrected results carefully."
+                f"{factor_text} {verb} sparse levels: {details}. "
+                "Interpret corrected results carefully."
             )
 
     return {
@@ -422,8 +466,12 @@ def _evaluate_batch_covariate_association(table: pd.DataFrame) -> dict[str, Any]
     min_observed = float(observed.min()) if observed.size else 0.0
     if shape == (2, 2) and (min_expected < 5.0 or min_observed < 5.0):
         odds_ratio, fisher_p = fisher_exact(observed)
-        phi = abs((observed[0, 0] * observed[1, 1] - observed[0, 1] * observed[1, 0])) / total
-        cramers_v = float(((chi2 / total) / min(shape[0] - 1, shape[1] - 1)) ** 0.5) if min(shape) > 1 else 0.0
+        phi = float((chi2 / total) ** 0.5)
+        cramers_v = (
+            float(((chi2 / total) / min(shape[0] - 1, shape[1] - 1)) ** 0.5)
+            if min(shape) > 1
+            else 0.0
+        )
         return {
             "method": "fisher_exact",
             "p_value": float(fisher_p),
@@ -452,7 +500,7 @@ def _validate_batch_labels(df: pd.DataFrame, batch_labels: pd.Series) -> pd.Seri
     if aligned.isna().any():
         raise ValueError("ComBat batch labels are missing for one or more samples.")
     if aligned.nunique(dropna=True) < 2:
-        raise ValueError("ComBat requires at least two distinct batches.")
+        raise _single_batch_error("batch_labels")
     return aligned.astype("string")
 
 
@@ -474,10 +522,13 @@ def apply_batch_correction(
     if batch_labels is None:
         raise ValueError("ComBat requires batch_labels.")
 
-    try:
-        numeric_df = df.apply(pd.to_numeric, errors="raise")
-    except (TypeError, ValueError) as exc:
-        raise ValueError("ComBat requires a numeric expression matrix.") from exc
+    if all(is_numeric_dtype(dtype) for dtype in df.dtypes):
+        numeric_df = df
+    else:
+        try:
+            numeric_df = df.apply(pd.to_numeric, errors="raise")
+        except (TypeError, ValueError) as exc:
+            raise ValueError("ComBat requires a numeric expression matrix.") from exc
 
     aligned_batches = _validate_batch_labels(numeric_df, batch_labels)
     aligned_covariates = None

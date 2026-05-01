@@ -25,7 +25,12 @@ VOLCANO_PARAMETRIC_TEST_CHOICES: frozenset[str] = frozenset({"student", "welch"}
 VOLCANO_TEST_CHOICES: frozenset[str] = frozenset({"student", "welch", "wilcoxon"})
 PAIRED_RESOLUTION_SCOPE_CHOICES: frozenset[str] = frozenset({"paired_only"})
 PAIRED_RESOLUTION_DUPLICATE_CHOICES: frozenset[str] = frozenset({"prefer_override"})
-PAIRED_RESOLUTION_UNRESOLVED_CHOICES: frozenset[str] = frozenset({"warn_keep_first", "error"})
+PAIRED_RESOLUTION_UNRESOLVED_CHOICES: frozenset[str] = frozenset(
+    {"warn_select_prioritized", "error"}
+)
+PAIRED_RESOLUTION_UNRESOLVED_ALIASES: dict[str, str] = {
+    "warn_keep_first": "warn_select_prioritized",
+}
 COMBAT_COVARIATE_MODE_CHOICES: frozenset[str] = frozenset({"none", "labels", "sample_info"})
 
 
@@ -157,6 +162,19 @@ def _validate_choice(path: str, value: Any, allowed: frozenset[str]) -> str:
     return normalized
 
 
+def _normalize_paired_unresolved_policy(value: Any) -> str:
+    """Return the canonical unresolved paired-candidate policy."""
+    normalized = str(value).strip().lower()
+    normalized = PAIRED_RESOLUTION_UNRESOLVED_ALIASES.get(normalized, normalized)
+    if normalized not in PAIRED_RESOLUTION_UNRESOLVED_CHOICES:
+        options = ", ".join(sorted(PAIRED_RESOLUTION_UNRESOLVED_CHOICES))
+        raise ValueError(
+            "Config field 'groups.paired_resolution.on_unresolved' "
+            f"must be one of: {options}."
+        )
+    return normalized
+
+
 def _normalize_paired_resolution_config(groups: Mapping[str, Any]) -> dict[str, Any]:
     """Validate and normalize the optional paired-resolution config block."""
     normalized_groups = copy.deepcopy(dict(groups))
@@ -180,10 +198,8 @@ def _normalize_paired_resolution_config(groups: Mapping[str, Any]) -> dict[str, 
             PAIRED_RESOLUTION_DUPLICATE_CHOICES,
         )
     if "on_unresolved" in normalized_resolution:
-        normalized_resolution["on_unresolved"] = _validate_choice(
-            "groups.paired_resolution.on_unresolved",
-            normalized_resolution["on_unresolved"],
-            PAIRED_RESOLUTION_UNRESOLVED_CHOICES,
+        normalized_resolution["on_unresolved"] = _normalize_paired_unresolved_policy(
+            normalized_resolution["on_unresolved"]
         )
 
     overrides = normalized_resolution.get("overrides")

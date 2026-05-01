@@ -191,7 +191,7 @@ class TestAlignPairedSamples:
             pair_ids,
             paired_resolution={
                 "on_duplicate": "prefer_override",
-                "on_unresolved": "warn_keep_first",
+                "on_unresolved": "warn_select_prioritized",
                 "overrides": {
                     "Exposure": {
                         "BC2286": "TumorBC2286_DNA",
@@ -226,7 +226,7 @@ class TestAlignPairedSamples:
             pair_ids,
             paired_resolution={
                 "on_duplicate": "prefer_override",
-                "on_unresolved": "warn_keep_first",
+                "on_unresolved": "warn_select_prioritized",
                 "overrides": {
                     "Exposure": {
                         "BC2286": "TumorBC2286_DNA",
@@ -241,7 +241,7 @@ class TestAlignPairedSamples:
         assert meta["overrides_applied"][0]["selected_sample"] == "Tumor tissue BC2286_DNA"
         assert meta["warnings"] == []
 
-    def test_duplicate_subjects_warn_keep_prioritized_dna_without_override(self):
+    def test_duplicate_subjects_warn_select_prioritized_dna_without_override(self):
         names = pd.Index([
             "TumorBC2286_DNAandRNA",
             "TumorBC2286_DNA",
@@ -261,11 +261,12 @@ class TestAlignPairedSamples:
             pair_ids,
             paired_resolution={
                 "on_duplicate": "prefer_override",
-                "on_unresolved": "warn_keep_first",
+                "on_unresolved": "warn_select_prioritized",
             },
         )
 
         assert df1.index.tolist() == ["TumorBC2286_DNA"]
+        assert meta["unresolved_policy"] == "warn_select_prioritized"
         assert len(meta["warnings"]) == 1
         assert "prioritized sample 'TumorBC2286_DNA'" in meta["warnings"][0]
 
@@ -405,7 +406,7 @@ class TestVolcanoAnalysisPaired:
             pair_ids=pair_ids,
             pair_resolution={
                 "on_duplicate": "prefer_override",
-                "on_unresolved": "warn_keep_first",
+                "on_unresolved": "warn_select_prioritized",
                 "overrides": {
                     "Exposure": {
                         "BC2286": "TumorBC2286_DNA",

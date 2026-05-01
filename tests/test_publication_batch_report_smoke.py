@@ -535,5 +535,5 @@ def test_run_analysis_cli_combat_batch_only_blocks_perfect_label_confounding(
         "ref_batch": None,
     }
 
-    with pytest.raises(ValueError, match="Current labels"):
+    with pytest.raises(ValueError, match="Current sample labels"):
         run_mod.run_analysis(cfg)

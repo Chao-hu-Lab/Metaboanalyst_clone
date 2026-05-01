@@ -12,6 +12,11 @@ import pandas as pd
 
 from core.sample_interface import normalize_sample_name
 
+_DEFAULT_UNRESOLVED_POLICY = "warn_select_prioritized"
+_LEGACY_UNRESOLVED_POLICY_ALIASES = {
+    "warn_keep_first": _DEFAULT_UNRESOLVED_POLICY,
+}
+
 
 def _normalize_sheet_name(name: str) -> str:
     return "".join(ch for ch in str(name).lower() if ch.isalnum())
@@ -104,9 +109,9 @@ def align_paired_samples(
     """
     Align two groups into matched pairs by subject ID.
 
-    For each subject that appears in *both* groups, selects the first
-    matching sample from each group unless `paired_resolution` overrides
-    the selection. Subjects found in only one group are silently dropped.
+    For each subject that appears in *both* groups, selects the prioritized
+    matching sample from each group unless `paired_resolution` overrides the
+    selection. Subjects found in only one group are silently dropped.
 
     Parameters
     ----------
@@ -143,6 +148,11 @@ def align_paired_samples(
         paired_resolution=paired_resolution,
     )
     return df1, df2, matched
+
+
+def _normalize_unresolved_policy(value: Any | None) -> str:
+    policy = str(value or _DEFAULT_UNRESOLVED_POLICY).strip().lower()
+    return _LEGACY_UNRESOLVED_POLICY_ALIASES.get(policy, policy)
 
 
 def _build_group_subject_candidates(
@@ -246,15 +256,22 @@ def _resolve_subject_candidate(
         )
         return matched_override
 
-    unresolved_policy = "warn_keep_first"
+    unresolved_policy = _DEFAULT_UNRESOLVED_POLICY
     if isinstance(paired_resolution, Mapping) and "on_unresolved" in paired_resolution:
-        unresolved_policy = str(paired_resolution["on_unresolved"]).strip().lower()
+        unresolved_policy = _normalize_unresolved_policy(
+            paired_resolution["on_unresolved"]
+        )
 
     candidate_text = ", ".join(str(candidate) for candidate in candidates)
     if unresolved_policy == "error":
         raise ValueError(
             f"Multiple paired candidates found for group '{group}', subject '{subject_id}': "
             f"{candidate_text}"
+        )
+    if unresolved_policy != _DEFAULT_UNRESOLVED_POLICY:
+        raise ValueError(
+            f"Unsupported paired unresolved policy '{unresolved_policy}'. "
+            f"Use '{_DEFAULT_UNRESOLVED_POLICY}' or 'error'."
         )
 
     warnings.append(
@@ -310,12 +327,12 @@ def resolve_paired_sample_indices(
         )
 
     strategy = "first_occurrence"
-    unresolved_policy = "warn_keep_first"
+    unresolved_policy = _DEFAULT_UNRESOLVED_POLICY
     if isinstance(paired_resolution, Mapping):
         strategy = str(paired_resolution.get("on_duplicate", "prefer_override")).strip().lower()
-        unresolved_policy = str(
-            paired_resolution.get("on_unresolved", "warn_keep_first")
-        ).strip().lower()
+        unresolved_policy = _normalize_unresolved_policy(
+            paired_resolution.get("on_unresolved")
+        )
 
     meta = {
         "resolution_strategy": strategy,

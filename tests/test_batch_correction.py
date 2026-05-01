@@ -59,6 +59,25 @@ def test_build_combat_design_rejects_multi_batch_sample_assignment() -> None:
         build_combat_design(sample_ids, sample_info)
 
 
+def test_build_combat_design_rejects_single_batch_with_config_guidance() -> None:
+    from core.batch_correction import build_combat_design
+
+    sample_ids = pd.Index(["S1", "S2", "S3"])
+    sample_info = pd.DataFrame(
+        {
+            "Sample_Name": sample_ids,
+            "Batch": ["A", "A", "A"],
+        }
+    )
+
+    with pytest.raises(ValueError) as exc_info:
+        build_combat_design(sample_ids, sample_info)
+
+    message = str(exc_info.value)
+    assert "at least two distinct batches in SampleInfo.Batch" in message
+    assert "pipeline.batch_correction" in message
+
+
 def test_apply_batch_correction_transposes_matrix_and_restores_shape(monkeypatch) -> None:
     from core.batch_correction import apply_batch_correction
 
@@ -117,6 +136,36 @@ def test_apply_batch_correction_transposes_matrix_and_restores_shape(monkeypatch
     pdt.assert_frame_equal(corrected, df + 10.0, check_dtype=False)
 
 
+def test_apply_batch_correction_uses_numeric_dtype_fast_path(monkeypatch) -> None:
+    import core.batch_correction as batch_correction
+
+    def _fake_pycombat_norm(counts, batch, **_kwargs):
+        return counts + 1.0
+
+    def _fail_to_numeric(*_args, **_kwargs):
+        raise AssertionError("pd.to_numeric should not be called for numeric matrices")
+
+    monkeypatch.setattr(batch_correction, "_load_pycombat_norm", lambda: _fake_pycombat_norm)
+    monkeypatch.setattr(batch_correction.pd, "to_numeric", _fail_to_numeric)
+
+    df = pd.DataFrame(
+        {
+            "F1": [1.0, 2.0, 3.0],
+            "F2": [4.0, 5.0, 6.0],
+        },
+        index=["S1", "S2", "S3"],
+    )
+    batch_labels = pd.Series(["A", "A", "B"], index=df.index)
+
+    corrected = batch_correction.apply_batch_correction(
+        df,
+        method="ComBat",
+        batch_labels=batch_labels,
+    )
+
+    pdt.assert_frame_equal(corrected, df + 1.0, check_dtype=False)
+
+
 def test_identify_combat_sample_info_covariates_filters_reserved_and_continuous_columns() -> None:
     from core.batch_correction import identify_combat_sample_info_covariates
 
@@ -152,7 +201,8 @@ def test_evaluate_combat_design_blocks_perfect_confounding() -> None:
     report = evaluate_combat_design(batch_labels, covariates)
 
     assert report["blocking_errors"] == [
-        "ComBat covariate 'Current labels' is perfectly confounded with Batch and cannot be used safely."
+        "Current sample labels are perfectly confounded with Batch. "
+        "ComBat cannot safely run because labels and batches are indistinguishable."
     ]
     assert any("Small batches detected for ComBat" in warning for warning in report["warnings"])
     assert report["covariates"]["Current labels"]["perfectly_confounded"] is True
@@ -195,6 +245,22 @@ def test_evaluate_combat_design_warns_on_small_batches_and_overlap() -> None:
     assert report["covariates"]["Sample_Type"]["association"]["method"] == "fisher_exact"
     assert report["covariates"]["Sample_Type"]["association"]["p_value"] is not None
     assert report["covariates"]["Sample_Type"]["association"]["cramers_v"] is not None
+
+
+def test_evaluate_batch_covariate_association_reports_correct_fisher_phi() -> None:
+    from core.batch_correction import _evaluate_batch_covariate_association
+
+    table = pd.DataFrame(
+        [[1, 9], [8, 2]],
+        index=["A", "B"],
+        columns=["Tumor", "Normal"],
+    )
+
+    association = _evaluate_batch_covariate_association(table)
+
+    assert association["method"] == "fisher_exact"
+    assert association["statistic"] == pytest.approx(association["cramers_v"])
+    assert 0.0 <= association["statistic"] <= 1.0
 
 
 def test_build_combat_design_prioritizes_single_batch_covariate_levels_as_baseline() -> None:

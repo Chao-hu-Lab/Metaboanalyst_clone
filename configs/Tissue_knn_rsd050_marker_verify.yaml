@@ -8,7 +8,7 @@ groups:
   paired_resolution:
     scope: "paired_only"
     on_duplicate: "prefer_override"
-    on_unresolved: "warn_keep_first"
+    on_unresolved: "warn_select_prioritized"
     overrides:
       Exposure:
         BC2286: "TumorBC2286_DNA"
