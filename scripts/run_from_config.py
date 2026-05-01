@@ -31,7 +31,12 @@ from openpyxl.styles import PatternFill  # noqa: E402
 
 from core.app_config import apply_cli_overrides, dump_yaml, load_yaml_config  # noqa: E402
 from core.batch_correction import build_combat_design, evaluate_combat_design  # noqa: E402
-from core.feature_metadata import FEATURE_MARKER_COLUMN, extract_feature_metadata  # noqa: E402
+from core.feature_metadata import (  # noqa: E402
+    FEATURE_MARKER_COLUMN,
+    STEP4_REASON_COLUMNS,
+    extract_feature_metadata,
+    is_step4_ratio_column,
+)
 from core.input_resolver import (  # noqa: E402
     build_labels_from_sample_info,
     detect_sample_type_row_key,
@@ -334,6 +339,21 @@ def load_data(cfg: dict) -> tuple[pd.DataFrame, pd.Series, pd.DataFrame]:
     print(f"  Missing: {data.isna().sum().sum()} / {data.size}")
     marker_count = int(feature_metadata[FEATURE_MARKER_COLUMN].sum())
     print(f"  Presence/absence markers: {marker_count}")
+    if feature_metadata.attrs.get("step4_metadata_detected", False):
+        ratio_columns = [
+            str(column)
+            for column in feature_metadata.columns
+            if is_step4_ratio_column(column)
+        ]
+        reason_columns = [
+            column for column in STEP4_REASON_COLUMNS if column in feature_metadata.columns
+        ]
+        print("  Step4 metadata detected")
+        print(f"  Step4 ratio columns: {len(ratio_columns)}")
+        print(
+            "  Step4 reason columns: "
+            f"{', '.join(reason_columns) if reason_columns else 'none'}"
+        )
 
     return data, labels, feature_metadata
 

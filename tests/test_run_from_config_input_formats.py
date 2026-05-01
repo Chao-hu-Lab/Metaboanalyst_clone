@@ -5,6 +5,7 @@ import pytest
 
 from core.input_resolver import read_input_table, resolve_primary_sheet_name_from_names
 from scripts.run_from_config import (
+    _annotate_feature_table,
     _export_significant_features_excel,
     load_data,
     resolve_top_vip,
@@ -106,6 +107,148 @@ def test_load_data_sample_type_row_excludes_non_sample_columns_even_if_labeled(
     assert feature_metadata["is_Presence_Absence_Marker"].tolist() == [False, False]
 
 
+def test_load_data_sample_type_row_preserves_step4_metadata(tmp_path: Path):
+    xlsx_path = tmp_path / "test_step4_metadata.xlsx"
+    df = pd.DataFrame(
+        {
+            "FeatureID": ["Sample_Type", "F_marker", "F_regular"],
+            "QC_1": ["QC", 0.0, 1.2],
+            "Sample_A": ["Exposure", 10.0, 3.0],
+            "Sample_B": ["Normal", 0.0, 4.0],
+            "Original_CV%": ["Control", 10.0, 20.0],
+            "exposure_ratio": ["Control", "0.10", "0.95"],
+            "normal_ratio": ["Control", "0.00", "1.00"],
+            "QC_ratio": ["QC", "1.00", "1.00"],
+            "is_Presence_Absence_Marker": ["is_Presence_Absence_Marker", "TRUE", "0.0"],
+            "Feature_Filter_Keep_Reasons": [
+                "Feature_Filter_Keep_Reasons",
+                "stable|mnar",
+                "stable",
+            ],
+            "Imputation_Tag_Reasons": [
+                "Imputation_Tag_Reasons",
+                "low_overall_detection",
+                "",
+            ],
+            "Detection_Profile": ["Detection_Profile", "legacy_marker", "legacy_regular"],
+        }
+    )
+    _write_excel_with_sample_info(
+        xlsx_path,
+        df,
+        _sample_info(["QC_1", "Sample_A", "Sample_B"], ["QC", "Exposure", "Normal"]),
+    )
+
+    data, labels, feature_metadata = load_data(
+        {
+            "input": {
+                "file": str(xlsx_path),
+                "format": "sample_type_row",
+            }
+        }
+    )
+
+    assert list(data.index) == ["QC_1", "Sample_A", "Sample_B"]
+    assert list(data.columns) == ["F_marker", "F_regular"]
+    assert labels.to_dict() == {"QC_1": "QC", "Sample_A": "Exposure", "Sample_B": "Normal"}
+    assert feature_metadata["is_Presence_Absence_Marker"].tolist() == [True, False]
+    assert feature_metadata["Feature_Filter_Keep_Reasons"].tolist() == ["stable|mnar", "stable"]
+    assert feature_metadata["Imputation_Tag_Reasons"].fillna("").tolist() == [
+        "low_overall_detection",
+        "",
+    ]
+    assert feature_metadata["Detection_Profile"].tolist() == ["legacy_marker", "legacy_regular"]
+    assert feature_metadata["exposure_ratio"].tolist() == [0.10, 0.95]
+    assert feature_metadata["normal_ratio"].tolist() == [0.00, 1.00]
+    assert feature_metadata["QC_ratio"].tolist() == [1.00, 1.00]
+
+
+def test_load_data_step4_metadata_requires_marker_column(tmp_path: Path):
+    xlsx_path = tmp_path / "test_step4_missing_marker.xlsx"
+    df = pd.DataFrame(
+        {
+            "FeatureID": ["Sample_Type", "F1"],
+            "Sample_A": ["Exposure", 1.0],
+            "Sample_B": ["Normal", 2.0],
+            "Feature_Filter_Keep_Reasons": ["Feature_Filter_Keep_Reasons", "stable"],
+        }
+    )
+    _write_excel_with_sample_info(
+        xlsx_path,
+        df,
+        _sample_info(["Sample_A", "Sample_B"], ["Exposure", "Normal"]),
+    )
+
+    with pytest.raises(ValueError, match="is_Presence_Absence_Marker"):
+        load_data(
+            {
+                "input": {
+                    "file": str(xlsx_path),
+                    "format": "sample_type_row",
+                }
+            }
+        )
+
+
+def test_load_data_rejects_invalid_presence_absence_marker(tmp_path: Path):
+    xlsx_path = tmp_path / "test_step4_invalid_marker.xlsx"
+    df = pd.DataFrame(
+        {
+            "FeatureID": ["Sample_Type", "F1"],
+            "Sample_A": ["Exposure", 1.0],
+            "Sample_B": ["Normal", 2.0],
+            "is_Presence_Absence_Marker": ["is_Presence_Absence_Marker", "maybe"],
+        }
+    )
+    _write_excel_with_sample_info(
+        xlsx_path,
+        df,
+        _sample_info(["Sample_A", "Sample_B"], ["Exposure", "Normal"]),
+    )
+
+    with pytest.raises(ValueError, match="Invalid is_Presence_Absence_Marker"):
+        load_data(
+            {
+                "input": {
+                    "file": str(xlsx_path),
+                    "format": "sample_type_row",
+                }
+            }
+        )
+
+
+def test_load_data_step4_reason_columns_are_optional(tmp_path: Path):
+    xlsx_path = tmp_path / "test_step4_optional_reasons.xlsx"
+    df = pd.DataFrame(
+        {
+            "FeatureID": ["Sample_Type", "F1"],
+            "Sample_A": ["Exposure", 1.0],
+            "Sample_B": ["Normal", 2.0],
+            "exposure_ratio": ["Exposure", "1.0"],
+            "is_Presence_Absence_Marker": ["is_Presence_Absence_Marker", "false"],
+        }
+    )
+    _write_excel_with_sample_info(
+        xlsx_path,
+        df,
+        _sample_info(["Sample_A", "Sample_B"], ["Exposure", "Normal"]),
+    )
+
+    _data, _labels, feature_metadata = load_data(
+        {
+            "input": {
+                "file": str(xlsx_path),
+                "format": "sample_type_row",
+            }
+        }
+    )
+
+    assert feature_metadata["is_Presence_Absence_Marker"].tolist() == [False]
+    assert "Feature_Filter_Keep_Reasons" not in feature_metadata.columns
+    assert "Imputation_Tag_Reasons" not in feature_metadata.columns
+    assert feature_metadata["exposure_ratio"].tolist() == [1.0]
+
+
 def test_load_data_plain_excludes_summary_columns(tmp_path: Path):
     xlsx_path = tmp_path / "test_plain_non_sample_cols.xlsx"
     df = pd.DataFrame(
@@ -176,7 +319,7 @@ def test_load_data_plain_extracts_presence_absence_marker_metadata(tmp_path: Pat
             "Tumor_A": [1.0, 3.0, 0.0],
             "Normal_B": [2.0, 4.0, 0.0],
             "is_Presence_Absence_Marker": [
-                "is_Presence_Absence_Marker",
+                False,
                 True,
                 False,
             ],
@@ -202,6 +345,24 @@ def test_load_data_plain_extracts_presence_absence_marker_metadata(tmp_path: Pat
     assert labels.to_dict() == {"Tumor_A": "Tumor", "Normal_B": "Normal"}
     assert feature_metadata.index.tolist() == ["100.1/1.1", "200.2/2.2", "300.3/3.3"]
     assert feature_metadata["is_Presence_Absence_Marker"].tolist() == [False, True, False]
+
+
+def test_annotate_feature_table_preserves_step4_metadata_columns():
+    feature_metadata = pd.DataFrame(
+        {
+            "is_Presence_Absence_Marker": [True, False],
+            "Feature_Filter_Keep_Reasons": ["mnar", "stable"],
+            "exposure_ratio": [0.1, 1.0],
+        },
+        index=pd.Index(["F1", "F2"], name="Feature"),
+    )
+    stats_df = pd.DataFrame({"Feature": ["F2", "F1"], "pvalue": [0.2, 0.01]})
+
+    annotated = _annotate_feature_table(stats_df, feature_metadata)
+
+    assert annotated["is_Presence_Absence_Marker"].tolist() == [False, True]
+    assert annotated["Feature_Filter_Keep_Reasons"].tolist() == ["stable", "mnar"]
+    assert annotated["exposure_ratio"].tolist() == [1.0, 0.1]
 
 
 def test_load_data_plain_excel_without_sample_info_falls_back_to_name_inference(tmp_path: Path):

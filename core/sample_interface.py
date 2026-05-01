@@ -5,6 +5,8 @@ import re
 
 import pandas as pd
 
+from core.feature_metadata import is_step4_feature_metadata_column
+
 
 REQUIRED_SAMPLE_INFO_COLUMNS = ("Sample_Name", "Sample_Type", "Batch")
 
@@ -52,6 +54,8 @@ def _normalize_column_name(value) -> str:
 
 
 def _is_non_sample_column(column_name: str) -> bool:
+    if is_step4_feature_metadata_column(column_name):
+        return True
     normalized = _normalize_column_name(column_name)
     if normalized in NON_SAMPLE_COLUMN_PATTERNS:
         return True

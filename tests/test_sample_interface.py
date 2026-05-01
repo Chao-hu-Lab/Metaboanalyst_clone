@@ -94,7 +94,16 @@ def test_normalize_sample_name_matches_cross_tool_formatting():
 def test_identify_sample_columns_excludes_summary_and_metadata_columns():
     from core.sample_interface import identify_sample_columns
 
-    sample_columns = identify_sample_columns(_make_matrix_df())
+    matrix_df = _make_matrix_df().assign(
+        Feature_Filter_Keep_Reasons=["Feature_Filter_Keep_Reasons", "stable", "mnar"],
+        Imputation_Tag_Reasons=["Imputation_Tag_Reasons", "", "low_overall_detection"],
+        Feature_Filter_Delete_Reasons=["Feature_Filter_Delete_Reasons", "", ""],
+        Detection_Profile=["Detection_Profile", "legacy", "legacy"],
+        exposure_ratio=["exposure_ratio", 1.0, 0.1],
+        QC_ratio=["QC_ratio", 1.0, 1.0],
+    )
+
+    sample_columns = identify_sample_columns(matrix_df)
 
     assert sample_columns == [
         "Breast_Cancer_Tissue_pooled_QC_1",
