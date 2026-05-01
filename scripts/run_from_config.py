@@ -35,7 +35,6 @@ from core.feature_metadata import (  # noqa: E402
     FEATURE_MARKER_COLUMN,
     STEP4_REASON_COLUMNS,
     extract_feature_metadata,
-    is_step4_feature_metadata_column,
     is_step4_ratio_column,
 )
 from core.input_resolver import (  # noqa: E402
@@ -88,6 +87,7 @@ REPORT_SUBDIRS = {
     "validation": "04_Biomarker_Validation",
     "supplementary": "05_Supplementary",
 }
+SUMMARY_STEP4_METADATA_COLUMNS = (FEATURE_MARKER_COLUMN, *STEP4_REASON_COLUMNS)
 
 
 def _ensure_report_dirs(output_dir: str) -> dict[str, Path]:
@@ -553,7 +553,7 @@ def _export_significant_features_excel(
         if "Feature" not in df.columns:
             continue
         metadata_columns = [
-            column for column in df.columns if is_step4_feature_metadata_column(column)
+            column for column in SUMMARY_STEP4_METADATA_COLUMNS if column in df.columns
         ]
         sheet_df = df if top_n in (None, 0) else df.head(top_n)
         for idx, row in sheet_df.iterrows():

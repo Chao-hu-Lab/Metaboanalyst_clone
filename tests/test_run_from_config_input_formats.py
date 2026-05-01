@@ -660,6 +660,8 @@ def test_summary_export_keeps_step4_metadata_columns(tmp_path: Path):
                 "is_Presence_Absence_Marker": [True, False],
                 "Feature_Filter_Keep_Reasons": ["stable|mnar", "stable"],
                 "Imputation_Tag_Reasons": ["low_overall_detection", ""],
+                "exposure_ratio": [0.1, 1.0],
+                "QC_ratio": [1.0, 1.0],
             }
         ),
         "Volcano_Tumor_vs_Normal": pd.DataFrame(
@@ -670,6 +672,8 @@ def test_summary_export_keeps_step4_metadata_columns(tmp_path: Path):
                 "is_Presence_Absence_Marker": [True, False],
                 "Feature_Filter_Keep_Reasons": ["stable|mnar", "stable"],
                 "Imputation_Tag_Reasons": ["low_overall_detection", ""],
+                "exposure_ratio": [0.1, 1.0],
+                "QC_ratio": [1.0, 1.0],
             }
         ),
     }
@@ -680,6 +684,8 @@ def test_summary_export_keeps_step4_metadata_columns(tmp_path: Path):
 
     assert "Feature_Filter_Keep_Reasons" in summary_df.columns
     assert "Imputation_Tag_Reasons" in summary_df.columns
+    assert "exposure_ratio" not in summary_df.columns
+    assert "QC_ratio" not in summary_df.columns
     marker_row = summary_df.set_index("Feature").loc["F_marker"]
     assert marker_row["Feature_Filter_Keep_Reasons"] == "stable|mnar"
     assert marker_row["Imputation_Tag_Reasons"] == "low_overall_detection"
