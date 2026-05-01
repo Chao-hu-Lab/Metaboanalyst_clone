@@ -226,12 +226,19 @@ def test_main_window_preset_round_trip_preserves_combat_sample_info_covariates(
     window.norm_tab.combat_mode_combo.setCurrentIndex(
         window.norm_tab.combat_mode_combo.findData("sample_info")
     )
+    window.norm_tab._refresh_combat_controls()
+    qapp.processEvents()
+    sex_item = None
     for i in range(window.norm_tab.combat_covariate_list.count()):
         item = window.norm_tab.combat_covariate_list.item(i)
         if item.data(Qt.ItemDataRole.UserRole) == "Sex":
-            item.setCheckState(Qt.CheckState.Checked)
+            sex_item = item
+            break
+    assert sex_item is not None
+    sex_item.setCheckState(Qt.CheckState.Checked)
     window.norm_tab.combat_mean_only_check.setChecked(True)
     qapp.processEvents()
+    assert window.norm_tab.read_state()["combat"]["sample_info_covariates"] == ["Sex"]
 
     window._save_preset_to_path(save_path)
     reloaded = load_yaml_config(save_path, require_required_sections=False)
