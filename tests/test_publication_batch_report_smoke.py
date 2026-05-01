@@ -290,6 +290,9 @@ def _install_smoke_stubs(
         run_mod, "plot_feature_boxplot", _stub_plot("ANOVA Feature Boxplot")
     )
     monkeypatch.setattr(run_mod, "plot_heatmap", _stub_plot("Heatmap"))
+    monkeypatch.setattr(
+        run_mod, "plot_grouped_heatmap", _stub_plot("Grouped Heatmap")
+    )
     monkeypatch.setattr(run_mod, "plot_oplsda_splot", _stub_plot("OPLS-DA S-Plot"))
     monkeypatch.setattr(run_mod, "plot_outlier_score", _stub_plot("Outlier T2"))
     monkeypatch.setattr(run_mod, "plot_dmodx", _stub_plot("Outlier DModX"))
@@ -397,6 +400,7 @@ def test_publication_report_smoke_layout_and_pruning(
 
     output_dir = Path(result["output_dir"])
     expected_dirs = [
+        output_dir / "00_Review_Pack",
         output_dir / "01_QC_and_Preprocessing",
         output_dir / "02_Global_Profiling",
         output_dir / "03_Feature_Selection",
@@ -416,6 +420,7 @@ def test_publication_report_smoke_layout_and_pruning(
         output_dir / "01_QC_and_Preprocessing" / "normalization_comparison.png",
         output_dir / "01_QC_and_Preprocessing" / "pca_score_plot.png",
         output_dir / "02_Global_Profiling" / "heatmap_top50.png",
+        output_dir / "02_Global_Profiling" / "heatmap_top50_grouped.png",
         output_dir / "03_Feature_Selection" / "oplsda_score_Exposure_vs_Normal.png",
         output_dir / "03_Feature_Selection" / "oplsda_splot_Exposure_vs_Normal.png",
         output_dir / "03_Feature_Selection" / "volcano_Exposure_vs_Normal.png",
@@ -429,6 +434,15 @@ def test_publication_report_smoke_layout_and_pruning(
         output_dir / "05_Supplementary" / "rf_importance_Exposure_vs_Normal.png",
         output_dir / "05_Supplementary" / "rf_confusion_matrix_Exposure_vs_Normal.png",
         output_dir / "05_Supplementary" / "anova_boxplot_Exposure_vs_Normal_top1.png",
+        output_dir / "00_Review_Pack" / "01_pca_score_plot.png",
+        output_dir / "00_Review_Pack" / "02_heatmap_top50_grouped.png",
+        output_dir / "00_Review_Pack" / "03_anova_importance.png",
+        output_dir / "00_Review_Pack" / "04_plsda_score_all_groups.png",
+        output_dir
+        / "00_Review_Pack"
+        / "05_oplsda_score_Exposure_vs_Normal.png",
+        output_dir / "00_Review_Pack" / "06_plsda_vip_Exposure_vs_Normal.png",
+        output_dir / "00_Review_Pack" / "07_volcano_Exposure_vs_Normal.png",
     ]
     legacy_files = [
         output_dir / "pca_scree_plot.png",

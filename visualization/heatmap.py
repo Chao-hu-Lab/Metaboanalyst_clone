@@ -2,14 +2,148 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from matplotlib.colors import ListedColormap
 from matplotlib.figure import Figure
+from matplotlib.gridspec import GridSpec
+from matplotlib.patches import Patch
 
 from ms_core.analysis.clustering import select_top_features
 from visualization.theme import apply_publication_style, get_group_colors
+
+
+def order_samples_for_grouped_heatmap(
+    df: pd.DataFrame,
+    labels,
+    group_order: list[str] | tuple[str, ...] | None = None,
+) -> tuple[pd.DataFrame, pd.Series]:
+    """Return data and labels ordered by configured group order, preserving row order."""
+    label_series = (
+        pd.Series(labels, index=df.index, name="Group")
+        .reindex(df.index)
+        .fillna("Unknown")
+    )
+    label_series = label_series.astype(str)
+    observed_groups = label_series.unique().tolist()
+    configured = [str(group) for group in (group_order or [])]
+    ordered_groups = [group for group in configured if group in observed_groups]
+    ordered_groups.extend(
+        group for group in observed_groups if group not in ordered_groups
+    )
+
+    ordered_index: list[Any] = []
+    for group in ordered_groups:
+        ordered_index.extend(label_series.index[label_series == group].tolist())
+    ordered_index.extend(index for index in df.index if index not in ordered_index)
+    return df.loc[ordered_index].copy(), label_series.loc[ordered_index].copy()
+
+
+def _standard_scale_heatmap_data(df: pd.DataFrame, scale: str | None) -> pd.DataFrame:
+    """Mirror seaborn clustermap standard_scale behavior for fixed-order heatmaps."""
+    if scale not in {"row", "col"}:
+        return df
+
+    axis = 1 if scale == "row" else 0
+    mins = df.min(axis=axis)
+    shifted = df.sub(mins, axis=0 if scale == "row" else 1)
+    maxes = shifted.max(axis=axis).replace(0, np.nan)
+    scaled = shifted.div(maxes, axis=0 if scale == "row" else 1)
+    return scaled.fillna(0.0)
+
+
+def plot_grouped_heatmap(
+    df: pd.DataFrame,
+    labels,
+    *,
+    group_order: list[str] | tuple[str, ...] | None = None,
+    scale: str | None = "row",
+    max_features: int | None = None,
+    top_by: str = "var",
+    theme: str = "light",
+    fig: Figure | None = None,
+) -> Figure:
+    """Plot a review-friendly heatmap with samples grouped by sample class."""
+    apply_publication_style(theme)
+    plot_df = df.copy()
+    if max_features is not None and plot_df.shape[1] > max_features:
+        plot_df = select_top_features(plot_df, max_features=max_features, by=top_by)
+    plot_df, ordered_labels = order_samples_for_grouped_heatmap(
+        plot_df,
+        labels,
+        group_order=group_order,
+    )
+    plot_df = _standard_scale_heatmap_data(plot_df, scale)
+
+    groups = [str(group) for group in ordered_labels.dropna().unique()]
+    palette = dict(zip(groups, get_group_colors(theme, len(groups))))
+    group_codes = np.array([groups.index(str(group)) for group in ordered_labels])
+
+    if fig is None:
+        fig = plt.figure(figsize=(12, 8))
+    else:
+        fig.clear()
+
+    grid = GridSpec(
+        1,
+        3,
+        width_ratios=[0.18, 5.0, 0.22],
+        wspace=0.04,
+        figure=fig,
+    )
+    ax_group = fig.add_subplot(grid[0, 0])
+    ax_heat = fig.add_subplot(grid[0, 1])
+    ax_cbar = fig.add_subplot(grid[0, 2])
+
+    ax_group.imshow(
+        group_codes.reshape(-1, 1),
+        aspect="auto",
+        cmap=ListedColormap([palette[group] for group in groups]),
+        interpolation="nearest",
+    )
+    ax_group.set_xticks([])
+    ax_group.set_yticks([])
+    ax_group.set_ylabel("Group", fontsize=9)
+
+    sns.heatmap(
+        plot_df,
+        cmap="RdBu_r",
+        ax=ax_heat,
+        cbar_ax=ax_cbar,
+        xticklabels=plot_df.shape[1] <= 50,
+        yticklabels=plot_df.shape[0] <= 50,
+        linewidths=0,
+    )
+    ax_heat.set_title("Grouped Heatmap (Top ANOVA-ranked Features)", fontsize=12)
+    ax_heat.set_xlabel("Features")
+    ax_heat.set_ylabel("Samples")
+
+    boundaries: list[int] = []
+    previous = None
+    for index, group in enumerate(ordered_labels.astype(str).tolist()):
+        if previous is not None and group != previous:
+            boundaries.append(index)
+        previous = group
+    for boundary in boundaries:
+        ax_group.axhline(boundary - 0.5, color="white", linewidth=1.2)
+        ax_heat.axhline(boundary, color="black", linewidth=0.7)
+
+    legend_handles = [
+        Patch(facecolor=palette[group], edgecolor="none", label=group) for group in groups
+    ]
+    ax_heat.legend(
+        handles=legend_handles,
+        loc="upper left",
+        bbox_to_anchor=(1.02, 1.0),
+        fontsize=8,
+        title="Group",
+    )
+    fig.tight_layout()
+    return fig
 
 
 def plot_heatmap(

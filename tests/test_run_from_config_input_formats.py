@@ -716,3 +716,71 @@ def test_summary_export_keeps_step4_metadata_columns(tmp_path: Path):
             letter = get_column_letter(headers.index(column) + 1)
             assert worksheet.column_dimensions[letter].hidden is True
             assert worksheet.column_dimensions[letter].outlineLevel == 1
+
+
+def test_summary_export_assigns_evidence_tiers(tmp_path: Path):
+    sheets = {
+        "ANOVA_All": pd.DataFrame(
+            {
+                "Feature": [
+                    "F_tier1",
+                    "F_tier2",
+                    "F_tier3",
+                    "F_cross_pair_only",
+                    "F_none",
+                ],
+                "pvalue_adj": [0.01, 0.02, 0.60, 0.80, 0.90],
+                "pvalue": [0.01, 0.02, 0.60, 0.80, 0.90],
+                "neg_log10p": [2.0, 1.7, 0.2, 0.1, 0.05],
+                "significant": [True, True, False, False, False],
+                "is_Presence_Absence_Marker": [False] * 5,
+            }
+        ),
+        "VIP_Tumor_vs_Normal": pd.DataFrame(
+            {
+                "Rank": [1, 2, 3, 4, 5],
+                "Feature": [
+                    "F_tier1",
+                    "F_tier2",
+                    "F_tier3",
+                    "F_cross_pair_only",
+                    "F_none",
+                ],
+                "VIP": [2.0, 1.4, 1.3, 1.6, 0.3],
+                "is_Presence_Absence_Marker": [False] * 5,
+            }
+        ),
+        "Volcano_Tumor_vs_Normal": pd.DataFrame(
+            {
+                "Feature": ["F_tier1", "F_tier2", "F_none"],
+                "log2FC": [1.5, 0.2, 0.1],
+                "pvalue_adj": [0.001, 0.80, 0.90],
+                "is_Presence_Absence_Marker": [False, False, False],
+            }
+        ),
+        "Volcano_Tumor_vs_Control": pd.DataFrame(
+            {
+                "Feature": ["F_cross_pair_only"],
+                "log2FC": [1.6],
+                "pvalue_adj": [0.002],
+                "is_Presence_Absence_Marker": [False],
+            }
+        ),
+    }
+
+    _export_significant_features_excel(sheets, str(tmp_path), top_n=None)
+
+    summary_df = pd.read_csv(tmp_path / "Summary.csv")
+    tiers = summary_df.set_index("Feature")["Evidence_Tier"].to_dict()
+
+    assert tiers["F_tier1"] == "Tier1_ConcordantPairwise"
+    assert tiers["F_tier2"] == "Tier2_MultiMethod"
+    assert tiers["F_tier3"] == "Tier3_SingleMethod"
+    assert tiers["F_cross_pair_only"] == "Tier2_MultiMethod"
+    assert tiers["F_none"] == "Tier0_NoStatEvidence"
+    assert summary_df.columns[:3].tolist() == ["Rank", "Feature", "Evidence_Tier"]
+    assert summary_df["Feature"].iloc[0] == "F_tier1"
+
+    workbook = load_workbook(tmp_path / "significant_features_summary.xlsx")
+    headers = [cell.value for cell in workbook["Summary"][1]]
+    assert headers[:3] == ["Rank", "Feature", "Evidence_Tier"]
