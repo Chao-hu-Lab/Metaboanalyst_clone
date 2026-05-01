@@ -42,6 +42,7 @@ class _DummyPipeline:
         self.steps = {
             "filtered": self._data.copy(),
             "transformed": self._data.copy(),
+            "batch_corrected": self._data.copy(),
             "row_normed": self._data.copy(),
         }
         self.step_feature_metadata = {"qc_rsd": pd.DataFrame()}
@@ -452,3 +453,87 @@ def test_publication_report_smoke_layout_and_pruning(
         assert not file_path.exists(), (
             f"legacy output should not be emitted: {file_path}"
         )
+
+
+def test_run_analysis_cli_combat_sample_info_mode_passes_runtime_params(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _install_smoke_stubs(monkeypatch, tmp_path)
+    captured: dict[str, object] = {}
+    sample_info = pd.DataFrame(
+        {
+            "Sample_Name": [
+                "Exposure_A",
+                "Exposure_B",
+                "Normal_A",
+                "Normal_B",
+                "Control_A",
+                "Control_B",
+            ],
+            "Batch": ["A", "A", "B", "B", "C", "C"],
+            "Sex": ["F", "M", "F", "M", "F", "M"],
+        }
+    )
+
+    class _CapturePipeline(_DummyPipeline):
+        def run_pipeline(self, **kwargs) -> pd.DataFrame:
+            captured.update(kwargs)
+            return super().run_pipeline(**kwargs)
+
+    monkeypatch.setattr(run_mod, "MetaboAnalystPipeline", _CapturePipeline)
+    monkeypatch.setattr(run_mod, "read_sample_info_sheet", lambda _path: sample_info.copy())
+
+    cfg = _build_publication_config(tmp_path)
+    cfg["pipeline"]["batch_correction"] = "ComBat"
+    cfg["combat"] = {
+        "covariate_mode": "sample_info",
+        "sample_info_covariates": ["Sex"],
+        "mean_only": True,
+        "par_prior": False,
+        "ref_batch": "B",
+    }
+
+    run_mod.run_analysis(cfg)
+
+    assert isinstance(captured["batch_labels"], pd.Series)
+    assert captured["batch_labels"].tolist() == ["A", "A", "B", "B", "C", "C"]
+    assert isinstance(captured["combat_covariates"], pd.DataFrame)
+    assert list(captured["combat_covariates"].columns) == ["Sex"]
+    assert captured["combat_covariates"]["Sex"].tolist() == ["F", "M", "F", "M", "F", "M"]
+    assert captured["combat_mean_only"] is True
+    assert captured["combat_par_prior"] is False
+    assert captured["combat_ref_batch"] == "B"
+    assert captured["combat_source"] == "SampleInfo.Batch (sample_info)"
+
+
+def test_run_analysis_cli_combat_batch_only_blocks_perfect_label_confounding(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _install_smoke_stubs(monkeypatch, tmp_path)
+    sample_info = pd.DataFrame(
+        {
+            "Sample_Name": [
+                "Exposure_A",
+                "Exposure_B",
+                "Normal_A",
+                "Normal_B",
+                "Control_A",
+                "Control_B",
+            ],
+            "Batch": ["A", "A", "B", "B", "C", "C"],
+        }
+    )
+    monkeypatch.setattr(run_mod, "read_sample_info_sheet", lambda _path: sample_info.copy())
+
+    cfg = _build_publication_config(tmp_path)
+    cfg["pipeline"]["batch_correction"] = "ComBat"
+    cfg["combat"] = {
+        "covariate_mode": "none",
+        "sample_info_covariates": [],
+        "mean_only": False,
+        "par_prior": True,
+        "ref_batch": None,
+    }
+
+    with pytest.raises(ValueError, match="Current sample labels"):
+        run_mod.run_analysis(cfg)

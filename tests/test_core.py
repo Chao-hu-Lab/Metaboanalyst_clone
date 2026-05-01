@@ -4,6 +4,7 @@ Core 模組單元測試 — 測試 MetaboAnalyst 6.0 Clone 的所有資料處理
 
 import numpy as np
 import pandas as pd
+import pandas.testing as pdt
 import pytest
 
 # ── 測試輔助：建立模擬資料 ──
@@ -489,7 +490,7 @@ class TestPipeline:
         assert result.shape[0] == df.shape[0]
         assert result.shape[1] <= df.shape[1]
         assert result.isna().sum().sum() == 0
-        assert len(pipe.log) == 7  # 7 步驟日誌
+        assert len(pipe.log) == 8  # 8 步驟日誌（含 batch correction）
         assert pipe.processed is not None
 
     def test_pipeline_none_options(self):
@@ -512,10 +513,51 @@ class TestPipeline:
         pipe.run_pipeline()
         expected_steps = [
             "zero_to_nan", "remove_missing", "imputed",
-            "filtered", "row_normed", "transformed", "scaled"
+            "filtered", "row_normed", "transformed", "batch_corrected", "scaled"
         ]
         for step in expected_steps:
             assert step in pipe.steps
+
+    def test_pipeline_combat_step_uses_batch_corrected_snapshot(self, monkeypatch):
+        import core.batch_correction as batch_correction_mod
+        from core.pipeline import MetaboAnalystPipeline
+
+        monkeypatch.setattr(
+            batch_correction_mod,
+            "_load_pycombat_norm",
+            lambda: (
+                lambda counts, batch, **kwargs: counts + 1.0
+            ),
+        )
+
+        df = pd.DataFrame(
+            {
+                "F1": [10.0, 12.0, 30.0, 32.0],
+                "F2": [4.0, 5.0, 8.0, 9.0],
+            },
+            index=["S1", "S2", "S3", "S4"],
+        )
+        labels = pd.Series(["Tumor", "Tumor", "Normal", "Normal"], index=df.index)
+        batch_labels = pd.Series(["A", "A", "B", "B"], index=df.index)
+        covariates = pd.DataFrame({"Condition": labels}, index=df.index)
+
+        pipe = MetaboAnalystPipeline(df, labels)
+        result = pipe.run_pipeline(
+            missing_thresh=1.0,
+            filter_method="None",
+            row_norm="None",
+            transform="None",
+            scaling="None",
+            batch_correction="ComBat",
+            batch_labels=batch_labels,
+            combat_covariates=covariates,
+            combat_source="SampleInfo.Batch + labels",
+        )
+
+        pdt.assert_frame_equal(pipe.steps["batch_corrected"], df + 1.0, check_dtype=False)
+        pdt.assert_frame_equal(result, pipe.steps["batch_corrected"], check_dtype=False)
+        assert any("Step 6: Batch correction (method=ComBat" in line for line in pipe.log)
+        assert any("Step 7: Column-wise scaling (method=None)" in line for line in pipe.log)
 
     def test_pipeline_median_impute(self):
         from core.pipeline import MetaboAnalystPipeline

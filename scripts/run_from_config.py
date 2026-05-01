@@ -30,6 +30,7 @@ import pandas as pd  # noqa: E402
 from openpyxl.styles import PatternFill  # noqa: E402
 
 from core.app_config import apply_cli_overrides, dump_yaml, load_yaml_config  # noqa: E402
+from core.batch_correction import build_combat_design, evaluate_combat_design  # noqa: E402
 from core.feature_metadata import FEATURE_MARKER_COLUMN, extract_feature_metadata  # noqa: E402
 from core.input_resolver import (  # noqa: E402
     build_labels_from_sample_info,
@@ -611,6 +612,7 @@ def run_analysis(cfg: dict) -> dict[str, str]:
 
     data, labels, feature_metadata = load_data(cfg)
     pipe_cfg = cfg["pipeline"]
+    combat_cfg = cfg.get("combat", {})
     analysis_cfg = cfg["analysis"]
 
     # ── Resolve output directory ──────────────────────────
@@ -638,6 +640,20 @@ def run_analysis(cfg: dict) -> dict[str, str]:
     # ── Build SpecNorm factors if needed ──────────────────
     factors = None
     factor_source = None
+    batch_labels = None
+    combat_covariates = None
+    combat_source = None
+    sample_info = None
+    combat_par_prior = bool(combat_cfg.get("par_prior", True))
+    combat_mean_only = bool(combat_cfg.get("mean_only", False))
+    combat_ref_batch = combat_cfg.get("ref_batch")
+    requires_sample_info = (
+        pipe_cfg.get("row_norm") == "SpecNorm"
+        or pipe_cfg.get("batch_correction") == "ComBat"
+    )
+    if requires_sample_info:
+        sample_info = read_sample_info_sheet(cfg["input"]["file"])
+
     if pipe_cfg.get("row_norm") == "SpecNorm":
         spec_cfg = cfg.get("spec_norm")
         if not spec_cfg or "factor_column" not in spec_cfg:
@@ -646,7 +662,6 @@ def run_analysis(cfg: dict) -> dict[str, str]:
             )
         print("\n" + "=" * 60)
         print("Loading SampleInfo for concentration correction...")
-        sample_info = read_sample_info_sheet(cfg["input"]["file"])
         if sample_info is None:
             raise RuntimeError("SampleInfo sheet not found in Excel file!")
 
@@ -658,6 +673,50 @@ def run_analysis(cfg: dict) -> dict[str, str]:
         print(f"  Range: {meta['min_factor']:.2f} ~ {meta['max_factor']:.2f}")
         print(f"  Fuzzy matches: {meta['n_fuzzy_matches']}")
         print(f"  QC skipped (factor=1.0): {meta['n_qc_skipped']}")
+
+    if pipe_cfg.get("batch_correction") == "ComBat":
+        if sample_info is None:
+            raise RuntimeError("SampleInfo sheet with Batch column is required for ComBat.")
+        covariate_mode = str(combat_cfg.get("covariate_mode", "labels")).strip().lower()
+        aligned_labels = (
+            labels if isinstance(labels, pd.Series) else pd.Series(labels, index=data.index)
+        )
+        combat_labels = aligned_labels if covariate_mode == "labels" else None
+        covariate_columns = (
+            combat_cfg.get("sample_info_covariates", [])
+            if covariate_mode == "sample_info"
+            else None
+        )
+        if covariate_mode == "sample_info" and not covariate_columns:
+            raise ValueError(
+                "combat.covariate_mode='sample_info' requires combat.sample_info_covariates."
+            )
+        batch_labels, combat_covariates, combat_meta = build_combat_design(
+            data.index,
+            sample_info,
+            labels=combat_labels,
+            covariate_columns=covariate_columns,
+        )
+        validation_covariates = combat_covariates
+        if validation_covariates is None and aligned_labels.nunique(dropna=True) > 1:
+            validation_covariates = aligned_labels.astype("string").rename(
+                "Current labels"
+            ).to_frame()
+        combat_validation = evaluate_combat_design(batch_labels, validation_covariates)
+        if combat_validation["blocking_errors"]:
+            raise ValueError("\n".join(combat_validation["blocking_errors"]))
+        combat_source = f"{combat_meta['batch_source']} ({covariate_mode})"
+        print(f"  ComBat batch source: {combat_source}")
+        print(f"  Batches: {combat_meta['batch_counts']}")
+        if combat_meta["covariate_columns"]:
+            print(f"  ComBat covariates: {', '.join(combat_meta['covariate_columns'])}")
+        else:
+            print("  ComBat covariates: None")
+        for warning in combat_validation["warnings"]:
+            print(f"  ComBat warning: {warning}")
+        print(f"  ComBat mean_only: {combat_mean_only}")
+        print(f"  ComBat par_prior: {combat_par_prior}")
+        print(f"  ComBat ref_batch: {combat_ref_batch if combat_ref_batch else 'None'}")
 
     # ── Run pipeline ──────────────────────────────────────
     print("\n" + "=" * 60)
@@ -673,9 +732,16 @@ def run_analysis(cfg: dict) -> dict[str, str]:
         qc_rsd_threshold=pipe_cfg.get("qc_rsd_threshold", 0.20),
         row_norm=pipe_cfg.get("row_norm", "None"),
         transform=pipe_cfg.get("transform", "None"),
+        batch_correction=pipe_cfg.get("batch_correction", "None"),
         scaling=pipe_cfg.get("scaling", "None"),
         factors=factors,
         factor_source=factor_source,
+        batch_labels=batch_labels,
+        combat_covariates=combat_covariates,
+        combat_par_prior=combat_par_prior,
+        combat_mean_only=combat_mean_only,
+        combat_ref_batch=combat_ref_batch,
+        combat_source=combat_source,
     )
 
     print("\nPipeline log:")
@@ -717,7 +783,7 @@ def run_analysis(cfg: dict) -> dict[str, str]:
     )
     final_feature_metadata = final_feature_metadata.reindex(processed.columns).copy()
     volcano_matrix, _ = _finalize_analysis_matrix(
-        pipeline.steps["transformed"].copy(),
+        pipeline.steps["batch_corrected"].copy(),
         (
             pipeline.processed_labels
             if pipeline.processed_labels is not None

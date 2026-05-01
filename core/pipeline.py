@@ -8,13 +8,15 @@ Order (fixed):
   Step 3: FilterVariable (+ optional QC-RSD pre-filter)
   Step 4: Row-wise normalization
   Step 5: Transformation
-  Step 6: Column-wise scaling
+  Step 6: Batch correction
+  Step 7: Column-wise scaling
 """
 
 from __future__ import annotations
 
 import pandas as pd
 
+from ms_core.processing.batch_correction import apply_batch_correction
 from ms_core.processing.feature_filter import filter_by_qc_rsd, filter_features
 from ms_core.processing.missing_values import (
     impute_missing,
@@ -77,6 +79,8 @@ class MetaboAnalystPipeline:
         row_norm: str | None = "None",
         # Transformation
         transform: str | None = "None",
+        # Batch correction
+        batch_correction: str | None = "None",
         # Scaling
         scaling: str | None = "None",
         # Optional parameters
@@ -85,6 +89,12 @@ class MetaboAnalystPipeline:
         group_mask=None,
         factors=None,
         factor_source: str | None = None,
+        batch_labels: pd.Series | None = None,
+        combat_covariates: pd.DataFrame | None = None,
+        combat_par_prior: bool = True,
+        combat_mean_only: bool = False,
+        combat_ref_batch: str | None = None,
+        combat_source: str | None = None,
     ) -> pd.DataFrame:
         """Run pipeline in fixed order and return processed dataframe."""
         self.log.clear()
@@ -249,11 +259,41 @@ class MetaboAnalystPipeline:
         self.log.append(f"Step 5: Transformation (method={trans_method})")
 
         # Step 6
+        batch_method = batch_correction if batch_correction is not None else "None"
+        df = apply_batch_correction(
+            df,
+            method=batch_method,
+            batch_labels=batch_labels,
+            covariates=combat_covariates,
+            par_prior=combat_par_prior,
+            mean_only=combat_mean_only,
+            ref_batch=combat_ref_batch,
+        )
+        self.steps["batch_corrected"] = df.copy()
+        self.step_feature_metadata["batch_corrected"] = feature_metadata.copy()
+        if batch_method == "ComBat" and batch_labels is not None:
+            aligned_batches = batch_labels.reindex(df.index)
+            n_batches = int(aligned_batches.nunique(dropna=True))
+            source_text = combat_source if combat_source else "provided batch labels"
+            covar_text = "None"
+            if combat_covariates is not None and len(combat_covariates.columns) > 0:
+                covar_text = ",".join(str(col) for col in combat_covariates.columns)
+            self.log.append(
+                "Step 6: Batch correction "
+                f"(method={batch_method}, source={source_text}, batches={n_batches}, "
+                f"covariates={covar_text}, mean_only={combat_mean_only}, "
+                f"par_prior={combat_par_prior}, "
+                f"ref_batch={combat_ref_batch if combat_ref_batch is not None else 'None'})"
+            )
+        else:
+            self.log.append(f"Step 6: Batch correction (method={batch_method})")
+
+        # Step 7
         scaling_method = scaling if scaling is not None else "None"
         df = apply_scaling(df, method=scaling_method)
         self.steps["scaled"] = df.copy()
         self.step_feature_metadata["scaled"] = feature_metadata.copy()
-        self.log.append(f"Step 6: Column-wise scaling (method={scaling_method})")
+        self.log.append(f"Step 7: Column-wise scaling (method={scaling_method})")
 
         self.processed = df
         self.processed_labels = labels if labels is not None else None

@@ -21,6 +21,7 @@ qtawesome          # Icon pack for desktop GUI
 fancyimpute        # IterativeSVD imputation method
 pyppca             # PPCA imputation method
 pyopls             # OPLS-DA backend
+inmoose            # ComBat / batch correction backend
 
 # === Interactive / graph features ===
 networkx           # Correlation network visualization

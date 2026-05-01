@@ -33,6 +33,8 @@ def test_normalize_config_merges_shared_defaults() -> None:
 
     assert normalized["pipeline"]["missing_thresh"] == 0.5
     assert normalized["pipeline"]["impute_method"] == "knn"
+    assert normalized["combat"]["covariate_mode"] == "labels"
+    assert normalized["combat"]["sample_info_covariates"] == []
     assert normalized["groups"]["pair_id_pattern"] == r"BC\d+"
     assert normalized["analysis"]["pca"]["n_components"] == 3
     assert normalized["analysis"]["anova"]["p_thresh"] == 0.05
@@ -65,6 +67,7 @@ def test_load_yaml_config_allows_partial_gui_preset(tmp_path: Path) -> None:
     config = load_yaml_config(path, require_required_sections=False)
 
     assert config.input["file"] is None
+    assert config.combat["covariate_mode"] == "labels"
     assert config.groups["include"] == ["Tumor", "Normal"]
     assert config.analysis["pca"]["n_components"] == 5
     assert config.output.suffix == "gui_preset"
@@ -72,6 +75,32 @@ def test_load_yaml_config_allows_partial_gui_preset(tmp_path: Path) -> None:
     assert config.spec_norm == {}
     assert config.source_sections == frozenset({"pipeline", "groups", "output"})
     assert config.to_pipeline_params()["qc_rsd_enabled"] is True
+
+
+def test_load_yaml_config_normalizes_combat_section() -> None:
+    config = load_yaml_config(
+        {
+            "input": {"file": "demo.xlsx"},
+            "pipeline": {"batch_correction": "ComBat"},
+            "combat": {
+                "covariate_mode": "sample_info",
+                "sample_info_covariates": ["Sample_Type", "Sex"],
+                "mean_only": True,
+                "par_prior": False,
+                "ref_batch": "B",
+            },
+            "groups": {},
+            "analysis": {},
+        }
+    )
+
+    assert config.pipeline.batch_correction == "ComBat"
+    assert config.combat["covariate_mode"] == "sample_info"
+    assert config.combat["sample_info_covariates"] == ["Sample_Type", "Sex"]
+    assert config.combat["mean_only"] is True
+    assert config.combat["par_prior"] is False
+    assert config.combat["ref_batch"] == "B"
+    assert "combat" in config.source_sections
 
 
 def test_apply_cli_overrides_take_precedence() -> None:
@@ -162,7 +191,7 @@ def test_normalize_config_keeps_paired_resolution_contract() -> None:
                 "paired_resolution": {
                     "scope": "paired_only",
                     "on_duplicate": "prefer_override",
-                    "on_unresolved": "warn_keep_first",
+                    "on_unresolved": "warn_select_prioritized",
                     "overrides": {
                         "Exposure": {
                             "BC2286": "TumorBC2286_DNA",
@@ -176,8 +205,28 @@ def test_normalize_config_keeps_paired_resolution_contract() -> None:
 
     assert normalized["groups"]["paired_resolution"]["scope"] == "paired_only"
     assert normalized["groups"]["paired_resolution"]["on_duplicate"] == "prefer_override"
-    assert normalized["groups"]["paired_resolution"]["on_unresolved"] == "warn_keep_first"
+    assert normalized["groups"]["paired_resolution"]["on_unresolved"] == "warn_select_prioritized"
     assert normalized["groups"]["paired_resolution"]["overrides"]["Exposure"]["BC2286"] == "TumorBC2286_DNA"
+
+
+def test_normalize_config_maps_legacy_warn_keep_first_policy() -> None:
+    normalized = normalize_config(
+        {
+            "input": {"file": "demo.xlsx"},
+            "pipeline": {},
+            "groups": {
+                "paired_resolution": {
+                    "on_unresolved": "warn_keep_first",
+                }
+            },
+            "analysis": {},
+        }
+    )
+
+    assert (
+        normalized["groups"]["paired_resolution"]["on_unresolved"]
+        == "warn_select_prioritized"
+    )
 
 
 def test_load_yaml_config_rejects_invalid_volcano_parametric_default() -> None:
@@ -277,6 +326,7 @@ def test_load_preset_reference_loads_builtin_seed_preset() -> None:
     config = load_preset_reference(preset)
 
     assert config.pipeline.impute_method == "knn"
+    assert config.pipeline.batch_correction == "None"
     assert config.output.suffix == "_tissue_knn_rsd050_marker_verify"
     assert config.analysis["volcano"]["parametric_test_default"] == "welch"
     assert config.analysis["volcano"]["test"] == "welch"
