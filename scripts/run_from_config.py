@@ -74,6 +74,20 @@ warnings.filterwarnings("ignore")
 
 TRUE_FILL = PatternFill(fill_type="solid", start_color="C6EFCE", end_color="C6EFCE")
 FALSE_FILL = PatternFill(fill_type="solid", start_color="FCE4D6", end_color="FCE4D6")
+EVIDENCE_TIER_FILLS = {
+    "Tier1_ConcordantPairwise": PatternFill(
+        fill_type="solid", start_color="FFC6EFCE", end_color="FFC6EFCE"
+    ),
+    "Tier2_MultiMethod": PatternFill(
+        fill_type="solid", start_color="FFD9EAF7", end_color="FFD9EAF7"
+    ),
+    "Tier3_SingleMethod": PatternFill(
+        fill_type="solid", start_color="FFFFF2CC", end_color="FFFFF2CC"
+    ),
+    "Tier0_NoStatEvidence": PatternFill(
+        fill_type="solid", start_color="FFE7E6E6", end_color="FFE7E6E6"
+    ),
+}
 REDUNDANT_EXPORT_COLUMNS = {
     "qc_rsd_exempted",
     "qc_rsd_threshold",
@@ -605,6 +619,18 @@ def _export_significant_features_excel(
             collapsed_index = min(end + 1, max_column)
             worksheet.column_dimensions[get_column_letter(collapsed_index)].collapsed = True
 
+    def apply_evidence_tier_style(worksheet) -> None:
+        headers = [cell.value for cell in worksheet[1]]
+        if EVIDENCE_TIER_COLUMN not in headers:
+            return
+        tier_col = headers.index(EVIDENCE_TIER_COLUMN) + 1
+        worksheet.column_dimensions[get_column_letter(tier_col)].width = 28
+        for row_idx in range(2, worksheet.max_row + 1):
+            cell = worksheet.cell(row=row_idx, column=tier_col)
+            fill = EVIDENCE_TIER_FILLS.get(str(cell.value))
+            if fill is not None:
+                cell.fill = fill
+
     def build_summary_excel_df(summary_df: pd.DataFrame) -> pd.DataFrame:
         if summary_df.empty or not excel_detail_metadata_columns:
             return summary_df
@@ -843,7 +869,9 @@ def _export_significant_features_excel(
 
         workbook = writer.book
         if not summary_excel_df.empty:
-            apply_step4_excel_outline(workbook["Summary"])
+            summary_worksheet = workbook["Summary"]
+            apply_evidence_tier_style(summary_worksheet)
+            apply_step4_excel_outline(summary_worksheet)
         for sheet_name, df in prepared_sheets.items():
             sheet_df = df if top_n in (None, 0) else df.head(top_n)
             safe_name = sheet_name[:31]

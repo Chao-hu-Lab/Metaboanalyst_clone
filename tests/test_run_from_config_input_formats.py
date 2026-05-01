@@ -782,5 +782,17 @@ def test_summary_export_assigns_evidence_tiers(tmp_path: Path):
     assert summary_df["Feature"].iloc[0] == "F_tier1"
 
     workbook = load_workbook(tmp_path / "significant_features_summary.xlsx")
-    headers = [cell.value for cell in workbook["Summary"][1]]
+    worksheet = workbook["Summary"]
+    headers = [cell.value for cell in worksheet[1]]
     assert headers[:3] == ["Rank", "Feature", "Evidence_Tier"]
+    tier_col = headers.index("Evidence_Tier") + 1
+    tier_fills = {
+        worksheet.cell(row=row_idx, column=2).value: worksheet.cell(
+            row=row_idx, column=tier_col
+        ).fill.fgColor.rgb
+        for row_idx in range(2, worksheet.max_row + 1)
+    }
+    assert tier_fills["F_tier1"] == "FFC6EFCE"
+    assert tier_fills["F_tier2"] == "FFD9EAF7"
+    assert tier_fills["F_tier3"] == "FFFFF2CC"
+    assert tier_fills["F_none"] == "FFE7E6E6"
